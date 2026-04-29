@@ -1,0 +1,165 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary-light: var(--primary-light);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --color-dashboard-bg: var(--dashboard-bg);
+  --color-dashboard-sidebar-bg: var(--dashboard-sidebar-bg);
+  --color-dashboard-border: var(--dashboard-border);
+  --color-dashboard-text-primary: var(--dashboard-text-primary);
+  --color-dashboard-text-secondary: var(--dashboard-text-secondary);
+  --color-dashboard-hover: var(--dashboard-hover);
+
+  --color-onboarding-bg: var(--onboarding-bg);
+
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-info: var(--info);
+  --color-pending: var(--pending);
+  --color-rejected: var(--rejected);
+  --color-paid: var(--paid);
+  --color-approved: var(--approved);
+  --color-draft: var(--draft);
+  --color-flagged: var(--flagged);
+  --color-navy: var(--navy);
+  --color-navy-foreground: var(--navy-foreground);
+  --color-primary-glow: var(--primary-glow);
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
+:root {
+  --radius: 0.75rem;
+
+  /* Base */
+  --background: #ffffff;
+  --foreground: #0f1d2b;
+  --card: #ffffff;
+  --card-foreground: #0f1d2b;
+  --popover: #ffffff;
+  --popover-foreground: #0f1d2b;
+  --border: #e8ecef;
+  --input: #e8ecef;
+  --ring: #2bb9b0;
+  --muted: #f5f7f8;
+  --muted-foreground: #6b7a8d;
+  --accent: #f0fafa;
+  --accent-foreground: #0f1d2b;
+  --destructive: #ef4444;
+
+  /* Brand Primary - Teal */
+  --primary: #2bb9b0;
+  --primary-foreground: #ffffff;
+  --primary-light: rgba(43, 185, 176, 0.06);
+  --primary-glow: #7addd9;
+
+  /* Secondary */
+  --secondary: #f5f7f8;
+  --secondary-foreground: #0f1d2b;
+
+  /* Dashboard */
+  --dashboard-bg: #f4fafa;
+  --dashboard-sidebar-bg: #ffffff;
+  --dashboard-border: #e5f0f0;
+  --dashboard-text-primary: #0f1d2b;
+  --dashboard-text-secondary: #4a7a7a;
+  --dashboard-hover: #f0fafa;
+
+  /* Onboarding background - the mint/teal bg seen in designs */
+  --onboarding-bg: #e8f5f5;
+
+  /* Navy for invoice summary card */
+  --navy: #1a2a3a;
+  --navy-foreground: #ffffff;
+
+  /* Status colors */
+  --success: #22c55e;
+  --warning: #f59e0b;
+  --info: #3b82f6;
+  --pending: #f59e0b;
+  --rejected: #ef4444;
+  --paid: #22c55e;
+  --approved: #8b5cf6;
+  --draft: #6b7a8d;
+  --flagged: #ef4444;
+}
+
+body {
+  font-family: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}
+
+/* Onboarding background with subtle grid pattern */
+.onboarding-bg {
+  background-color: var(--onboarding-bg);
+  background-image:
+    linear-gradient(rgba(43, 185, 176, 0.06) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(43, 185, 176, 0.06) 1px, transparent 1px);
+  background-size: 32px 32px;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #d1d5db;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #9ca3af;
+}
+
+/* Status badge utilities */
+.status-badge {
+  @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium;
+}
+
+/* Page transitions */
+.page-enter {
+  animation: pageEnter 0.2s ease-out;
+}
+@keyframes pageEnter {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
