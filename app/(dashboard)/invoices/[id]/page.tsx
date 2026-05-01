@@ -2,7 +2,7 @@
 
 import { use, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, Edit, Download, Trash2, CheckCircle2 } from "lucide-react";
+import { ArrowLeft, Edit, Download, Trash2 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { getInvoice } from "@/lib/api/invoices";
 import { queryKeys, useOrgStore } from "@/lib/stores/orgStore";

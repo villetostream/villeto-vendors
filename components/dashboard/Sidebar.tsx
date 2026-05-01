@@ -11,6 +11,8 @@ import { logout } from "@/lib/api/auth";
 import { cn, getInitials } from "@/lib/utils";
 import { toast } from "sonner";
 
+import Image from "next/image";
+
 const NAV_ITEMS = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/orders", label: "Orders", icon: ShoppingCart },
@@ -71,7 +73,7 @@ export function Sidebar() {
         <div className="flex items-center gap-3 px-3 py-2">
           <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center text-primary text-xs font-bold shrink-0 overflow-hidden">
             {user?.avatar_url ? (
-              <img src={user.avatar_url} alt="" className="h-full w-full object-cover" />
+              <Image src={user.avatar_url} alt="" width={32} height={32} className="h-full w-full object-cover" />
             ) : (
               getInitials(user?.business_name ?? "V")
             )}

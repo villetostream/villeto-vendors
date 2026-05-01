@@ -27,7 +27,7 @@ interface InvitePageProps {
  *   const { data } = await res.json();
  *   if (data.already_onboarded) redirect("/auth/login");
  */
-async function validateToken(token: string) {
+async function validateToken(_token: string) {
   // MOCK — replace with real API call
   return {
     business_name: "ABC Supplies Ltd",

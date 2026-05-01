@@ -5,9 +5,9 @@ import { useQuery } from "@tanstack/react-query";
 import { Edit2, CheckCircle2, Camera } from "lucide-react";
 import { getVendorProfile } from "@/lib/api/vendor";
 import { queryKeys } from "@/lib/stores/orgStore";
-import { Button } from "@/components/ui/Button";
 import { PageSpinner } from "@/components/ui/Spinner";
-import { getInitials, cn } from "@/lib/utils";
+import { getInitials } from "@/lib/utils";
+import Image from "next/image";
 
 export default function ProfilePage() {
   const { data: profile, isLoading } = useQuery({
@@ -45,9 +45,9 @@ export default function ProfilePage() {
                 <div className="relative">
                   <div className="h-16 w-16 rounded-full bg-primary/10 flex items-center justify-center text-primary text-xl font-bold overflow-hidden">
                     {avatarPreview ? (
-                      <img src={avatarPreview} alt="" className="h-full w-full object-cover" />
+                      <Image src={avatarPreview} alt="" width={64} height={64} className="h-full w-full object-cover" />
                     ) : profile.avatar_url ? (
-                      <img src={profile.avatar_url} alt="" className="h-full w-full object-cover" />
+                      <Image src={profile.avatar_url} alt="" width={64} height={64} className="h-full w-full object-cover" />
                     ) : (
                       getInitials(profile.business_name)
                     )}

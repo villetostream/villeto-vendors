@@ -21,7 +21,7 @@ import {
 } from "@/lib/hooks/useOrders";
 import { formatDate, formatDateTime, cn } from "@/lib/utils";
 import { OrderItem, OrderStatus } from "@/lib/types";
-import { toast } from "sonner";
+
 
 const WORKFLOW_LABELS: Record<OrderStatus, string> = {
   assigned: "Assigned",
@@ -268,7 +268,7 @@ export default function OrderDetailPage({
           <div className="space-y-0">
             {WORKFLOW_STEPS.map((step, idx) => {
               const isCompleted = idx <= currentStepIdx;
-              const isCurrent = idx === currentStepIdx;
+
               const isLast = idx === WORKFLOW_STEPS.length - 1;
 
               // Get timestamp from order workflow

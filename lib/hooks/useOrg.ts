@@ -1,7 +1,7 @@
 "use client";
 
 import { useQueryClient } from "@tanstack/react-query";
-import { useOrgStore, queryKeys } from "@/lib/stores/orgStore";
+import { useOrgStore, queryKeys, type OrgAction } from "@/lib/stores/orgStore";
 import { useCallback } from "react";
 
 /**
@@ -79,7 +79,7 @@ export function useOrg() {
 /**
  * useOrgPermission — simple permission check hook.
  */
-export function useOrgPermission(action: Parameters<typeof useOrgStore.getState>["0"] extends never ? never : Parameters<ReturnType<typeof useOrgStore>["hasPermission"]>[0]) {
+export function useOrgPermission(action: OrgAction) {
   const hasPermission = useOrgStore((s) => s.hasPermission);
   return hasPermission(action);
 }

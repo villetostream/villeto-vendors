@@ -45,7 +45,7 @@ function StatCard({
 }
 
 export default function DashboardPage() {
-  const { user } = useAuthStore();
+  useAuthStore();
   const orgId = useOrgStore((s) => s.activeOrgId) ?? "";
   const activeOrg = useOrgStore((s) => s.activeOrg);
 

@@ -32,7 +32,7 @@ interface OrgState {
   hasPermission: (action: OrgAction) => boolean;
 }
 
-type OrgAction =
+export type OrgAction =
   | "create_invoice"
   | "view_orders"
   | "view_invoices"

@@ -8,7 +8,6 @@ import { useQuery } from "@tanstack/react-query";
 import { getVendorOrganizations } from "@/lib/api/vendor";
 import { queryKeys } from "@/lib/stores/orgStore";
 import { cn, getInitials } from "@/lib/utils";
-import { format } from "date-fns";
 
 export function TopBar() {
   const { activeOrg, organizations, setOrganizations, switchOrg } = useOrg();

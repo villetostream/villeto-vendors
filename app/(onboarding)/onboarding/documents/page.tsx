@@ -2,7 +2,7 @@
 
 import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { CheckCircle2, Upload, FileText, X } from "lucide-react";
+import { CheckCircle2, FileText, X } from "lucide-react";
 import { OnboardingStepper } from "@/components/onboarding/OnboardingStepper";
 import { Button } from "@/components/ui/Button";
 import { useOnboardingStore } from "@/lib/stores/onboardingStore";
@@ -24,10 +24,13 @@ export default function DocumentsPage() {
   const fileRefs = useRef<Record<string, HTMLInputElement | null>>({});
 
   const setUploadState = (type: string, update: Partial<UploadState>) => {
-    setUploadStates((prev) => ({
-      ...prev,
-      [type]: { uploading: false, progress: 0, ...prev[type], ...update },
-    }));
+    setUploadStates((prev) => {
+      const current = prev[type] || { uploading: false, progress: 0 };
+      return {
+        ...prev,
+        [type]: { ...current, ...update },
+      };
+    });
   };
 
   const handleFileSelect = async (type: DocumentType, file: File) => {

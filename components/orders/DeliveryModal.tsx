@@ -21,7 +21,7 @@ export function DeliveryModal({
   open,
   onClose,
   onConfirmFull,
-  onConfirmPartial,
+  onConfirmPartial: _onConfirmPartial,
   isPending,
 }: DeliveryModalProps) {
   const [step, setStep] = useState<"select" | "partial">("select");
@@ -80,7 +80,7 @@ export function DeliveryModal({
 
 // ─── Individual option card ───────────────────
 function DeliveryOption({
-  type, title, description, icon, selected, loading, onClick,
+  type: _type, title, description, icon, selected, loading, onClick,
 }: {
   type: DeliveryType;
   title: string;

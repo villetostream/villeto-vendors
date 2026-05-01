@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ArrowLeft, Plus, Trash2, ShieldCheck } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
@@ -14,11 +14,12 @@ import {
   Select, SelectTrigger, SelectValue, SelectContent, SelectItem,
 } from "@/components/ui/Select";
 import {
-  Dialog, DialogContent, DialogTitle,
+  Dialog, DialogContent,
 } from "@/components/ui/Modal";
 import { useCreateInvoice, useUpdateInvoice } from "@/lib/hooks/useInvoices";
 import { formatCurrency, cn } from "@/lib/utils";
 import { CheckCircle2 } from "lucide-react";
+import { PageSpinner } from "@/components/ui/Spinner";
 
 interface LineItem {
   id: string;
@@ -33,7 +34,7 @@ function generateId() {
   return Math.random().toString(36).slice(2, 9);
 }
 
-export default function CreateInvoicePage() {
+function CreateInvoiceContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const editId = searchParams.get("edit");
@@ -374,22 +375,24 @@ export default function CreateInvoicePage() {
           <div className="flex flex-col items-center text-center py-4">
             <div className="relative mb-5">
               {/* Confetti decorations */}
-              {[
-                { top: "10%", left: "5%", color: "bg-blue-500", size: "h-2 w-2" },
-                { top: "5%", right: "15%", color: "bg-orange-400", size: "h-1.5 w-1.5" },
-                { top: "25%", right: "0%", color: "bg-green-500", size: "h-2.5 w-2.5" },
-                { bottom: "15%", right: "5%", color: "bg-blue-400", size: "h-1.5 w-1.5" },
-                { bottom: "5%", left: "20%", color: "bg-primary", size: "h-2 w-2" },
-                { top: "40%", left: "0%", color: "bg-orange-500", size: "h-1.5 w-1.5" },
-              ].map((dot, i) => (
+              {(
+                [
+                  { top: "10%", left: "5%", color: "bg-blue-500", size: "h-2 w-2" },
+                  { top: "5%", right: "15%", color: "bg-orange-400", size: "h-1.5 w-1.5" },
+                  { top: "25%", right: "0%", color: "bg-green-500", size: "h-2.5 w-2.5" },
+                  { bottom: "15%", right: "5%", color: "bg-blue-400", size: "h-1.5 w-1.5" },
+                  { bottom: "5%", left: "20%", color: "bg-primary", size: "h-2 w-2" },
+                  { top: "40%", left: "0%", color: "bg-orange-500", size: "h-1.5 w-1.5" },
+                ] as const
+              ).map((dot, i) => (
                 <div
                   key={i}
                   className={cn("absolute rounded-full", dot.color, dot.size)}
                   style={{
-                    top: dot.top,
-                    left: (dot as Record<string, string>).left,
-                    right: (dot as Record<string, string>).right,
-                    bottom: dot.bottom,
+                    top: "top" in dot ? dot.top : undefined,
+                    left: "left" in dot ? dot.left : undefined,
+                    right: "right" in dot ? dot.right : undefined,
+                    bottom: "bottom" in dot ? dot.bottom : undefined,
                   }}
                 />
               ))}
@@ -416,6 +419,14 @@ export default function CreateInvoicePage() {
         </DialogContent>
       </Dialog>
     </>
+  );
+}
+
+export default function CreateInvoicePage() {
+  return (
+    <Suspense fallback={<PageSpinner />}>
+      <CreateInvoiceContent />
+    </Suspense>
   );
 }
 

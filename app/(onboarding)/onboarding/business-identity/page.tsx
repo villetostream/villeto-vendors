@@ -16,6 +16,7 @@ import { useOnboardingStore } from "@/lib/stores/onboardingStore";
 import { magicLookupBusiness, saveBusinessIdentity } from "@/lib/api/onboarding";
 import { fuzzyMatchScore } from "@/lib/utils";
 import { toast } from "sonner";
+import Cookies from "js-cookie";
 import { cn } from "@/lib/utils";
 
 const schema = z.object({
@@ -41,6 +42,8 @@ export default function BusinessIdentityPage() {
   const [matchStatus, setMatchStatus] = useState<MatchStatus>("idle");
   const [resolvedName, setResolvedName] = useState("");
 
+  const isMockSession = Cookies.get("villeto_onboarding_session") === "mock-session";
+
   const {
     register,
     handleSubmit,
@@ -51,7 +54,7 @@ export default function BusinessIdentityPage() {
     resolver: zodResolver(schema),
     defaultValues: {
       business_name: store.businessIdentity.business_name ?? store.businessName ?? "",
-      business_email: store.businessIdentity.business_email ?? store.vendorEmail ?? "",
+      business_email: store.businessIdentity.business_email ?? store.vendorEmail ?? (isMockSession ? "mock@villeto.com" : ""),
       registration_number: store.businessIdentity.registration_number ?? "",
       country: store.businessIdentity.country ?? "",
       business_address: store.businessIdentity.business_address ?? "",
@@ -156,7 +159,7 @@ export default function BusinessIdentityPage() {
             {matchStatus === "mismatch" && resolvedName && (
               <p className="text-xs text-red-500 mt-1.5 flex items-center gap-1">
                 <XCircle className="h-3 w-3 shrink-0" />
-                Name does not match registration records. Found: <strong>"{resolvedName}"</strong>
+                Name does not match registration records. Found: <strong>&quot;{resolvedName}&quot;</strong>
               </p>
             )}
             {matchStatus === "match" && (
@@ -174,10 +177,15 @@ export default function BusinessIdentityPage() {
           >
             <Input
               type="email"
-              readOnly
-              className="bg-muted/50 cursor-default"
+              readOnly={!isMockSession}
+              className={cn(!isMockSession && "bg-muted/50 cursor-default")}
               {...register("business_email")}
             />
+            {isMockSession && (
+              <p className="text-[10px] text-amber-600 font-medium mt-1">
+                TEST MODE: Email is editable during mock session
+              </p>
+            )}
           </FormField>
 
           {/* Registration Number — triggers magic lookup */}

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -13,6 +13,7 @@ import { FormField } from "@/components/ui/Label";
 import { useOnboardingStore } from "@/lib/stores/onboardingStore";
 import { signUp } from "@/lib/api/auth";
 import { cn } from "@/lib/utils";
+import Cookies from "js-cookie";
 import { toast } from "sonner";
 
 const schema = z
@@ -39,15 +40,17 @@ const RULES = [
   { key: "lower", label: "Lowercase Letter", test: (p: string) => /[a-z]/.test(p) },
 ];
 
-export default function SignupPage() {
+function SignupContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const token = searchParams.get("token") ?? "";
-  const { setInviteContext, businessIdentity } = useOnboardingStore();
+  useOnboardingStore();
 
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
-  const [vendorEmail, setVendorEmail] = useState("abcsupplies@gmail.com");
+  
+  const isMockSession = Cookies.get("villeto_onboarding_session") === "mock-session";
+  const vendorEmail = isMockSession ? "mock@villeto.com" : "abcsupplies@gmail.com";
 
   const {
     register,
@@ -188,5 +191,13 @@ export default function SignupPage() {
         </div>
       </main>
     </div>
+  );
+}
+
+export default function SignupPage() {
+  return (
+    <Suspense fallback={null}>
+      <SignupContent />
+    </Suspense>
   );
 }

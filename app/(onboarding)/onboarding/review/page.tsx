@@ -170,18 +170,25 @@ export default function ReviewPage() {
             {/* Animated checkmark with confetti decorations */}
             <div className="relative mb-5">
               {/* Confetti dots */}
-              {[
-                { top: "10%", left: "5%", color: "bg-blue-500", size: "h-2 w-2" },
-                { top: "5%", right: "15%", color: "bg-orange-400", size: "h-1.5 w-1.5" },
-                { top: "25%", right: "0%", color: "bg-green-500", size: "h-2.5 w-2.5" },
-                { bottom: "15%", right: "5%", color: "bg-blue-400", size: "h-1.5 w-1.5" },
-                { bottom: "5%", left: "20%", color: "bg-primary", size: "h-2 w-2" },
-                { top: "40%", left: "0%", color: "bg-orange-500", size: "h-1.5 w-1.5" },
-              ].map((dot, i) => (
+              {(
+                [
+                  { top: "10%", left: "5%", color: "bg-blue-500", size: "h-2 w-2" },
+                  { top: "5%", right: "15%", color: "bg-orange-400", size: "h-1.5 w-1.5" },
+                  { top: "25%", right: "0%", color: "bg-green-500", size: "h-2.5 w-2.5" },
+                  { bottom: "15%", right: "5%", color: "bg-blue-400", size: "h-1.5 w-1.5" },
+                  { bottom: "5%", left: "20%", color: "bg-primary", size: "h-2 w-2" },
+                  { top: "40%", left: "0%", color: "bg-orange-500", size: "h-1.5 w-1.5" },
+                ] as const
+              ).map((dot, i) => (
                 <div
                   key={i}
                   className={cn("absolute rounded-full", dot.color, dot.size)}
-                  style={{ top: dot.top, left: (dot as Record<string, string>).left, right: (dot as Record<string, string>).right, bottom: dot.bottom }}
+                  style={{
+                    top: "top" in dot ? dot.top : undefined,
+                    left: "left" in dot ? dot.left : undefined,
+                    right: "right" in dot ? dot.right : undefined,
+                    bottom: "bottom" in dot ? dot.bottom : undefined,
+                  }}
                 />
               ))}
               <div className="h-20 w-20 rounded-full bg-primary flex items-center justify-center">
