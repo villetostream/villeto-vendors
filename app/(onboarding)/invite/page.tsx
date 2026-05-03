@@ -59,10 +59,6 @@ export default async function InvitePage({ searchParams }: InvitePageProps) {
         style={{ backgroundImage: "linear-gradient(rgba(43,185,176,0.15) 1px, transparent 1px), linear-gradient(90deg, rgba(43,185,176,0.15) 1px, transparent 1px)", backgroundSize: "16px 16px" }}
       />
 
-      {/* Header */}
-      <header className="relative z-10 px-6 py-5">
-        <VilletoLogo size="md" />
-      </header>
 
       {/* Card */}
       <main className="relative z-10 flex flex-1 items-center justify-center px-4 pb-16">
