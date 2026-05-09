@@ -43,14 +43,22 @@ const RULES = [
 function SignupContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
+
+  // The invite page passes token as a standard ?token=xxx param in the CTA link
   const token = searchParams.get("token") ?? "";
-  useOnboardingStore();
+  const emailParam = searchParams.get("email") ?? "";
+  const displayNameParam = searchParams.get("displayName") ?? "";
+  const legalNameParam = searchParams.get("legalName") ?? "";
+  const vendorIdParam = searchParams.get("vendorId") ?? "";
+  const vendorInvitationIdParam = searchParams.get("vendorInvitationId") ?? "";
+
+  const setInviteContext = useOnboardingStore((s) => s.setInviteContext);
 
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
-  
+
   const isMockSession = Cookies.get("villeto_onboarding_session") === "mock-session";
-  const vendorEmail = isMockSession ? "mock@villeto.com" : "abcsupplies@gmail.com";
+  const vendorEmail = isMockSession ? "mock@villeto.com" : emailParam;
 
   const {
     register,
@@ -61,14 +69,31 @@ function SignupContent() {
 
   const password = watch("password", "");
 
-  // In production, fetch token payload from API to get the real email
   useEffect(() => {
-    if (!token) router.replace("/auth/login");
-    // INTEGRATION POINT: fetch token metadata to get pre-filled email
-    // const data = await validateInviteToken(token);
-    // setVendorEmail(data.email);
-    // setInviteContext(token, data.email, data.business_name);
-  }, [token, router]);
+    if (!token) {
+      router.replace("/auth/login");
+      return;
+    }
+    // Populate the store with the full invite context from URL params
+    setInviteContext({
+      token,
+      vendorId: vendorIdParam,
+      vendorInvitationId: vendorInvitationIdParam,
+      email: isMockSession ? "mock@villeto.com" : emailParam,
+      displayName: displayNameParam,
+      legalName: legalNameParam,
+    });
+  }, [
+    token,
+    emailParam,
+    displayNameParam,
+    legalNameParam,
+    vendorIdParam,
+    vendorInvitationIdParam,
+    isMockSession,
+    router,
+    setInviteContext,
+  ]);
 
   const onSubmit = async (data: FormData) => {
     try {
@@ -81,10 +106,22 @@ function SignupContent() {
 
   return (
     <div className="min-h-screen onboarding-bg flex flex-col relative overflow-hidden">
-      <div className="pointer-events-none absolute bottom-0 left-0 w-48 h-48 opacity-30"
-        style={{ backgroundImage: "linear-gradient(rgba(43,185,176,0.15) 1px, transparent 1px), linear-gradient(90deg, rgba(43,185,176,0.15) 1px, transparent 1px)", backgroundSize: "16px 16px" }} />
-      <div className="pointer-events-none absolute bottom-0 right-0 w-48 h-48 opacity-30"
-        style={{ backgroundImage: "linear-gradient(rgba(43,185,176,0.15) 1px, transparent 1px), linear-gradient(90deg, rgba(43,185,176,0.15) 1px, transparent 1px)", backgroundSize: "16px 16px" }} />
+      <div
+        className="pointer-events-none absolute bottom-0 left-0 w-48 h-48 opacity-30"
+        style={{
+          backgroundImage:
+            "linear-gradient(rgba(43,185,176,0.15) 1px, transparent 1px), linear-gradient(90deg, rgba(43,185,176,0.15) 1px, transparent 1px)",
+          backgroundSize: "16px 16px",
+        }}
+      />
+      <div
+        className="pointer-events-none absolute bottom-0 right-0 w-48 h-48 opacity-30"
+        style={{
+          backgroundImage:
+            "linear-gradient(rgba(43,185,176,0.15) 1px, transparent 1px), linear-gradient(90deg, rgba(43,185,176,0.15) 1px, transparent 1px)",
+          backgroundSize: "16px 16px",
+        }}
+      />
 
       <main className="relative z-10 flex flex-1 items-center justify-center px-4 pb-16">
         <div className="w-full max-w-md bg-white rounded-2xl shadow-sm border border-border/50 p-8">
@@ -100,7 +137,7 @@ function SignupContent() {
           </p>
 
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
-            {/* Pre-filled email (read-only) */}
+            {/* Pre-filled email (read-only — comes from invitation) */}
             <FormField label="Business Email">
               <Input
                 value={vendorEmail}
@@ -127,7 +164,11 @@ function SignupContent() {
                   className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
                   onClick={() => setShowPassword((v) => !v)}
                 >
-                  {showPassword ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
+                  {showPassword ? (
+                    <Eye className="h-4 w-4" />
+                  ) : (
+                    <EyeOff className="h-4 w-4" />
+                  )}
                 </button>
               </div>
             </FormField>
@@ -150,7 +191,11 @@ function SignupContent() {
                   className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
                   onClick={() => setShowConfirm((v) => !v)}
                 >
-                  {showConfirm ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
+                  {showConfirm ? (
+                    <Eye className="h-4 w-4" />
+                  ) : (
+                    <EyeOff className="h-4 w-4" />
+                  )}
                 </button>
               </div>
             </FormField>
@@ -183,8 +228,18 @@ function SignupContent() {
               className="w-full mt-2"
             >
               Continue
-              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M17 8l4 4m0 0l-4 4m4-4H3" />
+              <svg
+                className="h-4 w-4"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                strokeWidth={2}
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M17 8l4 4m0 0l-4 4m4-4H3"
+                />
               </svg>
             </Button>
           </form>

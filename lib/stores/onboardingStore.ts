@@ -28,11 +28,28 @@ interface DocumentState {
   uploaded: boolean;
 }
 
+/** Shape of the validated invite coming from POST /vendors/invitations/preview */
+export interface InviteContext {
+  token: string;
+  vendorId: string;
+  vendorInvitationId: string;
+  email: string;
+  displayName: string;
+  legalName: string;
+}
+
 interface OnboardingState {
   currentStep: OnboardingStep;
+
+  // Invite context (set after /invite page validates the token)
   inviteToken: string | null;
+  vendorId: string | null;
+  vendorInvitationId: string | null;
   vendorEmail: string | null;
+  /** Display name from the invitation (e.g. "Acme Supplies") */
   businessName: string | null;
+  /** Legal / registered name (e.g. "Acme Supplies Limited") */
+  legalBusinessName: string | null;
 
   // Step data
   businessIdentity: Partial<BusinessIdentityForm>;
@@ -45,7 +62,7 @@ interface OnboardingState {
   bankFlagged: boolean;
 
   // Actions
-  setInviteContext: (token: string, email: string, businessName: string) => void;
+  setInviteContext: (ctx: InviteContext) => void;
   setStep: (step: OnboardingStep) => void;
   saveBusinessIdentity: (data: BusinessIdentityForm) => void;
   saveBanking: (
@@ -110,8 +127,11 @@ export const useOnboardingStore = create<OnboardingState>()(
     (set) => ({
       currentStep: "business-identity",
       inviteToken: null,
+      vendorId: null,
+      vendorInvitationId: null,
       vendorEmail: null,
       businessName: null,
+      legalBusinessName: null,
       businessIdentity: {},
       banking: {},
       documents: DEFAULT_DOCUMENTS,
@@ -119,8 +139,15 @@ export const useOnboardingStore = create<OnboardingState>()(
       bankMatchScore: null,
       bankFlagged: false,
 
-      setInviteContext: (token, email, businessName) =>
-        set({ inviteToken: token, vendorEmail: email, businessName }),
+      setInviteContext: (ctx) =>
+        set({
+          inviteToken: ctx.token,
+          vendorId: ctx.vendorId,
+          vendorInvitationId: ctx.vendorInvitationId,
+          vendorEmail: ctx.email,
+          businessName: ctx.displayName,
+          legalBusinessName: ctx.legalName,
+        }),
 
       setStep: (step) => set({ currentStep: step }),
 
@@ -147,8 +174,11 @@ export const useOnboardingStore = create<OnboardingState>()(
         set({
           currentStep: "business-identity",
           inviteToken: null,
+          vendorId: null,
+          vendorInvitationId: null,
           vendorEmail: null,
           businessName: null,
+          legalBusinessName: null,
           businessIdentity: {},
           banking: {},
           documents: DEFAULT_DOCUMENTS,
@@ -162,7 +192,7 @@ export const useOnboardingStore = create<OnboardingState>()(
       storage: createJSONStorage(() =>
         typeof window !== "undefined" ? sessionStorage : localStorage
       ),
-      // Don't persist the token or email to storage for security
+      // Persist step progress and form data but NOT sensitive invite identifiers
       partialize: (state) => ({
         currentStep: state.currentStep,
         businessIdentity: state.businessIdentity,

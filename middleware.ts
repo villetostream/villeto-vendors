@@ -6,39 +6,34 @@ import { NextRequest, NextResponse } from "next/server";
  *
  * Routing logic:
  * ─────────────────────────────────────────────────────────────
- * /invite?token=xxx
- *   → Validates token expiry server-side (calls verify API)
- *   → If vendor already onboarded → redirect /auth/login
- *   → If expired → redirect /invite/expired
- *   → If valid & new vendor → allow through
+ * /invite?<raw_token>   (backend format: uuid.hex_signature)
+ *   → Extracts raw token from query string
+ *   → Normalises to /invite?token=<raw_token> via REDIRECT (reliable)
+ *   → Also sets villeto_invite_token cookie as fallback
+ *
+ * /invite?token=<raw_token>  (already normalised)
+ *   → Passes through to invite page (Server Component validates there)
  *
  * /onboarding/**
- *   → Must have onboarding_session cookie (set after password creation)
- *   → Otherwise redirect back to /invite (or /auth/login if already onboarded)
+ *   → Must have onboarding_session cookie
+ *   → Otherwise redirect /auth/login
  *
  * /(dashboard)/**
  *   → Must have valid auth_token cookie
- *   → Must NOT be in pending/rejected status
  *   → Otherwise redirect /auth/login
  *
  * /auth/login
  *   → If already authenticated → redirect /dashboard
  * ─────────────────────────────────────────────────────────────
  *
- * NOTE: Token validation here is lightweight (JWT decode on edge).
- * Full re-validation against DB happens in API route handlers.
+ * WHY REDIRECT (not rewrite) for token normalisation:
+ *   NextResponse.rewrite() is unreliable for passing modified searchParams
+ *   to Next.js App Router Server Components — the RSC layer sometimes reads
+ *   the original URL params rather than the rewritten URL params.
+ *   A redirect (302) is a real HTTP round-trip, so the browser sends the
+ *   normalised URL fresh and searchParams is always correct.
  */
 
-// Routes that are always public
-const PUBLIC_ROUTES = [
-  "/invite",
-  "/signup",
-  "/auth/login",
-  "/pending",
-  "/invite/expired",
-];
-
-// Routes that require an active onboarding session
 const ONBOARDING_ROUTES = [
   "/onboarding/business-identity",
   "/onboarding/banking",
@@ -46,7 +41,6 @@ const ONBOARDING_ROUTES = [
   "/onboarding/review",
 ];
 
-// Routes that require full auth (active vendor)
 const PROTECTED_ROUTES = [
   "/dashboard",
   "/orders",
@@ -54,60 +48,75 @@ const PROTECTED_ROUTES = [
   "/profile",
 ];
 
+/**
+ * Extracts the invite token from an /invite request.
+ *
+ * Supports two URL formats produced by the backend:
+ *   1. /invite?token=<value>            ← already normalised
+ *   2. /invite?<uuid>.<hex_signature>   ← raw token as entire query string
+ *
+ * Returns null if no usable token is found.
+ */
+function extractInviteToken(request: NextRequest): string | null {
+  // Format 1: standard ?token=xxx
+  const tokenParam = request.nextUrl.searchParams.get("token");
+  if (tokenParam) return tokenParam;
+
+  // Format 2: raw query — the ENTIRE query string IS the token.
+  // Browsers serialise a bare query key (no value) as "key=" (trailing "=").
+  // So the backend link /invite?<uuid>.<hex> arrives as /invite?<uuid>.<hex>=
+  // We must strip the trailing "=" before checking for real key=value pairs.
+  const rawSearch = new URL(request.url).search; // includes leading "?"
+  if (!rawSearch || rawSearch === "?") return null;
+
+  // Strip the leading "?" then strip any trailing "=" that browsers append
+  // when there is no value for a bare query key.
+  const rawQuery = rawSearch.slice(1).replace(/=+$/, "");
+
+  // The backend token format is <uuid>.<hex_signature>
+  // e.g. a800efc3-bc01-4e69-aa0b-d495d5e3901c.39b03f5c049eb2e1...
+  // After stripping the trailing "=", it must not contain "=" or "&".
+  if (!rawQuery.includes("=") && !rawQuery.includes("&") && rawQuery.length > 10) {
+    return rawQuery;
+  }
+
+  return null;
+}
+
 export async function middleware(request: NextRequest) {
-  const { pathname, searchParams } = request.nextUrl;
+  const { pathname } = request.nextUrl;
 
   // ── 1. Invite token gate ──────────────────────────────────────
-  if (pathname === "/invite") {
-    const token = searchParams.get("token");
+  if (pathname === "/invite" || pathname === "/invite/") {
+    const token = extractInviteToken(request);
 
     if (!token) {
       return NextResponse.redirect(new URL("/auth/login", request.url));
     }
 
-    // ----------------------------------------------------------------
-    // TOKEN VALIDATION (server-side / edge)
-    // ----------------------------------------------------------------
-    // INTEGRATION POINT:
-    // Replace this block with a real API call to your backend:
-    //
-    //   const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/auth/invite/validate`, {
-    //     method: "POST",
-    //     headers: { "Content-Type": "application/json" },
-    //     body: JSON.stringify({ token }),
-    //   });
-    //   const data = await res.json();
-    //
-    //   if (!res.ok || data.expired) {
-    //     return NextResponse.redirect(new URL("/invite/expired", request.url));
-    //   }
-    //   if (data.already_onboarded) {
-    //     return NextResponse.redirect(new URL("/auth/login", request.url));
-    //   }
-    // ----------------------------------------------------------------
-
-    // For now: decode a simple JWT-like structure from token
-    // (basic expiry check — real validation happens in the page's server component)
-    try {
-      const parts = token.split(".");
-      if (parts.length === 3) {
-        const payloadStr = Buffer.from(parts[1], "base64url").toString("utf8");
-        const payload = JSON.parse(payloadStr);
-        const now = Math.floor(Date.now() / 1000);
-
-        if (payload.exp && payload.exp < now) {
-          return NextResponse.redirect(new URL("/invite/expired", request.url));
-        }
-
-        if (payload.already_onboarded === true) {
-          return NextResponse.redirect(new URL("/auth/login", request.url));
-        }
-      }
-    } catch {
-      // If we can't parse — allow the page to handle it
+    // Already normalised → pass through to Server Component
+    const alreadyNormalised = request.nextUrl.searchParams.get("token") === token;
+    if (alreadyNormalised) {
+      return NextResponse.next();
     }
 
-    return NextResponse.next();
+    // Raw token detected → REDIRECT to normalised ?token=xxx form.
+    // Real HTTP redirect ensures searchParams is always correct in the page.
+    const normalised = new URL("/invite", request.url);
+    normalised.searchParams.set("token", token);
+
+    const redirectResponse = NextResponse.redirect(normalised, { status: 302 });
+
+    // Belt-and-suspenders: also set cookie so the Server Component can read
+    // the token via cookies() even if searchParams extraction somehow fails.
+    redirectResponse.cookies.set("villeto_invite_token", token, {
+      httpOnly: true,
+      sameSite: "lax",
+      maxAge: 60 * 30,
+      path: "/",
+    });
+
+    return redirectResponse;
   }
 
   // ── 2. Already logged-in → skip login page ────────────────────
@@ -135,25 +144,11 @@ export async function middleware(request: NextRequest) {
   const isProtected = PROTECTED_ROUTES.some((r) => pathname.startsWith(r));
   if (isProtected) {
     const authToken = request.cookies.get("villeto_auth_token")?.value;
-
     if (!authToken) {
       const loginUrl = new URL("/auth/login", request.url);
       loginUrl.searchParams.set("next", pathname);
       return NextResponse.redirect(loginUrl);
     }
-
-    // ----------------------------------------------------------------
-    // VENDOR STATUS CHECK (edge)
-    // INTEGRATION POINT:
-    // Optionally decode the JWT to check vendor status without DB call.
-    // If status is "pending" or "rejected", redirect appropriately.
-    //
-    //   const payload = decodeJWT(authToken);
-    //   if (payload.vendor_status === "pending") {
-    //     return NextResponse.redirect(new URL("/pending", request.url));
-    //   }
-    // ----------------------------------------------------------------
-
     return NextResponse.next();
   }
 
@@ -162,13 +157,6 @@ export async function middleware(request: NextRequest) {
 
 export const config = {
   matcher: [
-    /*
-     * Match all paths except:
-     * - _next/static (static files)
-     * - _next/image (image optimization)
-     * - favicon.ico
-     * - public assets
-     */
     "/((?!_next/static|_next/image|favicon.ico|public|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
   ],
 };

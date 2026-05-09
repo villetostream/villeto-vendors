@@ -11,12 +11,17 @@ import { OnboardingStepper } from "@/components/onboarding/OnboardingStepper";
 import { Input } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
 import { FormField } from "@/components/ui/Label";
-import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/Select";
+import {
+  Select,
+  SelectTrigger,
+  SelectValue,
+  SelectContent,
+  SelectItem,
+} from "@/components/ui/Select";
 import { useOnboardingStore } from "@/lib/stores/onboardingStore";
 import { magicLookupBusiness, saveBusinessIdentity } from "@/lib/api/onboarding";
 import { fuzzyMatchScore } from "@/lib/utils";
 import { toast } from "sonner";
-import Cookies from "js-cookie";
 import { cn } from "@/lib/utils";
 
 const schema = z.object({
@@ -30,8 +35,15 @@ const schema = z.object({
 type FormData = z.infer<typeof schema>;
 
 const COUNTRIES = [
-  "Nigeria", "Ghana", "Kenya", "South Africa", "United Kingdom",
-  "United States", "Canada", "Scotland", "Other",
+  "Nigeria",
+  "Ghana",
+  "Kenya",
+  "South Africa",
+  "United Kingdom",
+  "United States",
+  "Canada",
+  "Scotland",
+  "Other",
 ];
 
 type MatchStatus = "idle" | "checking" | "match" | "mismatch";
@@ -42,7 +54,16 @@ export default function BusinessIdentityPage() {
   const [matchStatus, setMatchStatus] = useState<MatchStatus>("idle");
   const [resolvedName, setResolvedName] = useState("");
 
-  const isMockSession = Cookies.get("villeto_onboarding_session") === "mock-session";
+  // The invite gave us both a display name and a legal/registered name.
+  // legalBusinessName is the canonical value to pre-fill (e.g. "Acme Supplies Limited").
+  // businessName (displayName) is the fallback.
+  const inviteBusinessName =
+    store.legalBusinessName || store.businessName || null;
+  const inviteEmail = store.vendorEmail || null;
+
+  // Fields locked by the invitation — vendor cannot change them
+  const isBusinessNameLocked = !!inviteBusinessName;
+  const isEmailLocked = !!inviteEmail;
 
   const {
     register,
@@ -53,8 +74,10 @@ export default function BusinessIdentityPage() {
   } = useForm<FormData>({
     resolver: zodResolver(schema),
     defaultValues: {
-      business_name: store.businessIdentity.business_name ?? store.businessName ?? "",
-      business_email: store.businessIdentity.business_email ?? store.vendorEmail ?? (isMockSession ? "mock@villeto.com" : ""),
+      business_name:
+        store.businessIdentity.business_name ?? inviteBusinessName ?? "",
+      business_email:
+        store.businessIdentity.business_email ?? inviteEmail ?? "",
       registration_number: store.businessIdentity.registration_number ?? "",
       country: store.businessIdentity.country ?? "",
       business_address: store.businessIdentity.business_address ?? "",
@@ -69,10 +92,9 @@ export default function BusinessIdentityPage() {
 
   /**
    * Magic Lookup + Name match check
-   * When reg number has ≥5 chars, call backend to resolve business name
-   * Then run fuzzy match against what the vendor typed
-   *
-   * INTEGRATION POINT: real API call in magicLookupBusiness()
+   * When reg number has ≥5 chars, call backend to resolve business name.
+   * If the business name is pre-filled from the invitation, auto-run the
+   * match check against the resolved name.
    */
   useEffect(() => {
     if (debouncedReg.length < 5) {
@@ -88,8 +110,8 @@ export default function BusinessIdentityPage() {
         prevResolvedRef.current = result.business_name;
 
         if (!debouncedName) {
-          // Auto-fill address + country from lookup
-          if (result.business_address) setValue("business_address", result.business_address);
+          if (result.business_address)
+            setValue("business_address", result.business_address);
           if (result.country) setValue("country", result.country);
           setMatchStatus("idle");
           return;
@@ -103,9 +125,10 @@ export default function BusinessIdentityPage() {
       });
   }, [debouncedReg, debouncedName, setValue]);
 
-  // Re-check name match when name changes (if we already have resolved name)
+  // Re-check name match when the name field changes
   useEffect(() => {
-    if (!prevResolvedRef.current || !debouncedName || debouncedReg.length < 5) return;
+    if (!prevResolvedRef.current || !debouncedName || debouncedReg.length < 5)
+      return;
     const score = fuzzyMatchScore(debouncedName, prevResolvedRef.current);
     setMatchStatus(score >= 70 ? "match" : "mismatch");
   }, [debouncedName, debouncedReg]);
@@ -116,7 +139,9 @@ export default function BusinessIdentityPage() {
       store.saveBusinessIdentity(data);
       router.push("/onboarding/banking");
     } catch (err: unknown) {
-      toast.error((err as { message?: string })?.message ?? "Failed to save. Please try again.");
+      toast.error(
+        (err as { message?: string })?.message ?? "Failed to save. Please try again."
+      );
     }
   };
 
@@ -130,10 +155,15 @@ export default function BusinessIdentityPage() {
         </h2>
         <p className="text-sm text-muted-foreground mb-8">
           Enter your official business registration details.
+          {isBusinessNameLocked && (
+            <span className="ml-1 text-primary font-medium">
+              Fields pre-filled from your invitation cannot be changed.
+            </span>
+          )}
         </p>
 
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
-          {/* Business Name with match indicator */}
+          {/* Business Name — locked if provided by invite */}
           <FormField
             label="Business Name"
             error={errors.business_name?.message}
@@ -142,24 +172,35 @@ export default function BusinessIdentityPage() {
               <Input
                 placeholder="Your registered business name"
                 error={!!errors.business_name}
+                readOnly={isBusinessNameLocked}
                 {...register("business_name")}
                 className={cn(
-                  matchStatus === "match" && "border-green-400 focus:border-green-400 focus:ring-green-100",
-                  matchStatus === "mismatch" && "border-red-400 focus:border-red-400 focus:ring-red-100"
+                  isBusinessNameLocked && "bg-muted/50 cursor-default",
+                  matchStatus === "match" &&
+                    "border-green-400 focus:border-green-400 focus:ring-green-100",
+                  matchStatus === "mismatch" &&
+                    "border-red-400 focus:border-red-400 focus:ring-red-100"
                 )}
               />
               {matchStatus !== "idle" && (
                 <div className="absolute right-3 top-1/2 -translate-y-1/2">
-                  {matchStatus === "checking" && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
-                  {matchStatus === "match" && <CheckCircle2 className="h-4 w-4 text-green-500" />}
-                  {matchStatus === "mismatch" && <XCircle className="h-4 w-4 text-red-500" />}
+                  {matchStatus === "checking" && (
+                    <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                  )}
+                  {matchStatus === "match" && (
+                    <CheckCircle2 className="h-4 w-4 text-green-500" />
+                  )}
+                  {matchStatus === "mismatch" && (
+                    <XCircle className="h-4 w-4 text-red-500" />
+                  )}
                 </div>
               )}
             </div>
             {matchStatus === "mismatch" && resolvedName && (
               <p className="text-xs text-red-500 mt-1.5 flex items-center gap-1">
                 <XCircle className="h-3 w-3 shrink-0" />
-                Name does not match registration records. Found: <strong>&quot;{resolvedName}&quot;</strong>
+                Name does not match registration records. Found:{" "}
+                <strong>&quot;{resolvedName}&quot;</strong>
               </p>
             )}
             {matchStatus === "match" && (
@@ -170,22 +211,17 @@ export default function BusinessIdentityPage() {
             )}
           </FormField>
 
-          {/* Business Email (pre-filled, read-only) */}
+          {/* Business Email — locked if provided by invite */}
           <FormField
             label="Business Email"
             error={errors.business_email?.message}
           >
             <Input
               type="email"
-              readOnly={!isMockSession}
-              className={cn(!isMockSession && "bg-muted/50 cursor-default")}
+              readOnly={isEmailLocked}
+              className={cn(isEmailLocked && "bg-muted/50 cursor-default")}
               {...register("business_email")}
             />
-            {isMockSession && (
-              <p className="text-[10px] text-amber-600 font-medium mt-1">
-                TEST MODE: Email is editable during mock session
-              </p>
-            )}
           </FormField>
 
           {/* Registration Number — triggers magic lookup */}
@@ -210,7 +246,9 @@ export default function BusinessIdentityPage() {
           {/* Country */}
           <FormField label="Country" error={errors.country?.message}>
             <Select
-              onValueChange={(v) => setValue("country", v, { shouldValidate: true })}
+              onValueChange={(v) =>
+                setValue("country", v, { shouldValidate: true })
+              }
               defaultValue={store.businessIdentity.country}
             >
               <SelectTrigger error={!!errors.country}>
@@ -218,7 +256,9 @@ export default function BusinessIdentityPage() {
               </SelectTrigger>
               <SelectContent>
                 {COUNTRIES.map((c) => (
-                  <SelectItem key={c} value={c}>{c}</SelectItem>
+                  <SelectItem key={c} value={c}>
+                    {c}
+                  </SelectItem>
                 ))}
               </SelectContent>
             </Select>
@@ -255,8 +295,18 @@ export default function BusinessIdentityPage() {
               className="flex-1"
             >
               Continue
-              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M17 8l4 4m0 0l-4 4m4-4H3" />
+              <svg
+                className="h-4 w-4"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                strokeWidth={2}
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M17 8l4 4m0 0l-4 4m4-4H3"
+                />
               </svg>
             </Button>
           </div>
