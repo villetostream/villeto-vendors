@@ -47,15 +47,21 @@ export async function magicLookupBusiness(regNo: string): Promise<{
 
 /**
  * Save Step 1 data.
- * POST /onboarding/business-identity
+ * PATCH /vendors/onboarding/business-identity
  */
 export async function saveBusinessIdentity(
   payload: BusinessIdentityForm
 ): Promise<{ success: boolean }> {
   // INTEGRATION POINT ↓
-  const { data } = await apiClient.post(
-    "/onboarding/business-identity",
-    payload
+  const { data } = await apiClient.patch(
+    "/vendors/onboarding/business-identity",
+    {
+      businessName: payload.business_name,
+      email: payload.business_email,
+      registrationNumber: payload.registration_number,
+      country: payload.country,
+      businessAddress: payload.business_address,
+    }
   );
   return data;
 }
@@ -90,14 +96,14 @@ export async function resolveAccountName(payload: {
 
 /**
  * Get list of supported banks.
- * GET /onboarding/banking/banks?country=NG
+ * GET /vendors/onboarding/banks?country=NG
  */
 export async function getBankList(country: string = "NG"): Promise<
-  { code: string; name: string }[]
+  { code: string; name: string; routingNumber?: string }[]
 > {
   // INTEGRATION POINT ↓
   const { data } = await apiClient.get(
-    `/onboarding/banking/banks?country=${country}`
+    `/vendors/onboarding/banks?country=${country}`
   );
   return data.data;
 }
@@ -108,13 +114,17 @@ export async function getBankList(country: string = "NG"): Promise<
 
 /**
  * Save Step 2 data.
- * POST /onboarding/banking
+ * PATCH /vendors/onboarding/banking-details
  */
 export async function saveBankingDetails(
-  payload: BankingDetailsForm & { bank_code: string }
+  payload: BankingDetailsForm & { bank_code: string; routing_number?: string }
 ): Promise<{ success: boolean }> {
   // INTEGRATION POINT ↓
-  const { data } = await apiClient.post("/onboarding/banking", payload);
+  const { data } = await apiClient.patch("/vendors/onboarding/banking-details", {
+    bankName: payload.bank_name,
+    accountNumber: payload.account_number,
+    routingNumber: payload.routing_number, // Optional
+  });
   return data;
 }
 
@@ -123,8 +133,8 @@ export async function saveBankingDetails(
 // ─────────────────────────────────────────────
 
 /**
- * Upload a single document.
- * POST /onboarding/documents/upload
+ * Upload a single document or change an existing one.
+ * PATCH /vendors/onboarding/documents
  * Content-Type: multipart/form-data
  *
  * Returns presigned URL or stored document reference.
@@ -135,12 +145,12 @@ export async function uploadDocument(
   onProgress?: (pct: number) => void
 ): Promise<{ document_id: string; url: string; file_name: string }> {
   const formData = new FormData();
-  formData.append("type", type);
+  formData.append("documentType", type);
   formData.append("file", file);
 
   // INTEGRATION POINT ↓
   const { data } = await uploadClient.post(
-    "/onboarding/documents/upload",
+    "/vendors/onboarding/documents",
     formData,
     {
       onUploadProgress: (e) => {
@@ -159,7 +169,7 @@ export async function uploadDocument(
 
 /**
  * Final submission — triggers automated KYC checks.
- * POST /onboarding/submit
+ * POST /vendors/onboarding/submit
  *
  * Backend: runs sanctions screening, re-validates bank, creates vendor record.
  * Returns: vendor status (pending_approval)
@@ -169,22 +179,24 @@ export async function submitOnboarding(): Promise<{
   verification: VerificationStatus;
 }> {
   // INTEGRATION POINT ↓
-  const { data } = await apiClient.post("/onboarding/submit");
+  const { data } = await apiClient.post("/vendors/onboarding/submit", {
+    confirm: true,
+  });
   return data.data;
 }
 
 /**
- * Get current onboarding state (for resume / reload).
- * GET /onboarding/state
+ * Get current onboarding state/review.
+ * GET /vendors/onboarding/review
  */
-export async function getOnboardingState(): Promise<{
+export async function getOnboardingReview(): Promise<{
   step: number;
-  business_identity?: BusinessIdentityForm;
-  banking?: BankingDetailsForm;
-  documents?: { type: DocumentType; uploaded: boolean; file_name?: string }[];
+  businessIdentity?: unknown;
+  bankingDetails?: unknown;
+  documents?: unknown;
   submitted: boolean;
 }> {
   // INTEGRATION POINT ↓
-  const { data } = await apiClient.get("/onboarding/state");
+  const { data } = await apiClient.get("/vendors/onboarding/review");
   return data.data;
 }

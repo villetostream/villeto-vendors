@@ -11,13 +11,7 @@ import { OnboardingStepper } from "@/components/onboarding/OnboardingStepper";
 import { Input } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
 import { FormField } from "@/components/ui/Label";
-import {
-  Select,
-  SelectTrigger,
-  SelectValue,
-  SelectContent,
-  SelectItem,
-} from "@/components/ui/Select";
+import { CountrySelect } from "@/components/ui/CountrySelect";
 import { useOnboardingStore } from "@/lib/stores/onboardingStore";
 import { magicLookupBusiness, saveBusinessIdentity } from "@/lib/api/onboarding";
 import { fuzzyMatchScore } from "@/lib/utils";
@@ -33,18 +27,6 @@ const schema = z.object({
 });
 
 type FormData = z.infer<typeof schema>;
-
-const COUNTRIES = [
-  "Nigeria",
-  "Ghana",
-  "Kenya",
-  "South Africa",
-  "United Kingdom",
-  "United States",
-  "Canada",
-  "Scotland",
-  "Other",
-];
 
 type MatchStatus = "idle" | "checking" | "match" | "mismatch";
 
@@ -146,23 +128,28 @@ export default function BusinessIdentityPage() {
   };
 
   return (
-    <div className="w-full max-w-2xl">
-      <OnboardingStepper currentStep="business-identity" />
+    <div className="w-full max-w-2xl flex flex-col h-full">
+      <div className="shrink-0 pb-6">
+        <OnboardingStepper currentStep="business-identity" />
+      </div>
 
-      <div className="bg-white rounded-2xl shadow-sm border border-border/50 p-8">
-        <h2 className="text-2xl font-bold text-foreground mb-1">
-          Business Identity
-        </h2>
-        <p className="text-sm text-muted-foreground mb-8">
-          Enter your official business registration details.
-          {isBusinessNameLocked && (
-            <span className="ml-1 text-primary font-medium">
-              Fields pre-filled from your invitation cannot be changed.
-            </span>
-          )}
-        </p>
+      <div className="bg-white rounded-2xl shadow-sm border border-border/50 flex-1 flex flex-col min-h-0 mb-4">
+        <div className="shrink-0 p-8 pb-4 border-b border-border/30">
+          <h2 className="text-2xl font-bold text-foreground mb-1">
+            Business Identity
+          </h2>
+          <p className="text-sm text-muted-foreground">
+            Enter your official business registration details.
+            {isBusinessNameLocked && (
+              <span className="ml-1 text-primary font-medium">
+                Fields pre-filled from your invitation cannot be changed.
+              </span>
+            )}
+          </p>
+        </div>
 
-        <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
+        <div className="flex-1 overflow-y-auto p-8 pt-6 pr-6">
+          <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
           {/* Business Name — locked if provided by invite */}
           <FormField
             label="Business Name"
@@ -245,23 +232,11 @@ export default function BusinessIdentityPage() {
 
           {/* Country */}
           <FormField label="Country" error={errors.country?.message}>
-            <Select
-              onValueChange={(v) =>
-                setValue("country", v, { shouldValidate: true })
-              }
-              defaultValue={store.businessIdentity.country}
-            >
-              <SelectTrigger error={!!errors.country}>
-                <SelectValue placeholder="Select country" />
-              </SelectTrigger>
-              <SelectContent>
-                {COUNTRIES.map((c) => (
-                  <SelectItem key={c} value={c}>
-                    {c}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <CountrySelect
+              value={watch("country")}
+              onChange={(c) => setValue("country", c.name, { shouldValidate: true })}
+              error={!!errors.country}
+            />
           </FormField>
 
           {/* Business Address */}
@@ -311,6 +286,7 @@ export default function BusinessIdentityPage() {
             </Button>
           </div>
         </form>
+        </div>
       </div>
     </div>
   );

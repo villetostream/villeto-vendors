@@ -54,9 +54,12 @@ export default function DocumentsPage() {
       });
       setUploadState(type, { uploading: false, progress: 100 });
       toast.success(`${file.name} uploaded`);
-    } catch {
-      setUploadState(type, { uploading: false, error: "Upload failed. Try again." });
-      toast.error("Upload failed. Please try again.");
+    } catch (err: unknown) {
+      const msg =
+        (err as { message?: string })?.message ?? "Upload failed. Try again.";
+      console.error("[Documents] upload error:", err);
+      setUploadState(type, { uploading: false, error: msg });
+      toast.error(msg);
     }
   };
 
@@ -77,18 +80,23 @@ export default function DocumentsPage() {
   };
 
   return (
-    <div className="w-full max-w-2xl">
-      <OnboardingStepper currentStep="documents" />
+    <div className="w-full max-w-2xl flex flex-col h-full">
+      <div className="shrink-0 pb-6">
+        <OnboardingStepper currentStep="documents" />
+      </div>
 
-      <div className="bg-white rounded-2xl shadow-sm border border-border/50 p-8">
-        <h2 className="text-2xl font-bold text-foreground mb-1">
-          Document Upload
-        </h2>
-        <p className="text-sm text-muted-foreground mb-8">
-          Upload documents to verify your business identity.
-        </p>
+      <div className="bg-white rounded-2xl shadow-sm border border-border/50 flex-1 flex flex-col min-h-0 mb-4">
+        <div className="shrink-0 p-8 pb-4 border-b border-border/30">
+          <h2 className="text-2xl font-bold text-foreground mb-1">
+            Document Upload
+          </h2>
+          <p className="text-sm text-muted-foreground">
+            Upload documents to verify your business identity.
+          </p>
+        </div>
 
-        <div className="space-y-3">
+        <div className="flex-1 overflow-y-auto p-8 pt-6 pr-6">
+          <div className="space-y-3">
           {store.documents.map((doc) => {
             const state = uploadStates[doc.type] ?? { uploading: false, progress: 0 };
 
@@ -199,6 +207,7 @@ export default function DocumentsPage() {
               <path strokeLinecap="round" strokeLinejoin="round" d="M17 8l4 4m0 0l-4 4m4-4H3" />
             </svg>
           </Button>
+          </div>
         </div>
       </div>
     </div>

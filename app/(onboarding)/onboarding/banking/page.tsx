@@ -15,7 +15,9 @@ import {
   Select, SelectTrigger, SelectValue, SelectContent, SelectItem,
 } from "@/components/ui/Select";
 import { useOnboardingStore } from "@/lib/stores/onboardingStore";
-import { resolveAccountName, getBankList, saveBankingDetails } from "@/lib/api/onboarding";
+import { resolveAccountName, saveBankingDetails } from "@/lib/api/onboarding";
+import { COUNTRIES } from "@/lib/constants/countries";
+import { getBanksForCountry } from "@/lib/constants/banks";
 import { fuzzyMatchScore } from "@/lib/utils";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -23,30 +25,20 @@ import { cn } from "@/lib/utils";
 const schema = z.object({
   bank_code: z.string().min(1, "Select a bank"),
   bank_name: z.string().min(1, "Select a bank"),
-  account_number: z.string().length(10, "Account number must be 10 digits"),
+  routing_number: z.string().optional(),
+  account_number: z.string().min(5, "Account number must be at least 5 digits"),
   flag_note: z.string().optional(),
 });
 
 type FormData = z.infer<typeof schema>;
 
-interface Bank { code: string; name: string; }
-
-// Mock banks — replaced by real getBankList() call
-const MOCK_BANKS: Bank[] = [
-  { code: "057", name: "Zenith bank" },
-  { code: "044", name: "Access Bank" },
-  { code: "058", name: "GTBank" },
-  { code: "011", name: "First Bank" },
-  { code: "033", name: "UBA" },
-  { code: "023", name: "Citibank" },
-  { code: "050", name: "Ecobank" },
-];
+interface Bank { code: string; name: string; routingNumber?: string; }
 
 export default function BankingPage() {
   const router = useRouter();
   const store = useOnboardingStore();
 
-  const [banks, setBanks] = useState<Bank[]>(MOCK_BANKS);
+  const [banks, setBanks] = useState<Bank[]>([]);
   const [resolvedName, setResolvedName] = useState<string>("");
   const [resolving, setResolving] = useState(false);
   const [matchScore, setMatchScore] = useState<number | null>(null);
@@ -63,6 +55,7 @@ export default function BankingPage() {
     defaultValues: {
       bank_code: store.banking.bank_code ?? "",
       bank_name: store.banking.bank_name ?? "",
+      routing_number: store.banking.routing_number ?? "",
       account_number: store.banking.account_number ?? "",
       flag_note: store.banking.flag_note ?? "",
     },
@@ -72,12 +65,35 @@ export default function BankingPage() {
   const accountNumber = watch("account_number");
   const [debouncedAccount] = useDebounce(accountNumber, 700);
 
-  // Load bank list on mount
+  // Load banks synchronously from static list.
+  // Handles three forms store.businessIdentity.country may take:
+  //   "Nigeria"  → name match → "NG"
+  //   "NG"       → direct ISO code (if server stored it that way)
+  //   null/""    → show empty state
   useEffect(() => {
-    getBankList("NG")
-      .then(setBanks)
-      .catch(() => { /* use mock */ });
-  }, []);
+    const raw = store.businessIdentity.country?.trim() ?? "";
+    console.debug("[Banking] country from store:", raw);
+
+    if (!raw) {
+      setBanks([]);
+      return;
+    }
+
+    // Try 1: exact name match ("Nigeria" → "NG")
+    const byName = COUNTRIES.find(
+      (c) => c.name.toLowerCase() === raw.toLowerCase()
+    );
+
+    // Try 2: direct ISO code match ("NG" → "NG")
+    const byCode = !byName
+      ? COUNTRIES.find((c) => c.code.toLowerCase() === raw.toLowerCase())
+      : null;
+
+    const countryCode = byName?.code ?? byCode?.code ?? raw.toUpperCase();
+    const list = getBanksForCountry(countryCode);
+    console.debug("[Banking] resolved code:", countryCode, "banks found:", list.length);
+    setBanks(list);
+  }, [store.businessIdentity.country]);
 
   /**
    * ACCOUNT RESOLVE
@@ -87,7 +103,7 @@ export default function BankingPage() {
    * INTEGRATION POINT: real call in resolveAccountName()
    */
   useEffect(() => {
-    if (!bankCode || debouncedAccount.length !== 10) {
+    if (!bankCode || debouncedAccount.length < 5) {
       setResolvedName("");
       setMatchScore(null);
       return;
@@ -130,39 +146,75 @@ export default function BankingPage() {
   };
 
   return (
-    <div className="w-full max-w-2xl">
-      <OnboardingStepper currentStep="banking" />
+    <div className="w-full max-w-2xl flex flex-col h-full">
+      <div className="shrink-0 pb-6">
+        <OnboardingStepper currentStep="banking" />
+      </div>
 
-      <div className="bg-white rounded-2xl shadow-sm border border-border/50 p-8">
-        <h2 className="text-2xl font-bold text-foreground mb-1">
-          Banking Details
-        </h2>
-        <p className="text-sm text-muted-foreground mb-8">
-          Where should we send your payments?
-        </p>
+      <div className="bg-white rounded-2xl shadow-sm border border-border/50 flex-1 flex flex-col min-h-0 mb-4">
+        <div className="shrink-0 p-8 pb-4 border-b border-border/30">
+          <h2 className="text-2xl font-bold text-foreground mb-1">
+            Banking Details
+          </h2>
+          <p className="text-sm text-muted-foreground">
+            Where should we send your payments?
+          </p>
+        </div>
 
-        <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
-          {/* Bank selector */}
+        <div className="flex-1 overflow-y-auto p-8 pt-6 pr-6">
+          <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
+
+          {/* Bank selector — dropdown if country banks are known, text input fallback otherwise */}
           <FormField label="Bank Name" error={errors.bank_name?.message}>
-            <Select
-              onValueChange={(v) => {
-                const bank = banks.find((b) => b.code === v);
-                setValue("bank_code", v, { shouldValidate: true });
-                setValue("bank_name", bank?.name ?? "", { shouldValidate: true });
-              }}
-              defaultValue={store.banking.bank_code}
-            >
-              <SelectTrigger error={!!errors.bank_name}>
-                <SelectValue placeholder="Select bank" />
-              </SelectTrigger>
-              <SelectContent>
-                {banks.map((b) => (
-                  <SelectItem key={b.code} value={b.code}>
-                    {b.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            {!store.businessIdentity.country ? (
+              <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
+                No country selected. Please{" "}
+                <button
+                  type="button"
+                  className="underline font-medium"
+                  onClick={() => router.push("/onboarding/business-identity")}
+                >
+                  go back and select a country
+                </button>{" "}
+                in the business identity step.
+              </div>
+            ) : banks.length > 0 ? (
+              <Select
+                onValueChange={(v) => {
+                  const bank = banks.find((b) => b.code === v);
+                  setValue("bank_code", v, { shouldValidate: true });
+                  setValue("bank_name", bank?.name ?? "", { shouldValidate: true });
+                  setValue("routing_number", bank?.routingNumber ?? "");
+                }}
+                defaultValue={store.banking.bank_code}
+              >
+                <SelectTrigger error={!!errors.bank_name}>
+                  <SelectValue placeholder="Select your bank" />
+                </SelectTrigger>
+                <SelectContent avoidCollisions sideOffset={6}>
+                  {banks.map((b) => (
+                    <SelectItem key={b.code} value={b.code}>
+                      {b.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            ) : (
+              <div className="space-y-2">
+                <Input
+                  placeholder="Enter your bank name"
+                  error={!!errors.bank_name}
+                  {...register("bank_name", {
+                    onChange: (e) => {
+                      setValue("bank_code", e.target.value.toUpperCase().replace(/\s+/g, "_").slice(0, 12));
+                    },
+                  })}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Banks for <strong>{store.businessIdentity.country}</strong> are not pre-loaded. Please type your bank name directly.
+                </p>
+              </div>
+            )}
           </FormField>
 
           {/* Account number */}
@@ -173,7 +225,6 @@ export default function BankingPage() {
             <div className="relative">
               <Input
                 placeholder="0000000000"
-                maxLength={10}
                 error={!!errors.account_number}
                 {...register("account_number")}
               />
@@ -244,6 +295,7 @@ export default function BankingPage() {
             </Button>
           </div>
         </form>
+        </div>
       </div>
     </div>
   );

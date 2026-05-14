@@ -15,7 +15,7 @@ import { NextRequest, NextResponse } from "next/server";
  *   → Passes through to invite page (Server Component validates there)
  *
  * /onboarding/**
- *   → Must have onboarding_session cookie
+ *   → Must have valid auth_token cookie
  *   → Otherwise redirect /auth/login
  *
  * /(dashboard)/**
@@ -46,6 +46,7 @@ const PROTECTED_ROUTES = [
   "/orders",
   "/invoices",
   "/profile",
+  "/pending",
 ];
 
 /**
@@ -128,13 +129,13 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
-  // ── 3. Onboarding routes — need onboarding_session cookie ─────
+  // ── 3. Onboarding routes — need auth token ─────
   const isOnboardingRoute = ONBOARDING_ROUTES.some((r) =>
     pathname.startsWith(r)
   );
   if (isOnboardingRoute) {
-    const session = request.cookies.get("villeto_onboarding_session")?.value;
-    if (!session) {
+    const authToken = request.cookies.get("villeto_auth_token")?.value;
+    if (!authToken) {
       return NextResponse.redirect(new URL("/auth/login", request.url));
     }
     return NextResponse.next();
