@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { CheckCircle2 } from "lucide-react";
 import * as CheckboxPrimitive from "@radix-ui/react-checkbox";
@@ -10,7 +10,7 @@ import {
   Dialog, DialogContent, DialogTitle,
 } from "@/components/ui/Modal";
 import { useOnboardingStore } from "@/lib/stores/onboardingStore";
-import { submitOnboarding } from "@/lib/api/onboarding";
+import { submitOnboarding, getOnboardingReview } from "@/lib/api/onboarding";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
@@ -20,8 +20,15 @@ export default function ReviewPage() {
   const [confirmed, setConfirmed] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
 
   const uploadedDocs = store.documents.filter((d) => d.uploaded);
+
+  useEffect(() => {
+    getOnboardingReview()
+      .catch((err) => console.error("Failed to fetch review data", err))
+      .finally(() => setIsLoading(false));
+  }, []);
 
   const handleSubmit = async () => {
     if (!confirmed) return;
@@ -43,18 +50,29 @@ export default function ReviewPage() {
 
   return (
     <>
-      <div className="w-full max-w-2xl">
-        <OnboardingStepper currentStep="review" />
+      <div className="w-full max-w-2xl flex flex-col h-full">
+        <div className="shrink-0 pb-6">
+          <OnboardingStepper currentStep="review" />
+        </div>
 
-        <div className="bg-white rounded-2xl shadow-sm border border-border/50 p-8">
-          <h2 className="text-2xl font-bold text-foreground mb-1">
-            Review & Submit
-          </h2>
-          <p className="text-sm text-muted-foreground mb-8">
-            Please confirm your details are correct.
-          </p>
+        <div className="bg-white rounded-2xl shadow-sm border border-border/50 flex-1 flex flex-col min-h-0 mb-4">
+          <div className="shrink-0 p-8 pb-4 border-b border-border/30">
+            <h2 className="text-2xl font-bold text-foreground mb-1">
+              Review &amp; Submit
+            </h2>
+            <p className="text-sm text-muted-foreground">
+              Please confirm your details are correct.
+            </p>
+          </div>
 
-          {/* Summary card */}
+          <div className="flex-1 overflow-y-auto p-8 pt-6 pr-6">
+          {isLoading ? (
+            <div className="flex justify-center items-center py-12">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+            </div>
+          ) : (
+            <>
+              {/* Summary card */}
           <div className="rounded-xl border border-border p-5 space-y-4 mb-5">
             <div className="grid grid-cols-2 gap-4">
               <div>
@@ -124,7 +142,9 @@ export default function ReviewPage() {
               onClick={(e) => e.stopPropagation()}
             >
               <CheckboxPrimitive.Indicator>
-                <CheckCircle2 className="h-3.5 w-3.5 text-white fill-white" />
+                <svg className="h-3.5 w-3.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                </svg>
               </CheckboxPrimitive.Indicator>
             </CheckboxPrimitive.Root>
             <p className="text-sm text-muted-foreground leading-relaxed">
@@ -159,6 +179,9 @@ export default function ReviewPage() {
                 <path strokeLinecap="round" strokeLinejoin="round" d="M17 8l4 4m0 0l-4 4m4-4H3" />
               </svg>
             </Button>
+          </div>
+            </>
+          )}
           </div>
         </div>
       </div>

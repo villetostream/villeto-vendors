@@ -13,7 +13,6 @@ import { FormField } from "@/components/ui/Label";
 import { useOnboardingStore } from "@/lib/stores/onboardingStore";
 import { signUp } from "@/lib/api/auth";
 import { cn } from "@/lib/utils";
-import Cookies from "js-cookie";
 import { toast } from "sonner";
 
 const schema = z
@@ -24,11 +23,11 @@ const schema = z
       .regex(/[A-Z]/, "Must contain uppercase letter")
       .regex(/[a-z]/, "Must contain lowercase letter")
       .regex(/[0-9]/, "Must contain a number"),
-    confirm_password: z.string(),
+    confirmPassword: z.string(),
   })
-  .refine((d) => d.password === d.confirm_password, {
+  .refine((d) => d.password === d.confirmPassword, {
     message: "Passwords do not match",
-    path: ["confirm_password"],
+    path: ["confirmPassword"],
   });
 
 type FormData = z.infer<typeof schema>;
@@ -57,8 +56,7 @@ function SignupContent() {
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
 
-  const isMockSession = Cookies.get("villeto_onboarding_session") === "mock-session";
-  const vendorEmail = isMockSession ? "mock@villeto.com" : emailParam;
+  const vendorEmail = emailParam;
 
   const {
     register,
@@ -79,7 +77,7 @@ function SignupContent() {
       token,
       vendorId: vendorIdParam,
       vendorInvitationId: vendorInvitationIdParam,
-      email: isMockSession ? "mock@villeto.com" : emailParam,
+      email: emailParam,
       displayName: displayNameParam,
       legalName: legalNameParam,
     });
@@ -90,14 +88,18 @@ function SignupContent() {
     legalNameParam,
     vendorIdParam,
     vendorInvitationIdParam,
-    isMockSession,
     router,
     setInviteContext,
   ]);
 
   const onSubmit = async (data: FormData) => {
     try {
-      await signUp({ token, password: data.password, confirm_password: data.confirm_password });
+      await signUp({
+        token,
+        password: data.password,
+        confirmPassword: data.confirmPassword,
+      });
+      toast.success("Account created! Welcome to Villeto 🎉");
       router.push("/onboarding/business-identity");
     } catch (err: unknown) {
       toast.error((err as { message?: string })?.message ?? "Signup failed");
@@ -177,14 +179,14 @@ function SignupContent() {
             <FormField
               label="Confirm Password"
               required
-              error={errors.confirm_password?.message}
+              error={errors.confirmPassword?.message}
             >
               <div className="relative">
                 <Input
                   type={showConfirm ? "text" : "password"}
                   placeholder="••••••••"
-                  error={!!errors.confirm_password}
-                  {...register("confirm_password")}
+                  error={!!errors.confirmPassword}
+                  {...register("confirmPassword")}
                 />
                 <button
                   type="button"

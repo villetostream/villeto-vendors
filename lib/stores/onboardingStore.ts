@@ -71,6 +71,20 @@ interface OnboardingState {
     matchScore: number
   ) => void;
   updateDocument: (type: DocumentType, update: Partial<DocumentState>) => void;
+  /** Hydrate store after login — fills vendor identity + any partial step data from the session */
+  hydrateFromSession: (session: {
+    vendorId: string;
+    email: string;
+    legalName: string;
+    displayName: string;
+    businessIdentity?: {
+      businessName?: string | null;
+      email?: string | null;
+      registrationNumber?: string | null;
+      country?: string | null;
+      businessAddress?: string | null;
+    } | null;
+  }) => void;
   reset: () => void;
 }
 
@@ -94,7 +108,7 @@ const DEFAULT_DOCUMENTS: DocumentState[] = [
     uploaded: false,
   },
   {
-    type: "bank_doc",
+    type: "bank_document",
     label: "Bank Doc (Optional)",
     required: false,
     uploaded: false,
@@ -170,6 +184,54 @@ export const useOnboardingStore = create<OnboardingState>()(
           ),
         })),
 
+      hydrateFromSession: (session) =>
+        set((state) => {
+          const isNewVendor = state.vendorId && state.vendorId !== session.vendorId;
+          const current = isNewVendor ? {} : state.businessIdentity;
+
+          return {
+            vendorId: session.vendorId,
+            vendorEmail: session.email,
+            businessName: session.displayName,
+            legalBusinessName: session.legalName,
+            // Prefer server data if present, fallback to local state (if same vendor), then defaults
+            businessIdentity: {
+              business_name:
+                session.businessIdentity?.businessName ||
+                current.business_name ||
+                session.legalName ||
+                session.displayName ||
+                "",
+              business_email:
+                session.businessIdentity?.email ||
+                current.business_email ||
+                session.email ||
+                "",
+              registration_number:
+                session.businessIdentity?.registrationNumber ||
+                current.registration_number ||
+                "",
+              country:
+                session.businessIdentity?.country ||
+                current.country ||
+                "",
+              business_address:
+                session.businessIdentity?.businessAddress ||
+                current.business_address ||
+                "",
+            },
+            ...(isNewVendor
+              ? {
+                  banking: {},
+                  documents: DEFAULT_DOCUMENTS,
+                  bankResolvedName: null,
+                  bankMatchScore: null,
+                  bankFlagged: false,
+                }
+              : {}),
+          };
+        }),
+
       reset: () =>
         set({
           currentStep: "business-identity",
@@ -202,6 +264,18 @@ export const useOnboardingStore = create<OnboardingState>()(
         bankMatchScore: state.bankMatchScore,
         bankFlagged: state.bankFlagged,
       }),
+      // Bump version whenever persisted shape changes to trigger migrate()
+      version: 2,
+      migrate: (persisted: unknown, fromVersion: number) => {
+        const state = persisted as Record<string, unknown>;
+        // v1 → v2: rename bank_doc → bank_document
+        if (fromVersion < 2 && Array.isArray(state.documents)) {
+          state.documents = (state.documents as Array<Record<string, unknown>>).map((doc) =>
+            doc.type === "bank_doc" ? { ...doc, type: "bank_document" } : doc
+          );
+        }
+        return state;
+      },
     }
   )
 );

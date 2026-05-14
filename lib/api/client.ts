@@ -18,7 +18,7 @@ import Cookies from "js-cookie";
 // ─────────────────────────────────────────────
 
 const BASE_URL =
-  process.env.NEXT_PUBLIC_API_URL ?? "https://api.villeto.app/v1";
+  process.env.NEXT_PUBLIC_API_URL ?? "https://api.villeto.com";
 
 // ─────────────────────────────────────────────
 // CLIENT
@@ -107,3 +107,29 @@ uploadClient.interceptors.request.use((config) => {
   delete config.headers["Content-Type"];
   return config;
 });
+
+uploadClient.interceptors.response.use(
+  (response) => response,
+  async (error: AxiosError) => {
+    const status = error.response?.status;
+
+    if (status === 401) {
+      Cookies.remove("villeto_auth_token");
+      Cookies.remove("villeto_onboarding_session");
+      if (typeof window !== "undefined") {
+        window.location.href = "/auth/login";
+      }
+    }
+
+    const apiError = {
+      message:
+        (error.response?.data as { message?: string })?.message ??
+        error.message ??
+        "Upload failed",
+      status,
+      code: (error.response?.data as { code?: string })?.code,
+    };
+
+    return Promise.reject(apiError);
+  }
+);

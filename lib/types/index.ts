@@ -11,12 +11,23 @@ export type VendorStatus =
   | "flagged"
   | "rejected";
 
+export type ApprovalStatus = "pending" | "approved" | "rejected";
+export type OnboardingStatus =
+  | "not_started"
+  | "in_progress"
+  | "completed"
+  | "submitted"
+  | "under_review"
+  | "pending_approval";
+
 export interface AuthUser {
   id: string;
   email: string;
   business_name: string;
   avatar_url?: string;
   status: VendorStatus;
+  approvalStatus?: ApprovalStatus;
+  onboardingStatus?: OnboardingStatus;
 }
 
 export interface InviteTokenPayload {
@@ -66,7 +77,7 @@ export type DocumentType =
   | "certificate_of_incorporation"
   | "tax_certificate"
   | "government_id"
-  | "bank_doc";
+  | "bank_document";
 
 export interface DocumentUpload {
   type: DocumentType;

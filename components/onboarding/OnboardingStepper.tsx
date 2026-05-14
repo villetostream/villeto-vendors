@@ -1,6 +1,7 @@
 "use client";
 
 import { Check } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
 
 const STEPS = [
@@ -14,16 +15,20 @@ interface OnboardingStepperProps {
   currentStep: string;
   /** extra step shown after submit */
   pendingStep?: boolean;
+  isRejected?: boolean;
 }
 
 export function OnboardingStepper({
   currentStep,
   pendingStep = false,
+  isRejected = false,
 }: OnboardingStepperProps) {
+  const router = useRouter();
+
   const steps = pendingStep
     ? [
         ...STEPS.map((s) => ({ ...s, completed: true })),
-        { key: "pending", label: "Under Review", completed: false },
+        { key: "pending", label: isRejected ? "Rejected" : "Under Review", completed: false },
       ]
     : STEPS;
 
@@ -39,7 +44,17 @@ export function OnboardingStepper({
         return (
           <div key={step.key} className="flex items-center">
             {/* Step circle + label */}
-            <div className="flex flex-col items-center gap-1.5">
+            <div 
+              className={cn(
+                "flex flex-col items-center gap-1.5 relative z-20",
+                isCompleted && (!pendingStep || isRejected) && "cursor-pointer hover:opacity-80 transition-opacity"
+              )}
+              onClick={() => {
+                if (isCompleted && (!pendingStep || isRejected)) {
+                  router.push(`/onboarding/${step.key}`);
+                }
+              }}
+            >
               <div
                 className={cn(
                   "flex h-8 w-8 items-center justify-center rounded-full border-2 text-xs font-semibold transition-all",
@@ -47,7 +62,9 @@ export function OnboardingStepper({
                     ? "bg-primary border-primary text-white"
                     : isCurrent
                     ? pendingStep && step.key === "pending"
-                      ? "bg-amber-500 border-amber-500 text-white"
+                      ? isRejected
+                        ? "bg-red-500 border-red-500 text-white"
+                        : "bg-amber-500 border-amber-500 text-white"
                       : "bg-primary border-primary text-white"
                     : "border-border bg-white text-muted-foreground"
                 )}
@@ -63,7 +80,7 @@ export function OnboardingStepper({
                   "text-xs font-medium whitespace-nowrap",
                   isCurrent
                     ? pendingStep && step.key === "pending"
-                      ? "text-amber-600"
+                      ? isRejected ? "text-red-600" : "text-amber-600"
                       : "text-primary"
                     : isCompleted
                     ? "text-primary"

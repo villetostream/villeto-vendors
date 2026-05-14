@@ -6,7 +6,7 @@ export default function OnboardingLayout({
   children: React.ReactNode;
 }) {
   return (
-    <div className="min-h-screen onboarding-bg relative overflow-hidden">
+    <div className="h-screen flex flex-col onboarding-bg relative overflow-hidden">
       {/* Grid corner decorators — matches figma */}
       <div
         className="pointer-events-none absolute bottom-0 left-0 w-48 h-48 opacity-30"
@@ -26,14 +26,14 @@ export default function OnboardingLayout({
       />
 
       {/* Top nav */}
-      <header className="relative z-10 flex items-center justify-between px-6 py-5">
+      <header className="shrink-0 relative z-10 flex items-center justify-between px-6 py-5">
         <VilletoLogo size="md" />
         {/* User email pill injected by child pages via slot */}
         <div id="onboarding-header-slot" />
       </header>
 
       {/* Main content */}
-      <main className="relative z-10 flex flex-col items-center px-4 pb-16">
+      <main className="flex-1 flex flex-col min-h-0 relative z-10 overflow-hidden items-center justify-start px-4 pt-2 pb-4">
         {children}
       </main>
     </div>

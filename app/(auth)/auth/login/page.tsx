@@ -10,8 +10,9 @@ import { VilletoLogo } from "@/components/shared/VilletoLogo";
 import { Input } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
 import { FormField } from "@/components/ui/Label";
-import { login } from "@/lib/api/auth";
+import { useLogin } from "@/lib/hooks/useAuth";
 import { useAuthStore } from "@/lib/stores/authStore";
+import { useOnboardingStore } from "@/lib/stores/onboardingStore";
 import { toast } from "sonner";
 
 const schema = z.object({
@@ -26,6 +27,7 @@ function LoginContent() {
   const searchParams = useSearchParams();
   const next = searchParams.get("next") ?? "/dashboard";
   const { setUser } = useAuthStore();
+  const { hydrateFromSession } = useOnboardingStore();
   const [showPassword, setShowPassword] = useState(false);
 
   const {
@@ -34,11 +36,63 @@ function LoginContent() {
     formState: { errors, isSubmitting },
   } = useForm<FormData>({ resolver: zodResolver(schema) });
 
+  const loginMutation = useLogin();
+
   const onSubmit = async (data: FormData) => {
     try {
-      const res = await login(data);
-      setUser(res.user);
-      router.push(next);
+      const res = await loginMutation.mutateAsync(data);
+      const vendorData = res.data.data;
+
+      setUser({
+        id: vendorData.vendorId,
+        email: vendorData.email,
+        business_name: vendorData.legalName || vendorData.displayName,
+        status: vendorData.approvalStatus as any,
+        approvalStatus: vendorData.approvalStatus,
+        onboardingStatus: vendorData.onboardingStatus,
+      });
+
+      // Hydrate onboarding store with vendor identity + any partial data from server
+      hydrateFromSession({
+        vendorId: vendorData.vendorId,
+        email: vendorData.email,
+        legalName: vendorData.legalName,
+        displayName: vendorData.displayName,
+        businessIdentity: vendorData.businessIdentity,
+      });
+
+      // ── Route by approval + onboarding status ──────────────────
+      // Only grant dashboard access when fully approved AND onboarding complete
+      if (
+        vendorData.approvalStatus === "approved" &&
+        vendorData.onboardingStatus === "completed"
+      ) {
+        router.push(next);
+        return;
+      }
+
+      // Rejected OR submitted/awaiting review → pending page (shows correct UI)
+      const pendingStatuses = ["completed", "submitted", "under_review", "pending_approval"];
+      if (
+        vendorData.approvalStatus === "rejected" ||
+        pendingStatuses.includes(vendorData.onboardingStatus)
+      ) {
+        router.push("/pending");
+        return;
+      }
+
+      // Still mid-onboarding — resume from where they left off
+      const stepMap: Record<string, string> = {
+        business_identity: "business-identity",
+        banking_details: "banking",
+        documents: "documents",
+        review: "review",
+      };
+
+      const currentStep = vendorData.currentStep || "business_identity";
+      const routeStep = stepMap[currentStep] || "business-identity";
+
+      router.push(`/onboarding/${routeStep}`);
     } catch (err: unknown) {
       toast.error((err as { message?: string })?.message ?? "Invalid email or password");
     }
@@ -109,7 +163,7 @@ function LoginContent() {
               type="submit"
               variant="primary"
               size="lg"
-              loading={isSubmitting}
+              loading={isSubmitting || loginMutation.isPending}
               className="w-full mt-2"
             >
               Login

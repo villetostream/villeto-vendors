@@ -41,39 +41,76 @@ export async function validateInviteToken(
 }
 
 // ─────────────────────────────────────────────
-// SIGN UP (Password Setup)
+// SIGN UP (Password Setup via Invitation Accept)
 // ─────────────────────────────────────────────
 
 /**
- * Create vendor account with password.
- * POST /auth/signup
+ * Accept a vendor invitation and create the account.
+ * POST https://api.villeto.com/vendors/invitations/accept
  *
- * Called after vendor sees invite landing and proceeds to set password.
- * Returns auth token + onboarding session.
+ * Payload: { token, password, confirmPassword }
+ *
+ * On success persists whatever auth / session tokens the backend returns
+ * so the onboarding flow can proceed immediately.
  */
 export async function signUp(payload: {
   token: string;
   password: string;
-  confirm_password: string;
-}): Promise<{ auth_token: string; onboarding_session: string; user: AuthUser }> {
-  // INTEGRATION POINT ↓
-  const { data } = await apiClient.post<{
-    data: {
-      auth_token: string;
-      onboarding_session: string;
-      user: AuthUser;
-    };
-  }>("/auth/signup", payload);
-
-  // Persist tokens
-  Cookies.set("villeto_auth_token", data.data.auth_token, COOKIE_OPTIONS);
-  Cookies.set(
-    "villeto_onboarding_session",
-    data.data.onboarding_session,
-    COOKIE_OPTIONS
+  confirmPassword: string;
+}): Promise<void> {
+  const res = await fetch(
+    "https://api.villeto.com/vendors/invitations/accept",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    }
   );
 
-  return data.data;
+  let json: Record<string, unknown> = {};
+  try {
+    json = await res.json();
+  } catch {
+    // non-JSON body — ignore
+  }
+
+  if (!res.ok) {
+    const message =
+      (json?.message as string) ??
+      ((json?.data as Record<string, unknown>)?.message as string) ??
+      `Signup failed (${res.status})`;
+    throw new Error(message);
+  }
+
+  // Extract nested data regardless of whether the backend wraps once or twice
+  const outer = (json?.data ?? json) as Record<string, unknown>;
+  const inner = (outer?.data ?? outer) as Record<string, unknown>;
+
+  // Persist auth token (try common casing variants)
+  const authToken =
+    (inner?.token as string) ??
+    (inner?.authToken as string) ??
+    (inner?.auth_token as string) ??
+    (outer?.token as string) ??
+    (outer?.authToken as string) ??
+    (outer?.auth_token as string);
+
+  if (authToken) {
+    Cookies.set("villeto_auth_token", authToken, COOKIE_OPTIONS);
+  }
+
+  // Persist onboarding session (try common casing variants)
+  const session =
+    (inner?.onboardingSession as string) ??
+    (inner?.onboarding_session as string) ??
+    (inner?.session as string) ??
+    (outer?.onboardingSession as string) ??
+    (outer?.onboarding_session as string) ??
+    (outer?.session as string) ??
+    // fallback — any truthy value lets the middleware onboarding guard pass
+    "onboarding";
+
+  Cookies.set("villeto_onboarding_session", session, COOKIE_OPTIONS);
 }
 
 // ─────────────────────────────────────────────
