@@ -13,6 +13,7 @@ import { FormField } from "@/components/ui/Label";
 import { useLogin } from "@/lib/hooks/useAuth";
 import { useAuthStore } from "@/lib/stores/authStore";
 import { useOnboardingStore } from "@/lib/stores/onboardingStore";
+import { ApprovalStatus, OnboardingStatus, VendorStatus } from "@/lib/types";
 import { toast } from "sonner";
 
 const schema = z.object({
@@ -47,9 +48,9 @@ function LoginContent() {
         id: vendorData.vendorId,
         email: vendorData.email,
         business_name: vendorData.legalName || vendorData.displayName,
-        status: vendorData.approvalStatus as any,
-        approvalStatus: vendorData.approvalStatus,
-        onboardingStatus: vendorData.onboardingStatus,
+        status: vendorData.status as VendorStatus,
+        approvalStatus: vendorData.approvalStatus as ApprovalStatus,
+        onboardingStatus: vendorData.onboardingStatus as OnboardingStatus,
       });
 
       // Hydrate onboarding store with vendor identity + any partial data from server

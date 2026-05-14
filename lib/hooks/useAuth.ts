@@ -2,7 +2,6 @@
 
 import { useMutation, type UseMutationResult } from "@tanstack/react-query";
 import { apiClient } from "@/lib/api/client";
-import { AuthUser } from "@/lib/types";
 import Cookies from "js-cookie";
 
 interface LoginPayload {
@@ -26,9 +25,9 @@ interface LoginResponse {
       status: string;
       isPaymentEnabled: boolean;
       currentStep: string;
-      businessIdentity: Record<string, any>;
-      bankingDetails: Record<string, any>;
-      documents: Record<string, any>;
+      businessIdentity: Record<string, unknown>;
+      bankingDetails: Record<string, unknown>;
+      documents: Record<string, unknown>;
     };
   };
 }

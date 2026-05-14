@@ -1,5 +1,4 @@
 import Link from "next/link";
-import { VilletoLogo } from "@/components/shared/VilletoLogo";
 import { Clock } from "lucide-react";
 
 export default function InviteExpiredPage() {

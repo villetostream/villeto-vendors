@@ -69,6 +69,7 @@ export interface BusinessIdentityForm {
 export interface BankingDetailsForm {
   bank_name: string;
   account_number: string;
+  routing_number?: string;
   account_name?: string; // resolved from API
   flag_note?: string; // if name mismatch, vendor can add note
 }

@@ -191,9 +191,9 @@ export async function submitOnboarding(): Promise<{
  */
 export async function getOnboardingReview(): Promise<{
   step: number;
-  businessIdentity?: any;
-  bankingDetails?: any;
-  documents?: any;
+  businessIdentity?: unknown;
+  bankingDetails?: unknown;
+  documents?: unknown;
   submitted: boolean;
 }> {
   // INTEGRATION POINT ↓
