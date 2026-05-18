@@ -146,7 +146,7 @@ export async function login(payload: {
 export async function logout(): Promise<void> {
   try {
     // INTEGRATION POINT ↓
-    await apiClient.post("/auth/logout");
+    await apiClient.post("/vendors/auth/logout");
   } finally {
     Cookies.remove("villeto_auth_token");
     Cookies.remove("villeto_onboarding_session");

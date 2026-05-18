@@ -149,7 +149,7 @@ export async function uploadDocument(
   formData.append("file", file);
 
   // INTEGRATION POINT ↓
-  const { data } = await uploadClient.post(
+  const { data } = await uploadClient.patch(
     "/vendors/onboarding/documents",
     formData,
     {
