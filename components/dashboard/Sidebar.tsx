@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
@@ -10,6 +11,13 @@ import { useAuthStore } from "@/lib/stores/authStore";
 import { logout } from "@/lib/api/auth";
 import { cn, getInitials } from "@/lib/utils";
 import { toast } from "sonner";
+import {
+  Dialog,
+  DialogContent,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/Modal";
+import { Button } from "@/components/ui/Button";
 
 import Image from "next/image";
 
@@ -24,14 +32,18 @@ export function Sidebar() {
   const pathname = usePathname();
   const router = useRouter();
   const { user, clearAuth } = useAuthStore();
+  const [logoutModalOpen, setLogoutModalOpen] = useState(false);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
 
   const handleLogout = async () => {
+    setIsLoggingOut(true);
     try {
       await logout();
       clearAuth();
       router.push("/auth/login");
     } catch {
       toast.error("Logout failed");
+      setIsLoggingOut(false);
     }
   };
 
@@ -89,13 +101,39 @@ export function Sidebar() {
         </div>
 
         <button
-          onClick={handleLogout}
+          onClick={() => setLogoutModalOpen(true)}
           className="flex w-full items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-muted-foreground hover:bg-red-50 hover:text-red-600 transition-all"
         >
           <LogOut size={18} />
           Sign out
         </button>
       </div>
+
+      <Dialog open={logoutModalOpen} onOpenChange={setLogoutModalOpen}>
+        <DialogContent size="sm">
+          <DialogTitle className="mb-2">Sign out</DialogTitle>
+          <DialogDescription className="mb-6">
+            Are you sure you want to sign out of your account?
+          </DialogDescription>
+          <div className="flex gap-3 justify-end">
+            <Button
+              variant="outline"
+              onClick={() => setLogoutModalOpen(false)}
+              disabled={isLoggingOut}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              className="bg-red-600 hover:bg-red-700 focus:ring-red-600 border-none"
+              onClick={handleLogout}
+              loading={isLoggingOut}
+            >
+              Sign out
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </aside>
   );
 }
