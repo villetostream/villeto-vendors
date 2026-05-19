@@ -42,6 +42,7 @@ export default function BankingPage() {
   const [resolvedName, setResolvedName] = useState<string>("");
   const [resolving, setResolving] = useState(false);
   const [matchScore, setMatchScore] = useState<number | null>(null);
+  const [isNavigating, setIsNavigating] = useState(false);
   const isFlagged = matchScore !== null && matchScore < 90;
 
   const {
@@ -139,8 +140,10 @@ export default function BankingPage() {
         resolvedName,
         matchScore ?? 100
       );
+      setIsNavigating(true);
       router.push("/onboarding/documents");
     } catch (err: unknown) {
+      setIsNavigating(false);
       toast.error((err as { message?: string })?.message ?? "Failed to save banking details.");
     }
   };
@@ -284,7 +287,7 @@ export default function BankingPage() {
               type="submit"
               variant="primary"
               size="lg"
-              loading={isSubmitting}
+              loading={isSubmitting || isNavigating}
               disabled={resolving}
               className="flex-1"
             >

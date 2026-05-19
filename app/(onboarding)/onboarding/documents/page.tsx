@@ -71,11 +71,14 @@ export default function DocumentsPage() {
   const requiredDocs = store.documents.filter((d) => d.required);
   const allRequiredUploaded = requiredDocs.every((d) => d.uploaded);
 
+  const [isNavigating, setIsNavigating] = useState(false);
+
   const handleContinue = () => {
     if (!allRequiredUploaded) {
       toast.error("Please upload all required documents.");
       return;
     }
+    setIsNavigating(true);
     router.push("/onboarding/review");
   };
 
@@ -198,7 +201,8 @@ export default function DocumentsPage() {
             type="button"
             variant="primary"
             size="lg"
-            disabled={!allRequiredUploaded}
+            disabled={!allRequiredUploaded || isNavigating}
+            loading={isNavigating}
             className="flex-1"
             onClick={handleContinue}
           >

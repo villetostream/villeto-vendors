@@ -35,6 +35,7 @@ export default function BusinessIdentityPage() {
   const store = useOnboardingStore();
   const [matchStatus, setMatchStatus] = useState<MatchStatus>("idle");
   const [resolvedName, setResolvedName] = useState("");
+  const [isNavigating, setIsNavigating] = useState(false);
 
   // The invite gave us both a display name and a legal/registered name.
   // legalBusinessName is the canonical value to pre-fill (e.g. "Acme Supplies Limited").
@@ -119,8 +120,10 @@ export default function BusinessIdentityPage() {
     try {
       await saveBusinessIdentity(data);
       store.saveBusinessIdentity(data);
+      setIsNavigating(true);
       router.push("/onboarding/banking");
     } catch (err: unknown) {
+      setIsNavigating(false);
       toast.error(
         (err as { message?: string })?.message ?? "Failed to save. Please try again."
       );
@@ -266,7 +269,7 @@ export default function BusinessIdentityPage() {
               type="submit"
               variant="primary"
               size="lg"
-              loading={isSubmitting}
+              loading={isSubmitting || isNavigating}
               className="flex-1"
             >
               Continue

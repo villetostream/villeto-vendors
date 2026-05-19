@@ -22,6 +22,7 @@ interface LoginResponse {
       displayName: string;
       onboardingStatus: string;
       approvalStatus: string;
+      decisionNote?: string | null;
       status: string;
       isPaymentEnabled: boolean;
       currentStep: string;

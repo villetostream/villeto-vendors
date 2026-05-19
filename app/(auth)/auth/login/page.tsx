@@ -30,6 +30,7 @@ function LoginContent() {
   const { setUser } = useAuthStore();
   const { hydrateFromSession } = useOnboardingStore();
   const [showPassword, setShowPassword] = useState(false);
+  const [isNavigating, setIsNavigating] = useState(false);
 
   const {
     register,
@@ -51,6 +52,7 @@ function LoginContent() {
         status: vendorData.status as VendorStatus,
         approvalStatus: vendorData.approvalStatus as ApprovalStatus,
         onboardingStatus: vendorData.onboardingStatus as OnboardingStatus,
+        decisionNote: vendorData.decisionNote,
       });
 
       // Hydrate onboarding store with vendor identity + any partial data from server
@@ -61,6 +63,8 @@ function LoginContent() {
         displayName: vendorData.displayName,
         businessIdentity: vendorData.businessIdentity,
       });
+
+      setIsNavigating(true);
 
       // ── Route by approval + onboarding status ──────────────────
       // Only grant dashboard access when fully approved AND onboarding complete
@@ -95,6 +99,7 @@ function LoginContent() {
 
       router.push(`/onboarding/${routeStep}`);
     } catch (err: unknown) {
+      setIsNavigating(false);
       toast.error((err as { message?: string })?.message ?? "Invalid email or password");
     }
   };
@@ -164,7 +169,7 @@ function LoginContent() {
               type="submit"
               variant="primary"
               size="lg"
-              loading={isSubmitting || loginMutation.isPending}
+              loading={isSubmitting || loginMutation.isPending || isNavigating}
               className="w-full mt-2"
             >
               Login
