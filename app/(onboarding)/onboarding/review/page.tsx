@@ -43,7 +43,10 @@ export default function ReviewPage() {
     }
   };
 
+  const [isNavigating, setIsNavigating] = useState(false);
+
   const handleSuccessClose = () => {
+    setIsNavigating(true);
     setShowSuccess(false);
     router.push("/pending");
   };
@@ -229,6 +232,8 @@ export default function ReviewPage() {
               variant="primary"
               size="lg"
               className="w-full"
+              loading={isNavigating}
+              disabled={isNavigating}
               onClick={handleSuccessClose}
             >
               Close

@@ -28,6 +28,7 @@ export interface AuthUser {
   status: VendorStatus;
   approvalStatus?: ApprovalStatus;
   onboardingStatus?: OnboardingStatus;
+  decisionNote?: string | null;
 }
 
 export interface InviteTokenPayload {

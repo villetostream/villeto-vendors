@@ -206,6 +206,13 @@ export default function PendingPage() {
             )}
           </p>
 
+          {isRejected && user?.decisionNote && (
+            <div className="rounded-xl border border-red-200 bg-red-50 p-4 shrink-0">
+              <h3 className="text-sm font-semibold text-red-800 mb-1">Reason for Rejection</h3>
+              <p className="text-sm text-red-700">{user.decisionNote}</p>
+            </div>
+          )}
+
           {/* Message card — grows to fill remaining space */}
           <div
             className={cn(
