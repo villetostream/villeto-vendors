@@ -14,7 +14,7 @@ import { getMe } from "@/lib/api/auth";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
-const POLL_INTERVAL_MS = 10_000; // 10 seconds
+const POLL_INTERVAL_MS = 5_000; // 5 seconds
 
 const schema = z.object({
   message: z.string().min(1, "Message cannot be empty"),
@@ -89,6 +89,18 @@ export default function PendingPage() {
       try {
         const freshUser = await getMe();
         setUser(freshUser);
+
+        // Keep cookie in sync for middleware
+        const status = freshUser.approvalStatus;
+        if (status) {
+          import("js-cookie").then((Cookies) => {
+            Cookies.default.set("villeto_approval_status", status, {
+              expires: 7,
+              secure: process.env.NODE_ENV === "production",
+              sameSite: "Lax",
+            });
+          });
+        }
 
         // Auto-redirect when approved AND onboarding completed
         if (

@@ -50,6 +50,11 @@ export const useLogin = (): UseMutationResult<LoginResponse, Error, LoginPayload
       if (token) {
         Cookies.set("villeto_auth_token", token, COOKIE_OPTIONS);
       }
+      
+      const approvalStatus = loginData?.data?.data?.approvalStatus;
+      if (approvalStatus) {
+        Cookies.set("villeto_approval_status", approvalStatus, COOKIE_OPTIONS);
+      }
 
       return loginData;
     },
