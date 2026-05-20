@@ -123,8 +123,12 @@ export async function middleware(request: NextRequest) {
   // ── 2. Already logged-in → skip login page ────────────────────
   if (pathname === "/auth/login") {
     const authToken = request.cookies.get("villeto_auth_token")?.value;
+    const approvalStatus = request.cookies.get("villeto_approval_status")?.value;
+
     if (authToken) {
-      return NextResponse.redirect(new URL("/dashboard", request.url));
+      // If approved, go to dashboard. Otherwise go to pending (safety first)
+      const destination = approvalStatus === "approved" ? "/dashboard" : "/pending";
+      return NextResponse.redirect(new URL(destination, request.url));
     }
     return NextResponse.next();
   }
@@ -150,6 +154,19 @@ export async function middleware(request: NextRequest) {
       loginUrl.searchParams.set("next", pathname);
       return NextResponse.redirect(loginUrl);
     }
+
+    // Protection for dashboard routes — unapproved vendors should be at /pending
+    const isDashboardRoute = pathname.startsWith("/dashboard") || 
+                             pathname.startsWith("/orders") || 
+                             pathname.startsWith("/invoices");
+    
+    if (isDashboardRoute && pathname !== "/pending") {
+      const approvalStatus = request.cookies.get("villeto_approval_status")?.value;
+      if (approvalStatus !== "approved") {
+        return NextResponse.redirect(new URL("/pending", request.url));
+      }
+    }
+
     return NextResponse.next();
   }
 

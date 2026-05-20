@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, Suspense } from "react";
+import { useState, useEffect, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -31,6 +31,20 @@ function LoginContent() {
   const { hydrateFromSession } = useOnboardingStore();
   const [showPassword, setShowPassword] = useState(false);
   const [isNavigating, setIsNavigating] = useState(false);
+
+  // ── Redirect if already authenticated ───────────────────────
+  const { user, isAuthenticated, isLoading } = useAuthStore();
+  
+  useEffect(() => {
+    if (isLoading || !isAuthenticated || !user || isNavigating) return;
+
+    const nextPath = next || "/dashboard";
+    if (user.approvalStatus === "approved" && user.onboardingStatus === "completed") {
+      router.replace(nextPath);
+    } else if (user.approvalStatus === "rejected" || ["completed", "submitted", "under_review", "pending_approval"].includes(user.onboardingStatus || "")) {
+      router.replace("/pending");
+    }
+  }, [user, isAuthenticated, isLoading, isNavigating, router, next]);
 
   const {
     register,
@@ -66,38 +80,38 @@ function LoginContent() {
 
       setIsNavigating(true);
 
-      // ── Route by approval + onboarding status ──────────────────
-      // Only grant dashboard access when fully approved AND onboarding complete
-      if (
-        vendorData.approvalStatus === "approved" &&
-        vendorData.onboardingStatus === "completed"
-      ) {
-        router.push(next);
-        return;
-      }
+      // Give a small delay to ensure cookie is set and state is updated before push
+      setTimeout(() => {
+        // ── Route by approval + onboarding status ──────────────────
+        if (
+          vendorData.approvalStatus === "approved" &&
+          vendorData.onboardingStatus === "completed"
+        ) {
+          router.push(next);
+          return;
+        }
 
-      // Rejected OR submitted/awaiting review → pending page (shows correct UI)
-      const pendingStatuses = ["completed", "submitted", "under_review", "pending_approval"];
-      if (
-        vendorData.approvalStatus === "rejected" ||
-        pendingStatuses.includes(vendorData.onboardingStatus)
-      ) {
-        router.push("/pending");
-        return;
-      }
+        const pendingStatuses = ["completed", "submitted", "under_review", "pending_approval"];
+        if (
+          vendorData.approvalStatus === "rejected" ||
+          pendingStatuses.includes(vendorData.onboardingStatus || "")
+        ) {
+          router.push("/pending");
+          return;
+        }
 
-      // Still mid-onboarding — resume from where they left off
-      const stepMap: Record<string, string> = {
-        business_identity: "business-identity",
-        banking_details: "banking",
-        documents: "documents",
-        review: "review",
-      };
+        const stepMap: Record<string, string> = {
+          business_identity: "business-identity",
+          banking_details: "banking",
+          documents: "documents",
+          review: "review",
+        };
 
-      const currentStep = vendorData.currentStep || "business_identity";
-      const routeStep = stepMap[currentStep] || "business-identity";
+        const currentStep = vendorData.currentStep || "business_identity";
+        const routeStep = stepMap[currentStep] || "business-identity";
 
-      router.push(`/onboarding/${routeStep}`);
+        router.push(`/onboarding/${routeStep}`);
+      }, 100);
     } catch (err: unknown) {
       setIsNavigating(false);
       toast.error((err as { message?: string })?.message ?? "Invalid email or password");

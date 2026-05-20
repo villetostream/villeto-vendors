@@ -23,7 +23,16 @@ function AuthInitializer({ children }: { children: React.ReactNode }) {
     }
 
     getMe()
-      .then(setUser)
+      .then((user) => {
+        setUser(user);
+        if (user.approvalStatus) {
+          Cookies.set("villeto_approval_status", user.approvalStatus, {
+            expires: 7,
+            secure: process.env.NODE_ENV === "production",
+            sameSite: "Lax",
+          });
+        }
+      })
       .catch(() => clearAuth());
   }, [setUser, clearAuth, setLoading]);
 
