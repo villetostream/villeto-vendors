@@ -41,7 +41,7 @@ function LoginContent() {
     const nextPath = next || "/dashboard";
     if (user.approvalStatus === "approved" && user.onboardingStatus === "completed") {
       router.replace(nextPath);
-    } else if (user.approvalStatus === "rejected" || ["completed", "submitted", "under_review", "pending_approval"].includes(user.onboardingStatus)) {
+    } else if (user.approvalStatus === "rejected" || ["completed", "submitted", "under_review", "pending_approval"].includes(user.onboardingStatus || "")) {
       router.replace("/pending");
     }
   }, [user, isAuthenticated, isLoading, isNavigating, router, next]);
@@ -94,7 +94,7 @@ function LoginContent() {
         const pendingStatuses = ["completed", "submitted", "under_review", "pending_approval"];
         if (
           vendorData.approvalStatus === "rejected" ||
-          pendingStatuses.includes(vendorData.onboardingStatus)
+          pendingStatuses.includes(vendorData.onboardingStatus || "")
         ) {
           router.push("/pending");
           return;
