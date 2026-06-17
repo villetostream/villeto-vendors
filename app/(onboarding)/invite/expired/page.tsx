@@ -16,7 +16,7 @@ export default function InviteExpiredPage() {
       <main className="relative z-10 flex items-center justify-center px-4">
         <div className="w-full max-w-md bg-white rounded-2xl shadow-sm border border-border/50 p-8 flex flex-col items-center text-center">
           <div className="flex h-16 w-16 items-center justify-center rounded-full bg-amber-50 mb-5">
-            <Clock className="h-8 w-8 text-amber-500" />
+            <Clock className="h-8 w-8 text-amber-500" aria-hidden="true" />
           </div>
           <h1 className="text-xl font-bold text-foreground mb-2">
             Invitation Link Expired

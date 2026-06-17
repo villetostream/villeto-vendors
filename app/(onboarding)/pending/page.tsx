@@ -19,7 +19,7 @@ import { AUTH_COOKIE_NAMES, AUTH_COOKIE_OPTIONS } from "@/lib/constants/auth";
 const POLL_INTERVAL_MS = 5_000; // 5 seconds
 
 const schema = z.object({
-  message: z.string().min(1, "Message cannot be empty"),
+  message: z.string().trim().min(1, "Message cannot be empty"),
 });
 
 type FormData = z.infer<typeof schema>;
@@ -31,7 +31,7 @@ function TimerAnimation({ rejected }: { rejected: boolean }) {
   const ring = rejected ? "bg-red-100" : "bg-amber-100";
 
   return (
-    <div className={cn("relative h-14 w-14 rounded-full flex items-center justify-center shrink-0", bg)}>
+    <div className={cn("relative h-14 w-14 rounded-full flex items-center justify-center shrink-0", bg)} aria-hidden="true">
       <div className={cn("h-10 w-10 rounded-full flex items-center justify-center", ring)}>
         {rejected ? (
           <XCircle className="h-5 w-5 text-red-500" />
@@ -83,6 +83,16 @@ export default function PendingPage() {
   const isRejected = user?.approvalStatus === "rejected";
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  // Polling is set up once (see effect below) but needs to compare against
+  // the *latest* user on every tick, not whatever it was when the interval
+  // was created — a ref (rather than the `user` value itself) avoids that
+  // stale-closure trap without having to tear down/recreate the interval
+  // every time the user object changes.
+  const userRef = useRef(user);
+  useEffect(() => {
+    userRef.current = user;
+  }, [user]);
+
   const [sent, setSent] = useState(false);
 
   // ── Real-time approval status polling ──────────────────────────
@@ -90,7 +100,19 @@ export default function PendingPage() {
     const poll = async () => {
       try {
         const freshUser = await getMe();
-        setUser(freshUser);
+        const current = userRef.current;
+
+        // Only push a new object into the store (and trigger downstream
+        // re-renders for every component reading useAuthStore) when
+        // something the UI actually cares about has changed.
+        const meaningfullyChanged =
+          freshUser.approvalStatus !== current?.approvalStatus ||
+          freshUser.onboardingStatus !== current?.onboardingStatus ||
+          freshUser.decisionNote !== current?.decisionNote;
+
+        if (meaningfullyChanged) {
+          setUser(freshUser);
+        }
 
         // Keep cookie in sync for middleware
         const status = freshUser.approvalStatus;
@@ -274,7 +296,7 @@ export default function PendingPage() {
                 loading={isSubmitting}
                 className="w-full shrink-0 gap-2"
               >
-                <Send className="h-4 w-4" />
+                <Send className="h-4 w-4" aria-hidden="true" />
                 Send Message
               </Button>
             </form>

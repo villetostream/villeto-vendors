@@ -10,7 +10,7 @@
 import { apiClient } from "./client";
 import { AuthUser, InviteTokenPayload } from "@/lib/types";
 import Cookies from "js-cookie";
-import { AUTH_COOKIE_OPTIONS, AUTH_COOKIE_NAMES } from "@/lib/constants/auth";
+import { AUTH_COOKIE_OPTIONS, AUTH_COOKIE_NAMES, ACTIVE_ORG_STORAGE_KEY } from "@/lib/constants/auth";
 
 // ─────────────────────────────────────────────
 // INVITE TOKEN
@@ -40,7 +40,7 @@ export async function validateInviteToken(
 
 /**
  * Accept a vendor invitation and create the account.
- * POST https://api.villeto.com/vendors/invitations/accept
+ * POST /vendors/invitations/accept
  *
  * Payload: { token, password, confirmPassword }
  *
@@ -52,32 +52,14 @@ export async function signUp(payload: {
   password: string;
   confirmPassword: string;
 }): Promise<void> {
-  const res = await fetch(
-    "https://api.villeto.com/vendors/invitations/accept",
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    }
+  // INTEGRATION POINT ↓
+  const { data: json } = await apiClient.post<Record<string, unknown>>(
+    "/vendors/invitations/accept",
+    payload
   );
 
-  let json: Record<string, unknown> = {};
-  try {
-    json = await res.json();
-  } catch {
-    // non-JSON body — ignore
-  }
-
-  if (!res.ok) {
-    const message =
-      (json?.message as string) ??
-      ((json?.data as Record<string, unknown>)?.message as string) ??
-      `Signup failed (${res.status})`;
-    throw new Error(message);
-  }
-
   // Extract nested data regardless of whether the backend wraps once or twice
-  const outer = (json?.data ?? json) as Record<string, unknown>;
+  const outer = (json?.data ?? json ?? {}) as Record<string, unknown>;
   const inner = (outer?.data ?? outer) as Record<string, unknown>;
 
   // Persist auth token (try common casing variants)
@@ -124,7 +106,7 @@ export async function logout(): Promise<void> {
     Cookies.remove(AUTH_COOKIE_NAMES.onboardingSession);
     Cookies.remove(AUTH_COOKIE_NAMES.approvalStatus);
     if (typeof window !== "undefined") {
-      localStorage.removeItem("villeto_active_org_id");
+      localStorage.removeItem(ACTIVE_ORG_STORAGE_KEY);
     }
   }
 }

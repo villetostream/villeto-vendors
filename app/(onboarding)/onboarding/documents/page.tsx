@@ -2,7 +2,7 @@
 
 import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { CheckCircle2, FileText, X } from "lucide-react";
+import { CheckCircle2, FileText, X, ArrowRight } from "lucide-react";
 import { OnboardingStepper } from "@/components/onboarding/OnboardingStepper";
 import { Button } from "@/components/ui/Button";
 import { useOnboardingStore } from "@/lib/stores/onboardingStore";
@@ -33,7 +33,21 @@ export default function DocumentsPage() {
     });
   };
 
+  const ALLOWED_EXTENSIONS = [".pdf", ".jpg", ".jpeg", ".png"];
+  const ALLOWED_MIME_TYPES = ["application/pdf", "image/jpeg", "image/png"];
+
   const handleFileSelect = async (type: DocumentType, file: File) => {
+    // The <input accept> attribute only hints the OS file picker — it
+    // doesn't actually block a user from selecting "All files" and
+    // choosing something else, so validate type explicitly here too.
+    const extension = `.${file.name.split(".").pop()?.toLowerCase() ?? ""}`;
+    const isAllowedType =
+      ALLOWED_MIME_TYPES.includes(file.type) || ALLOWED_EXTENSIONS.includes(extension);
+    if (!isAllowedType) {
+      toast.error("Only PDF, JPG, or PNG files are allowed.");
+      return;
+    }
+
     // Validate file size (10MB max)
     if (file.size > 10 * 1024 * 1024) {
       toast.error("File must be under 10MB");
@@ -115,10 +129,10 @@ export default function DocumentsPage() {
               >
                 <div className="flex items-center gap-3 min-w-0">
                   {doc.uploaded ? (
-                    <CheckCircle2 className="h-5 w-5 text-primary shrink-0" />
+                    <CheckCircle2 className="h-5 w-5 text-primary shrink-0" aria-hidden="true" />
                   ) : (
                     <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-muted shrink-0">
-                      <FileText className="h-4 w-4 text-muted-foreground" />
+                      <FileText className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
                     </div>
                   )}
                   <div className="min-w-0">
@@ -133,7 +147,14 @@ export default function DocumentsPage() {
                     </p>
                     {/* Upload progress */}
                     {state.uploading && (
-                      <div className="mt-1.5 h-1 w-32 rounded-full bg-muted overflow-hidden">
+                      <div
+                        className="mt-1.5 h-1 w-32 rounded-full bg-muted overflow-hidden"
+                        role="progressbar"
+                        aria-label={`Uploading ${doc.label}`}
+                        aria-valuenow={state.progress}
+                        aria-valuemin={0}
+                        aria-valuemax={100}
+                      >
                         <div
                           className="h-full bg-primary rounded-full transition-all"
                           style={{ width: `${state.progress}%` }}
@@ -150,15 +171,17 @@ export default function DocumentsPage() {
                   {doc.uploaded && (
                     <button
                       onClick={() => handleRemove(doc.type)}
+                      aria-label={`Remove ${doc.label}`}
                       className="p-1 text-muted-foreground hover:text-red-500 transition-colors"
                     >
-                      <X className="h-3.5 w-3.5" />
+                      <X className="h-3.5 w-3.5" aria-hidden="true" />
                     </button>
                   )}
                   <button
                     type="button"
                     disabled={state.uploading}
                     onClick={() => fileRefs.current[doc.type]?.click()}
+                    aria-label={doc.uploaded ? `Change ${doc.label}` : `Upload ${doc.label}`}
                     className={cn(
                       "px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors",
                       doc.uploaded
@@ -167,9 +190,13 @@ export default function DocumentsPage() {
                       state.uploading && "opacity-50 cursor-not-allowed"
                     )}
                   >
-                    {state.uploading ? "Uploading..." : doc.uploaded ? "Change" : "upload"}
+                    {state.uploading ? "Uploading..." : doc.uploaded ? "Change" : "Upload"}
                   </button>
+                  <label htmlFor={`doc-upload-${doc.type}`} className="sr-only">
+                    Upload {doc.label}
+                  </label>
                   <input
+                    id={`doc-upload-${doc.type}`}
                     ref={(el) => { fileRefs.current[doc.type] = el; }}
                     type="file"
                     accept=".pdf,.jpg,.jpeg,.png"
@@ -207,9 +234,7 @@ export default function DocumentsPage() {
             onClick={handleContinue}
           >
             Continue
-            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M17 8l4 4m0 0l-4 4m4-4H3" />
-            </svg>
+            <ArrowRight className="h-4 w-4" aria-hidden="true" />
           </Button>
           </div>
         </div>

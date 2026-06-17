@@ -1,0 +1,42 @@
+"use client";
+
+import { useEffect } from "react";
+import Link from "next/link";
+import { AlertTriangle } from "lucide-react";
+import { Button } from "@/components/ui/Button";
+
+export default function OnboardingError({
+  error,
+  reset,
+}: {
+  error: Error & { digest?: string };
+  reset: () => void;
+}) {
+  useEffect(() => {
+    // INTEGRATION POINT: send to an error-tracking service (Sentry, etc.)
+    console.error("Onboarding segment error:", error);
+  }, [error]);
+
+  return (
+    <div className="flex flex-col items-center justify-center min-h-screen px-4 text-center">
+      <div className="flex h-14 w-14 items-center justify-center rounded-full bg-red-50 mb-4">
+        <AlertTriangle className="h-6 w-6 text-red-500" aria-hidden="true" />
+      </div>
+      <h2 className="text-base font-semibold text-foreground mb-1">
+        Something went wrong
+      </h2>
+      <p className="text-sm text-muted-foreground max-w-sm mb-6">
+        An unexpected error occurred while loading this step. Your progress
+        on previous steps is safe — you can try again.
+      </p>
+      <div className="flex gap-3">
+        <Button variant="outline" asChild>
+          <Link href="/auth/login">Back to login</Link>
+        </Button>
+        <Button variant="primary" onClick={reset}>
+          Try again
+        </Button>
+      </div>
+    </div>
+  );
+}

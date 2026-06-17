@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import { cookies } from "next/headers";
-import { ShieldCheck } from "lucide-react";
+import { ShieldCheck, ArrowRight, AlertCircle } from "lucide-react";
 import { VilletoLogo } from "@/components/shared/VilletoLogo";
 
 interface InvitePageProps {
@@ -23,9 +23,22 @@ interface InvitePreviewData {
   isConsumed: boolean;
 }
 
+type InviteResult =
+  | { ok: true; data: InvitePreviewData }
+  // "invalid": backend has definitively confirmed the invite doesn't exist,
+  // is expired, or is already consumed → safe to send to /invite/expired
+  // with its "request a new invite" messaging.
+  | { ok: false; reason: "invalid" }
+  // "transient": the request itself failed (network error, timeout, 5xx,
+  // unparseable response) → we don't actually know the invite's real
+  // status, so it would be wrong to tell the vendor it's expired.
+  | { ok: false; reason: "transient" };
+
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "https://api.villeto.com";
+
 /**
  * Validate the invite token by calling the backend preview endpoint.
- * POST https://api.villeto.com/vendors/invitations/preview
+ * POST {API_BASE_URL}/vendors/invitations/preview
  * Body: { token: string }
  *
  * The backend returns:
@@ -38,27 +51,38 @@ interface InvitePreviewData {
  *   }
  * }
  */
-async function validateInviteToken(token: string): Promise<InvitePreviewData> {
-  const res = await fetch("https://api.villeto.com/vendors/invitations/preview", {
-    method: "POST",
-    body: JSON.stringify({ token }),
-    headers: { "Content-Type": "application/json" },
-    cache: "no-store",
-  });
-
-  if (!res.ok) {
-    throw new Error(`API error: ${res.status}`);
+async function validateInviteToken(token: string): Promise<InviteResult> {
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE_URL}/vendors/invitations/preview`, {
+      method: "POST",
+      body: JSON.stringify({ token }),
+      headers: { "Content-Type": "application/json" },
+      cache: "no-store",
+    });
+  } catch {
+    // Network failure — couldn't even reach the backend.
+    return { ok: false, reason: "transient" };
   }
 
-  const json = await res.json();
-  // Response shape: { data: { data: InvitePreviewData } }
-  const data: InvitePreviewData = json?.data?.data;
+  if (!res.ok) {
+    // 404/410 are reasonable signals the invite genuinely doesn't exist /
+    // is gone; anything else (5xx, rate limiting, etc.) is transient.
+    return { ok: false, reason: res.status === 404 || res.status === 410 ? "invalid" : "transient" };
+  }
 
-  if (!data) throw new Error("Empty response from invitation API");
-  if (data.isExpired) throw new Error("Invitation has expired");
-  if (data.isConsumed) throw new Error("Invitation has already been used");
+  let json: { data?: { data?: InvitePreviewData } };
+  try {
+    json = await res.json();
+  } catch {
+    return { ok: false, reason: "transient" };
+  }
 
-  return data;
+  const data = json?.data?.data;
+  if (!data) return { ok: false, reason: "transient" };
+  if (data.isExpired || data.isConsumed) return { ok: false, reason: "invalid" };
+
+  return { ok: true, data };
 }
 
 export default async function InvitePage({ searchParams }: InvitePageProps) {
@@ -76,13 +100,18 @@ export default async function InvitePage({ searchParams }: InvitePageProps) {
     redirect("/auth/login");
   }
 
-  let invite: InvitePreviewData;
-  try {
-    invite = await validateInviteToken(token);
-  } catch {
-    // Expired, consumed, or backend error → show expired page
-    redirect("/invite/expired");
+  const result = await validateInviteToken(token);
+
+  if (!result.ok) {
+    if (result.reason === "invalid") {
+      redirect("/invite/expired");
+    }
+    // Transient failure — stay on this URL and let the vendor retry
+    // instead of telling them (possibly wrongly) that their invite expired.
+    return <InviteLoadError token={token} />;
   }
+
+  const invite = result.data;
 
   // Build the CTA href carrying all invite fields so the signup page
   // can populate the onboarding store without another API call.
@@ -134,7 +163,7 @@ export default async function InvitePage({ searchParams }: InvitePageProps) {
           {/* Vendor info card */}
           <div className="w-full rounded-xl border border-border bg-muted/30 p-4 flex items-center gap-4 mb-8">
             <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10 shrink-0">
-              <ShieldCheck className="h-5 w-5 text-primary" />
+              <ShieldCheck className="h-5 w-5 text-primary" aria-hidden="true" />
             </div>
             <div className="text-left">
               <p className="text-sm font-semibold text-foreground">
@@ -150,19 +179,35 @@ export default async function InvitePage({ searchParams }: InvitePageProps) {
             className="w-full h-13 flex items-center justify-center gap-2 bg-primary text-white rounded-xl font-medium text-sm hover:bg-primary/90 transition-colors"
           >
             Start Vendor Setup
-            <svg
-              className="h-4 w-4"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-              strokeWidth={2}
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M17 8l4 4m0 0l-4 4m4-4H3"
-              />
-            </svg>
+            <ArrowRight className="h-4 w-4" aria-hidden="true" />
+          </Link>
+        </div>
+      </main>
+    </div>
+  );
+}
+
+function InviteLoadError({ token }: { token: string }) {
+  return (
+    <div className="min-h-screen onboarding-bg flex flex-col relative overflow-hidden">
+      <main className="relative z-10 flex flex-1 items-center justify-center px-4 pb-16">
+        <div className="w-full max-w-md bg-white rounded-2xl shadow-sm border border-border/50 p-8 flex flex-col items-center text-center">
+          <VilletoLogo size="md" className="mb-6" />
+          <div className="flex h-14 w-14 items-center justify-center rounded-full bg-amber-50 mb-4">
+            <AlertCircle className="h-6 w-6 text-amber-500" aria-hidden="true" />
+          </div>
+          <h1 className="text-xl font-bold text-foreground mb-2">
+            Couldn&apos;t load your invitation
+          </h1>
+          <p className="text-sm text-muted-foreground mb-8 max-w-xs">
+            We had trouble reaching our servers just now. Your invitation
+            link itself looks fine — please try again in a moment.
+          </p>
+          <Link
+            href={`/invite?token=${encodeURIComponent(token)}`}
+            className="w-full h-13 flex items-center justify-center gap-2 bg-primary text-white rounded-xl font-medium text-sm hover:bg-primary/90 transition-colors"
+          >
+            Try again
           </Link>
         </div>
       </main>

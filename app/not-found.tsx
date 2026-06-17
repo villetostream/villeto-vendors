@@ -10,10 +10,10 @@ export default function NotFound() {
         The page you&apos;re looking for doesn&apos;t exist.
       </p>
       <Link
-        href="/dashboard"
+        href="/"
         className="px-5 py-2.5 bg-primary text-white rounded-xl text-sm font-medium hover:bg-primary/90 transition-colors"
       >
-        Back to Dashboard
+        Go back
       </Link>
     </div>
   );

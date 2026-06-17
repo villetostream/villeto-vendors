@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Eye, EyeOff } from "lucide-react";
+import { Eye, EyeOff, ArrowRight } from "lucide-react";
 import { VilletoLogo } from "@/components/shared/VilletoLogo";
 import { Input } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
@@ -80,38 +80,35 @@ function LoginContent() {
 
       setIsNavigating(true);
 
-      // Give a small delay to ensure cookie is set and state is updated before push
-      setTimeout(() => {
-        // ── Route by approval + onboarding status ──────────────────
-        if (
-          vendorData.approvalStatus === "approved" &&
-          vendorData.onboardingStatus === "completed"
-        ) {
-          router.push(next);
-          return;
-        }
+      // ── Route by approval + onboarding status ──────────────────
+      if (
+        vendorData.approvalStatus === "approved" &&
+        vendorData.onboardingStatus === "completed"
+      ) {
+        router.push(next);
+        return;
+      }
 
-        const pendingStatuses = ["completed", "submitted", "under_review", "pending_approval"];
-        if (
-          vendorData.approvalStatus === "rejected" ||
-          pendingStatuses.includes(vendorData.onboardingStatus || "")
-        ) {
-          router.push("/pending");
-          return;
-        }
+      const pendingStatuses = ["completed", "submitted", "under_review", "pending_approval"];
+      if (
+        vendorData.approvalStatus === "rejected" ||
+        pendingStatuses.includes(vendorData.onboardingStatus || "")
+      ) {
+        router.push("/pending");
+        return;
+      }
 
-        const stepMap: Record<string, string> = {
-          business_identity: "business-identity",
-          banking_details: "banking",
-          documents: "documents",
-          review: "review",
-        };
+      const stepMap: Record<string, string> = {
+        business_identity: "business-identity",
+        banking_details: "banking",
+        documents: "documents",
+        review: "review",
+      };
 
-        const currentStep = vendorData.currentStep || "business_identity";
-        const routeStep = stepMap[currentStep] || "business-identity";
+      const currentStep = vendorData.currentStep || "business_identity";
+      const routeStep = stepMap[currentStep] || "business-identity";
 
-        router.push(`/onboarding/${routeStep}`);
-      }, 100);
+      router.push(`/onboarding/${routeStep}`);
     } catch (err: unknown) {
       setIsNavigating(false);
       toast.error((err as { message?: string })?.message ?? "Invalid email or password");
@@ -140,7 +137,7 @@ function LoginContent() {
             Sign in as a Vendor
           </h1>
           <p className="text-sm text-muted-foreground text-center mb-8">
-            Set a password and continue your registration process
+            Enter your credentials to access your vendor account
           </p>
 
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
@@ -153,6 +150,7 @@ function LoginContent() {
                 type="email"
                 placeholder="Enter email address"
                 error={!!errors.email}
+                autoComplete="email"
                 {...register("email")}
               />
             </FormField>
@@ -167,14 +165,16 @@ function LoginContent() {
                   type={showPassword ? "text" : "password"}
                   placeholder="Enter password"
                   error={!!errors.password}
+                  autoComplete="current-password"
                   {...register("password")}
                 />
                 <button
                   type="button"
+                  aria-label={showPassword ? "Hide password" : "Show password"}
                   className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
                   onClick={() => setShowPassword((v) => !v)}
                 >
-                  {showPassword ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
+                  {showPassword ? <Eye className="h-4 w-4" aria-hidden="true" /> : <EyeOff className="h-4 w-4" aria-hidden="true" />}
                 </button>
               </div>
             </FormField>
@@ -187,9 +187,7 @@ function LoginContent() {
               className="w-full mt-2"
             >
               Login
-              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M17 8l4 4m0 0l-4 4m4-4H3" />
-              </svg>
+              <ArrowRight className="h-4 w-4" aria-hidden="true" />
             </Button>
           </form>
         </div>

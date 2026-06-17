@@ -6,7 +6,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useDebounce } from "use-debounce";
-import { AlertCircle, Loader2 } from "lucide-react";
+import { AlertCircle, Loader2, ArrowRight } from "lucide-react";
 import { OnboardingStepper } from "@/components/onboarding/OnboardingStepper";
 import { Input } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
@@ -73,7 +73,6 @@ export default function BankingPage() {
   //   null/""    → show empty state
   useEffect(() => {
     const raw = store.businessIdentity.country?.trim() ?? "";
-    console.debug("[Banking] country from store:", raw);
 
     if (!raw) {
       setBanks([]);
@@ -92,14 +91,14 @@ export default function BankingPage() {
 
     const countryCode = byName?.code ?? byCode?.code ?? raw.toUpperCase();
     const list = getBanksForCountry(countryCode);
-    console.debug("[Banking] resolved code:", countryCode, "banks found:", list.length);
     setBanks(list);
   }, [store.businessIdentity.country]);
 
   /**
    * ACCOUNT RESOLVE
-   * Fires when bank + 10-digit account number are both present.
+   * Fires when bank + 5+ digit account number are both present.
    * Resolves account holder name, then fuzzy-matches against business name.
+   * Submission is blocked below a 90-point match score unless a note is added.
    *
    * INTEGRATION POINT: real call in resolveAccountName()
    */
@@ -110,24 +109,38 @@ export default function BankingPage() {
       return;
     }
 
+    // Guards against a slow/late response overwriting state set by a more
+    // recent request (e.g. the vendor kept typing while the first request
+    // was still in flight).
+    let isStale = false;
+
     setResolving(true);
     resolveAccountName({ bank_code: bankCode, account_number: debouncedAccount })
       .then((res) => {
+        if (isStale) return;
         setResolvedName(res.account_name);
         const businessName = store.businessIdentity.business_name ?? "";
         const score = fuzzyMatchScore(businessName, res.account_name);
         setMatchScore(score);
       })
       .catch(() => {
+        if (isStale) return;
         setResolvedName("");
         setMatchScore(null);
         toast.error("Could not resolve account name. Check details and try again.");
       })
-      .finally(() => setResolving(false));
+      .finally(() => {
+        if (!isStale) setResolving(false);
+      });
+
+    return () => {
+      isStale = true;
+    };
   }, [bankCode, debouncedAccount, store.businessIdentity.business_name]);
 
   const onSubmit = async (data: FormData) => {
-    // Block submission if name is a total mismatch (score < 50) AND no note
+    // Block submission if the resolved account name doesn't reasonably
+    // match the business name (score < 90) unless the vendor adds a note.
     if (isFlagged && !data.flag_note?.trim()) {
       toast.error("Please add a note explaining the name mismatch before continuing.");
       return;
@@ -233,7 +246,8 @@ export default function BankingPage() {
               />
               {resolving && (
                 <div className="absolute right-3 top-1/2 -translate-y-1/2">
-                  <Loader2 className="h-4 w-4 animate-spin text-primary" />
+                  <Loader2 className="h-4 w-4 animate-spin text-primary" aria-hidden="true" />
+                  <span className="sr-only" role="status">Resolving account name…</span>
                 </div>
               )}
             </div>
@@ -253,7 +267,7 @@ export default function BankingPage() {
           {isFlagged && resolvedName && (
             <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 space-y-3">
               <div className="flex items-start gap-2">
-                <AlertCircle className="h-4 w-4 text-amber-600 mt-0.5 shrink-0" />
+                <AlertCircle className="h-4 w-4 text-amber-600 mt-0.5 shrink-0" aria-hidden="true" />
                 <div>
                   <p className="text-sm font-semibold text-amber-800">Flagged</p>
                   <p className="text-xs text-amber-700 mt-0.5">
@@ -292,9 +306,7 @@ export default function BankingPage() {
               className="flex-1"
             >
               Continue
-              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M17 8l4 4m0 0l-4 4m4-4H3" />
-              </svg>
+              <ArrowRight className="h-4 w-4" aria-hidden="true" />
             </Button>
           </div>
         </form>

@@ -6,7 +6,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useDebounce } from "use-debounce";
-import { CheckCircle2, XCircle, Loader2 } from "lucide-react";
+import { CheckCircle2, XCircle, Loader2, ArrowRight } from "lucide-react";
 import { OnboardingStepper } from "@/components/onboarding/OnboardingStepper";
 import { Input } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
@@ -86,9 +86,11 @@ export default function BusinessIdentityPage() {
     }
 
     setMatchStatus("checking");
+    let isStale = false;
 
     magicLookupBusiness(debouncedReg)
       .then((result) => {
+        if (isStale) return;
         setResolvedName(result.business_name);
         prevResolvedRef.current = result.business_name;
 
@@ -104,8 +106,12 @@ export default function BusinessIdentityPage() {
         setMatchStatus(score >= 70 ? "match" : "mismatch");
       })
       .catch(() => {
-        setMatchStatus("idle");
+        if (!isStale) setMatchStatus("idle");
       });
+
+    return () => {
+      isStale = true;
+    };
   }, [debouncedReg, debouncedName, setValue]);
 
   // Re-check name match when the name field changes
@@ -175,27 +181,30 @@ export default function BusinessIdentityPage() {
               {matchStatus !== "idle" && (
                 <div className="absolute right-3 top-1/2 -translate-y-1/2">
                   {matchStatus === "checking" && (
-                    <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" aria-hidden="true" />
+                      <span className="sr-only" role="status">Checking registration records…</span>
+                    </>
                   )}
                   {matchStatus === "match" && (
-                    <CheckCircle2 className="h-4 w-4 text-green-500" />
+                    <CheckCircle2 className="h-4 w-4 text-green-500" aria-hidden="true" />
                   )}
                   {matchStatus === "mismatch" && (
-                    <XCircle className="h-4 w-4 text-red-500" />
+                    <XCircle className="h-4 w-4 text-red-500" aria-hidden="true" />
                   )}
                 </div>
               )}
             </div>
             {matchStatus === "mismatch" && resolvedName && (
               <p className="text-xs text-red-500 mt-1.5 flex items-center gap-1">
-                <XCircle className="h-3 w-3 shrink-0" />
+                <XCircle className="h-3 w-3 shrink-0" aria-hidden="true" />
                 Name does not match registration records. Found:{" "}
                 <strong>&quot;{resolvedName}&quot;</strong>
               </p>
             )}
             {matchStatus === "match" && (
               <p className="text-xs text-green-600 mt-1.5 flex items-center gap-1">
-                <CheckCircle2 className="h-3 w-3 shrink-0" />
+                <CheckCircle2 className="h-3 w-3 shrink-0" aria-hidden="true" />
                 Name matches registration records
               </p>
             )}
@@ -227,7 +236,7 @@ export default function BusinessIdentityPage() {
               />
               {matchStatus === "checking" && (
                 <div className="absolute right-3 top-1/2 -translate-y-1/2">
-                  <Loader2 className="h-4 w-4 animate-spin text-primary" />
+                  <Loader2 className="h-4 w-4 animate-spin text-primary" aria-hidden="true" />
                 </div>
               )}
             </div>
@@ -273,19 +282,7 @@ export default function BusinessIdentityPage() {
               className="flex-1"
             >
               Continue
-              <svg
-                className="h-4 w-4"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-                strokeWidth={2}
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M17 8l4 4m0 0l-4 4m4-4H3"
-                />
-              </svg>
+              <ArrowRight className="h-4 w-4" aria-hidden="true" />
             </Button>
           </div>
         </form>
