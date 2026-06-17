@@ -1,18 +1,17 @@
 "use client";
 
 import { use, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, Edit, Download, Trash2 } from "lucide-react";
-import { useQuery } from "@tanstack/react-query";
-import { getInvoice } from "@/lib/api/invoices";
-import { queryKeys, useOrgStore } from "@/lib/stores/orgStore";
 import { Button } from "@/components/ui/Button";
 import { InvoiceStatusBadge } from "@/components/ui/StatusBadge";
-import { PageSpinner } from "@/components/ui/Spinner";
+import { Skeleton } from "@/components/ui/Skeleton";
+import { ErrorState, EmptyState } from "@/components/ui/Spinner";
 import {
   Dialog, DialogContent, DialogTitle, DialogDescription,
 } from "@/components/ui/Modal";
-import { useDeleteInvoice, useDownloadInvoice } from "@/lib/hooks/useInvoices";
+import { useInvoice, useDeleteInvoice, useDownloadInvoice } from "@/lib/hooks/useInvoices";
 import { formatDate, formatDateTime, formatCurrency, cn } from "@/lib/utils";
 import { InvoiceStatus } from "@/lib/types";
 
@@ -35,6 +34,36 @@ function getWorkflowIndex(status: InvoiceStatus): number {
   return map[status] ?? 0;
 }
 
+function InvoiceDetailSkeleton() {
+  return (
+    <div className="space-y-5">
+      <div className="flex items-center gap-3">
+        <Skeleton className="h-8 w-8 rounded-xl" />
+        <div className="space-y-2">
+          <Skeleton className="h-5 w-40" />
+          <Skeleton className="h-3 w-28" />
+        </div>
+      </div>
+      <div className="grid grid-cols-1 lg:grid-cols-[1fr_260px] gap-5">
+        <div className="bg-white rounded-2xl border border-dashboard-border p-6 space-y-4">
+          <Skeleton className="h-5 w-32" />
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-5">
+            <Skeleton className="h-10 w-full" />
+            <Skeleton className="h-10 w-full" />
+            <Skeleton className="h-10 w-full" />
+            <Skeleton className="h-10 w-full" />
+          </div>
+        </div>
+        <div className="bg-white rounded-2xl border border-dashboard-border p-5 space-y-3">
+          <Skeleton className="h-5 w-32" />
+          <Skeleton className="h-12 w-full" />
+          <Skeleton className="h-12 w-full" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function InvoiceDetailPage({
   params,
 }: {
@@ -42,43 +71,65 @@ export default function InvoiceDetailPage({
 }) {
   const { id } = use(params);
   const router = useRouter();
-  const orgId = useOrgStore((s) => s.activeOrgId) ?? "";
 
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
-  const { data: invoice, isLoading } = useQuery({
-    queryKey: queryKeys.invoice(orgId, id),
-    queryFn: () => getInvoice(id),
-    enabled: !!orgId,
-    placeholderData: MOCK_INVOICE,
-  });
+  const { data: invoice, isLoading, isError, refetch } = useInvoice(id);
 
   const deleteInvoice = useDeleteInvoice();
   const downloadInvoice = useDownloadInvoice();
 
-  if (isLoading) return <PageSpinner />;
-  if (!invoice) return null;
+  if (isLoading) return <InvoiceDetailSkeleton />;
+
+  if (isError) {
+    return (
+      <ErrorState
+        message="Couldn't load this invoice. Please try again."
+        onRetry={() => refetch()}
+      />
+    );
+  }
+
+  if (!invoice) {
+    return (
+      <EmptyState
+        title="Invoice not found"
+        description="This invoice may have been removed, or you may not have access to it."
+        action={
+          <Button asChild variant="outline" size="sm">
+            <Link href="/invoices">Back to invoices</Link>
+          </Button>
+        }
+      />
+    );
+  }
 
   const workflowIdx = getWorkflowIndex(invoice.status);
   const canEdit = invoice.status === "draft" || invoice.status === "pending";
   const canDelete = invoice.status === "draft";
 
   const handleDelete = async () => {
-    await deleteInvoice.mutateAsync(invoice.id);
-    router.push("/invoices");
+    try {
+      await deleteInvoice.mutateAsync(invoice.id);
+      router.push("/invoices");
+    } catch {
+      // useDeleteInvoice's onError already toasts; keep the dialog open
+      // so the vendor can retry instead of being dropped back to the list.
+    }
   };
 
   return (
     <>
       <div className="space-y-5">
         {/* Header */}
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-3">
             <button
               onClick={() => router.back()}
-              className="p-1.5 rounded-xl hover:bg-muted transition-colors"
+              aria-label="Go back"
+              className="p-1.5 rounded-xl hover:bg-muted transition-colors shrink-0"
             >
-              <ArrowLeft className="h-4 w-4 text-muted-foreground" />
+              <ArrowLeft className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
             </button>
             <div>
               <div className="flex items-center gap-2.5">
@@ -100,7 +151,7 @@ export default function InvoiceDetailPage({
                 variant="outline"
                 onClick={() => router.push(`/invoices/create?edit=${invoice.id}`)}
               >
-                <Edit className="h-4 w-4" />
+                <Edit className="h-4 w-4" aria-hidden="true" />
                 Edit Invoice
               </Button>
             )}
@@ -114,7 +165,7 @@ export default function InvoiceDetailPage({
                 })
               }
             >
-              <Download className="h-4 w-4" />
+              <Download className="h-4 w-4" aria-hidden="true" />
               Download PDF
             </Button>
           </div>
@@ -320,32 +371,3 @@ export default function InvoiceDetailPage({
     </>
   );
 }
-
-const MOCK_INVOICE = {
-  id: "1",
-  invoice_number: "In-234-53",
-  org_id: "org1",
-  organization: "ABC Enterprise",
-  related_po: "PO-2024-001",
-  status: "pending" as const,
-  payment_status: "pending" as const,
-  submission_date: "2024-03-15",
-  amount: 200000,
-  tax_rate: 0,
-  subtotal: 200000,
-  total_amount: 200000,
-  delivery_date: "2024-04-15",
-  items: [
-    { id: "i1", name: "Heavy Duty Pallets", quantity: 10, unit_price: 4000, total: 40000 },
-    { id: "i2", name: "Industrial Shrink Wrap", quantity: 10, unit_price: 4000, total: 40000 },
-    { id: "i3", name: "Heavy Duty Pallets", quantity: 10, unit_price: 4000, total: 40000 },
-    { id: "i4", name: "Industrial Shrink Wrap", quantity: 10, unit_price: 4000, total: 40000 },
-    { id: "i5", name: "Heavy Duty Pallets", quantity: 10, unit_price: 4000, total: 40000 },
-  ],
-  workflow: [
-    { status: "submitted", label: "Submitted", completed: true, timestamp: "2025-09-10T19:07:00Z" },
-    { status: "under_review", label: "Under Review", completed: false },
-    { status: "approved", label: "Approved", completed: false },
-    { status: "paid", label: "Paid", completed: false },
-  ],
-};

@@ -150,6 +150,16 @@ body {
   background: #9ca3af;
 }
 
+/* Hides the scrollbar on horizontally-scrollable tab rows (mobile status
+   tabs in Orders/Invoices) while keeping native scroll/swipe behavior. */
+.scrollbar-none {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+}
+
 /* Status badge utilities */
 .status-badge {
   @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium;

@@ -1,15 +1,16 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Search, Filter, ChevronDown } from "lucide-react";
-import { useQuery } from "@tanstack/react-query";
-import { getOrders } from "@/lib/api/orders";
-import { queryKeys, useOrgStore } from "@/lib/stores/orgStore";
+import { Search, Filter, ChevronDown, MoreVertical } from "lucide-react";
+import { useDebounce } from "use-debounce";
+import { useOrders } from "@/lib/hooks/useOrders";
+import { useOrgStore } from "@/lib/stores/orgStore";
 import { OrderStatusBadge, PriorityBadge } from "@/components/ui/StatusBadge";
-import { PageSpinner, EmptyState } from "@/components/ui/Spinner";
-import { formatDate } from "@/lib/utils";
-import { cn } from "@/lib/utils";
+import { TableSkeleton } from "@/components/ui/Skeleton";
+import { EmptyState, ErrorState } from "@/components/ui/Spinner";
+import { Pagination } from "@/components/ui/Pagination";
+import { formatDate, cn } from "@/lib/utils";
 import { OrderStatus } from "@/lib/types";
 
 const STATUS_TABS: { label: string; value: OrderStatus | "all" }[] = [
@@ -20,31 +21,37 @@ const STATUS_TABS: { label: string; value: OrderStatus | "all" }[] = [
   { label: "Invoiced", value: "invoiced" },
 ];
 
+const ORDERS_COLUMNS = ["PO Number", "Organization", "Issue Date", "Priority", "Deadline", "Status", "Action"];
+
 const PER_PAGE_OPTIONS = [4, 10, 25, 50];
 
 export default function OrdersPage() {
-  const orgId = useOrgStore((s) => s.activeOrgId) ?? "";
+  const activeOrg = useOrgStore((s) => s.activeOrg);
   const [activeTab, setActiveTab] = useState<OrderStatus | "all">("all");
   const [search, setSearch] = useState("");
+  const [debouncedSearch] = useDebounce(search, 400);
   const [page, setPage] = useState(1);
   const [perPage, setPerPage] = useState(4);
 
+  // Filter/tab/page-size changes should always reset back to page 1,
+  // otherwise a user filtering down to fewer results can get stuck on a
+  // page number that no longer exists.
+  useEffect(() => {
+    setPage(1);
+  }, [activeTab, debouncedSearch, perPage]);
+
   const filters = {
     status: activeTab === "all" ? undefined : activeTab,
-    search: search || undefined,
+    search: debouncedSearch || undefined,
     page,
     per_page: perPage,
   };
 
-  const { data, isLoading } = useQuery({
-    queryKey: queryKeys.orders(orgId, filters),
-    queryFn: () => getOrders(filters),
-    enabled: !!orgId,
-  });
+  const { data, isLoading, isError, refetch, isFetching } = useOrders(filters);
 
-  const orders = data?.data ?? MOCK_ORDERS;
-  const total = data?.total ?? MOCK_ORDERS.length;
-  const totalPages = data?.total_pages ?? Math.ceil(total / perPage);
+  const orders = data?.data ?? [];
+  const total = data?.total ?? 0;
+  const totalPages = data?.total_pages ?? Math.max(1, Math.ceil(total / perPage));
 
   return (
     <div className="space-y-5">
@@ -57,18 +64,19 @@ export default function OrdersPage() {
       </div>
       <p className="text-sm text-muted-foreground -mt-3">
         Manage and track your purchase orders from{" "}
-        <strong>Global Logistics Corp</strong>.
+        <strong>{activeOrg?.name ?? "your organisation"}</strong>.
       </p>
 
       {/* Main card */}
       <div className="bg-white rounded-2xl border border-dashboard-border overflow-hidden">
         {/* Tabs + Search row */}
-        <div className="flex items-center justify-between px-5 pt-4 pb-0 border-b border-dashboard-border gap-4">
+        <div className="flex flex-col gap-3 px-5 pt-4 pb-3 border-b border-dashboard-border sm:flex-row sm:items-center sm:justify-between sm:gap-4 sm:pb-0">
           <div className="flex items-center gap-1 overflow-x-auto scrollbar-none">
             {STATUS_TABS.map((tab) => (
               <button
                 key={tab.value}
-                onClick={() => { setActiveTab(tab.value); setPage(1); }}
+                onClick={() => setActiveTab(tab.value)}
+                aria-current={activeTab === tab.value ? "true" : undefined}
                 className={cn(
                   "px-4 py-2.5 text-sm font-medium whitespace-nowrap border-b-2 transition-colors",
                   activeTab === tab.value
@@ -81,36 +89,54 @@ export default function OrdersPage() {
             ))}
           </div>
           <div className="flex items-center gap-2 shrink-0 pb-2">
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+            <div className="relative flex-1 sm:flex-initial">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" aria-hidden="true" />
+              <label htmlFor="order-search" className="sr-only">Search orders</label>
               <input
+                id="order-search"
                 type="text"
                 placeholder="Search..."
                 value={search}
-                onChange={(e) => { setSearch(e.target.value); setPage(1); }}
-                className="h-9 pl-8 pr-3 rounded-xl border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary w-44"
+                onChange={(e) => setSearch(e.target.value)}
+                className="h-9 pl-8 pr-3 rounded-xl border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary w-full sm:w-44"
               />
             </div>
-            <button className="h-9 px-3 rounded-xl border border-border text-sm text-muted-foreground flex items-center gap-1.5 hover:bg-muted transition-colors">
-              <Filter className="h-3.5 w-3.5" />
-              Filter
-              <ChevronDown className="h-3.5 w-3.5" />
+            <button
+              type="button"
+              aria-label="Filter orders"
+              className="h-9 px-3 rounded-xl border border-border text-sm text-muted-foreground flex items-center gap-1.5 hover:bg-muted transition-colors shrink-0"
+            >
+              <Filter className="h-3.5 w-3.5" aria-hidden="true" />
+              <span className="hidden sm:inline">Filter</span>
+              <ChevronDown className="h-3.5 w-3.5" aria-hidden="true" />
             </button>
           </div>
         </div>
 
         {/* Table */}
         {isLoading ? (
-          <div className="py-10"><PageSpinner /></div>
+          <TableSkeleton rows={perPage} columns={ORDERS_COLUMNS.length} />
+        ) : isError ? (
+          <ErrorState
+            message="Couldn't load orders. Please check your connection and try again."
+            onRetry={() => refetch()}
+          />
         ) : orders.length === 0 ? (
-          <EmptyState title="No orders found" description="Orders assigned to you will appear here." />
+          <EmptyState
+            title={debouncedSearch || activeTab !== "all" ? "No matching orders" : "No orders yet"}
+            description={
+              debouncedSearch || activeTab !== "all"
+                ? "Try adjusting your search or filter."
+                : "Orders assigned to you will appear here."
+            }
+          />
         ) : (
-          <div className="overflow-x-auto">
+          <div className={cn("overflow-x-auto transition-opacity", isFetching && "opacity-60")}>
             <table className="w-full">
               <thead>
                 <tr className="border-b border-dashboard-border">
-                  {["PO Number", "Organization", "Issue Date", "Priority", "Deadline", "Status", "Action"].map((col) => (
-                    <th key={col} className="px-5 py-3 text-left text-xs font-medium text-muted-foreground">
+                  {ORDERS_COLUMNS.map((col) => (
+                    <th key={col} className="px-5 py-3 text-left text-xs font-medium text-muted-foreground whitespace-nowrap">
                       {col}
                     </th>
                   ))}
@@ -119,17 +145,19 @@ export default function OrdersPage() {
               <tbody>
                 {orders.map((order) => (
                   <tr key={order.id} className="border-b border-dashboard-border/60 hover:bg-muted/30 transition-colors">
-                    <td className="px-5 py-3.5 text-sm font-semibold">{order.po_number}</td>
-                    <td className="px-5 py-3.5 text-sm text-muted-foreground">{order.organization}</td>
-                    <td className="px-5 py-3.5 text-sm text-muted-foreground">{formatDate(order.issue_date)}</td>
+                    <td className="px-5 py-3.5 text-sm font-semibold whitespace-nowrap">{order.po_number}</td>
+                    <td className="px-5 py-3.5 text-sm text-muted-foreground whitespace-nowrap">{order.organization}</td>
+                    <td className="px-5 py-3.5 text-sm text-muted-foreground whitespace-nowrap">{formatDate(order.issue_date)}</td>
                     <td className="px-5 py-3.5"><PriorityBadge priority={order.priority} /></td>
-                    <td className="px-5 py-3.5 text-sm text-muted-foreground">{formatDate(order.deadline)}</td>
+                    <td className="px-5 py-3.5 text-sm text-muted-foreground whitespace-nowrap">{formatDate(order.deadline)}</td>
                     <td className="px-5 py-3.5"><OrderStatusBadge status={order.status} /></td>
                     <td className="px-5 py-3.5">
-                      <Link href={`/orders/${order.id}`} className="p-1.5 rounded-lg hover:bg-muted inline-flex transition-colors">
-                        <svg className="h-4 w-4 text-muted-foreground" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                          <circle cx="12" cy="12" r="1" /><circle cx="12" cy="5" r="1" /><circle cx="12" cy="19" r="1" />
-                        </svg>
+                      <Link
+                        href={`/orders/${order.id}`}
+                        aria-label={`View order ${order.po_number}`}
+                        className="p-1.5 rounded-lg hover:bg-muted inline-flex transition-colors"
+                      >
+                        <MoreVertical className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
                       </Link>
                     </td>
                   </tr>
@@ -140,59 +168,28 @@ export default function OrdersPage() {
         )}
 
         {/* Pagination */}
-        <div className="flex items-center justify-between px-5 py-3.5 border-t border-dashboard-border">
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <span>Showing 1-{Math.min(perPage, orders.length)} of {total} entries</span>
-            <select
-              value={perPage}
-              onChange={(e) => { setPerPage(Number(e.target.value)); setPage(1); }}
-              className="h-7 px-2 rounded-lg border border-border text-xs focus:outline-none"
-            >
-              {PER_PAGE_OPTIONS.map((n) => (
-                <option key={n} value={n}>{n}</option>
-              ))}
-            </select>
-          </div>
-          <div className="flex items-center gap-1">
-            <button
-              onClick={() => setPage((p) => Math.max(1, p - 1))}
-              disabled={page === 1}
-              className="px-3 py-1.5 text-sm rounded-lg border border-border disabled:opacity-40 hover:bg-muted transition-colors"
-            >
-              Previous
-            </button>
-            {Array.from({ length: Math.min(totalPages, 8) }, (_, i) => i + 1).map((p) => (
-              <button
-                key={p}
-                onClick={() => setPage(p)}
-                className={cn(
-                  "h-8 w-8 text-sm rounded-lg border transition-colors",
-                  p === page
-                    ? "border-primary bg-primary text-white"
-                    : "border-border hover:bg-muted"
-                )}
+        {!isLoading && !isError && orders.length > 0 && (
+          <div className="flex flex-col gap-3 px-5 py-3.5 border-t border-dashboard-border sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <span>
+                Showing {(page - 1) * perPage + 1}-{Math.min(page * perPage, total)} of {total} entries
+              </span>
+              <label htmlFor="orders-per-page" className="sr-only">Results per page</label>
+              <select
+                id="orders-per-page"
+                value={perPage}
+                onChange={(e) => setPerPage(Number(e.target.value))}
+                className="h-7 px-2 rounded-lg border border-border text-xs focus:outline-none"
               >
-                {p}
-              </button>
-            ))}
-            <button
-              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-              disabled={page >= totalPages}
-              className="px-3 py-1.5 text-sm rounded-lg border border-border disabled:opacity-40 hover:bg-muted transition-colors"
-            >
-              Next
-            </button>
+                {PER_PAGE_OPTIONS.map((n) => (
+                  <option key={n} value={n}>{n}</option>
+                ))}
+              </select>
+            </div>
+            <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />
           </div>
-        </div>
+        )}
       </div>
     </div>
   );
 }
-
-const MOCK_ORDERS = [
-  { id: "1", po_number: "PO-2024-001", organization: "ABC Enterprise", issue_date: "2025-09-26", priority: "low" as const, deadline: "2025-09-26", status: "assigned" as const },
-  { id: "2", po_number: "PO-2024-001", organization: "ABC Enterprise", issue_date: "2025-09-26", priority: "medium" as const, deadline: "2025-09-26", status: "acknowledged" as const },
-  { id: "3", po_number: "PO-2024-001", organization: "ABC Enterprise", issue_date: "2025-09-26", priority: "low" as const, deadline: "2025-09-26", status: "ready_for_delivery" as const },
-  { id: "4", po_number: "PO-2024-001", organization: "ABC Enterprise", issue_date: "2025-09-26", priority: "low" as const, deadline: "2025-09-26", status: "delivered" as const },
-  { id: "5", po_number: "PO-2024-001", organization: "ABC Enterprise", issue_date: "2025-09-26", priority: "medium" as const, deadline: "2025-09-26", status: "invoiced" as const },
-];

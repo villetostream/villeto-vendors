@@ -16,6 +16,7 @@
 
 import { create } from "zustand";
 import { Organization, OrgRole } from "@/lib/types";
+import { ACTIVE_ORG_STORAGE_KEY } from "@/lib/constants/auth";
 
 interface OrgState {
   organizations: Organization[];
@@ -58,15 +59,15 @@ const ROLE_PERMISSIONS: Record<OrgRole, OrgAction[]> = {
 
 function getStoredOrgId(): string | null {
   if (typeof window === "undefined") return null;
-  return localStorage.getItem("villeto_active_org_id");
+  return localStorage.getItem(ACTIVE_ORG_STORAGE_KEY);
 }
 
 function persistOrgId(orgId: string | null) {
   if (typeof window === "undefined") return;
   if (orgId) {
-    localStorage.setItem("villeto_active_org_id", orgId);
+    localStorage.setItem(ACTIVE_ORG_STORAGE_KEY, orgId);
   } else {
-    localStorage.removeItem("villeto_active_org_id");
+    localStorage.removeItem(ACTIVE_ORG_STORAGE_KEY);
   }
 }
 
