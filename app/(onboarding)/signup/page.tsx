@@ -5,13 +5,14 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Eye, EyeOff } from "lucide-react";
+import { Eye, EyeOff, ArrowRight } from "lucide-react";
 import { VilletoLogo } from "@/components/shared/VilletoLogo";
 import { Input } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
 import { FormField } from "@/components/ui/Label";
 import { useOnboardingStore } from "@/lib/stores/onboardingStore";
-import { signUp } from "@/lib/api/auth";
+import { useAuthStore } from "@/lib/stores/authStore";
+import { signUp, getMe } from "@/lib/api/auth";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
@@ -52,6 +53,7 @@ function SignupContent() {
   const vendorInvitationIdParam = searchParams.get("vendorInvitationId") ?? "";
 
   const setInviteContext = useOnboardingStore((s) => s.setInviteContext);
+  const setUser = useAuthStore((s) => s.setUser);
 
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
@@ -99,6 +101,20 @@ function SignupContent() {
         password: data.password,
         confirmPassword: data.confirmPassword,
       });
+
+      // signUp() only persists cookies — it doesn't return a full user
+      // object. Populate the global auth store explicitly so Sidebar,
+      // ApprovalGuard, etc. don't see a stale "logged out" state for the
+      // rest of this session (Providers' AuthInitializer only hydrates
+      // once, before this token existed).
+      try {
+        const freshUser = await getMe();
+        setUser(freshUser);
+      } catch {
+        // Non-fatal — the dashboard/onboarding layouts will re-fetch via
+        // their own guards if this fails; don't block the signup flow.
+      }
+
       toast.success("Account created! Welcome to Villeto 🎉");
       router.push("/onboarding/business-identity");
     } catch (err: unknown) {
@@ -159,17 +175,19 @@ function SignupContent() {
                   type={showPassword ? "text" : "password"}
                   placeholder="••••••••"
                   error={!!errors.password}
+                  autoComplete="new-password"
                   {...register("password")}
                 />
                 <button
                   type="button"
+                  aria-label={showPassword ? "Hide password" : "Show password"}
                   className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
                   onClick={() => setShowPassword((v) => !v)}
                 >
                   {showPassword ? (
-                    <Eye className="h-4 w-4" />
+                    <Eye className="h-4 w-4" aria-hidden="true" />
                   ) : (
-                    <EyeOff className="h-4 w-4" />
+                    <EyeOff className="h-4 w-4" aria-hidden="true" />
                   )}
                 </button>
               </div>
@@ -186,17 +204,19 @@ function SignupContent() {
                   type={showConfirm ? "text" : "password"}
                   placeholder="••••••••"
                   error={!!errors.confirmPassword}
+                  autoComplete="new-password"
                   {...register("confirmPassword")}
                 />
                 <button
                   type="button"
+                  aria-label={showConfirm ? "Hide password" : "Show password"}
                   className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
                   onClick={() => setShowConfirm((v) => !v)}
                 >
                   {showConfirm ? (
-                    <Eye className="h-4 w-4" />
+                    <Eye className="h-4 w-4" aria-hidden="true" />
                   ) : (
-                    <EyeOff className="h-4 w-4" />
+                    <EyeOff className="h-4 w-4" aria-hidden="true" />
                   )}
                 </button>
               </div>
@@ -230,19 +250,7 @@ function SignupContent() {
               className="w-full mt-2"
             >
               Continue
-              <svg
-                className="h-4 w-4"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-                strokeWidth={2}
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M17 8l4 4m0 0l-4 4m4-4H3"
-                />
-              </svg>
+              <ArrowRight className="h-4 w-4" aria-hidden="true" />
             </Button>
           </form>
         </div>

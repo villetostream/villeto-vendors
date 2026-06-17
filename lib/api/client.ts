@@ -21,6 +21,26 @@ import { AUTH_COOKIE_NAMES, ACTIVE_ORG_STORAGE_KEY } from "@/lib/constants/auth"
 const BASE_URL =
   process.env.NEXT_PUBLIC_API_URL ?? "https://api.villeto.com";
 
+/**
+ * Endpoints a vendor can hit *without* an existing session. A 401 from one
+ * of these almost always means "wrong credentials" or "invalid/expired
+ * token", not "your session expired" — so it must NOT trigger the global
+ * clear-cookies-and-hard-redirect behavior below. Without this, simply
+ * typing the wrong password on the login page would wipe the inline error
+ * toast via an immediate full-page redirect before the vendor ever saw it.
+ */
+const PUBLIC_AUTH_PATHS = [
+  "/vendors/auth/login",
+  "/auth/invite/validate",
+  "/vendors/invitations/accept",
+  "/vendors/invitations/preview",
+];
+
+function isPublicAuthRequest(url?: string): boolean {
+  if (!url) return false;
+  return PUBLIC_AUTH_PATHS.some((path) => url.includes(path));
+}
+
 // ─────────────────────────────────────────────
 // CLIENT
 // ─────────────────────────────────────────────
@@ -65,8 +85,9 @@ apiClient.interceptors.response.use(
   async (error: AxiosError) => {
     const status = error.response?.status;
 
-    // Token expired or invalid → clear session and redirect
-    if (status === 401) {
+    // Token expired or invalid → clear session and redirect.
+    // Skip this for public/unauthenticated endpoints (see comment above).
+    if (status === 401 && !isPublicAuthRequest(error.config?.url)) {
       Cookies.remove(AUTH_COOKIE_NAMES.authToken);
       Cookies.remove(AUTH_COOKIE_NAMES.onboardingSession);
       Cookies.remove(AUTH_COOKIE_NAMES.approvalStatus);
@@ -116,7 +137,7 @@ uploadClient.interceptors.response.use(
   async (error: AxiosError) => {
     const status = error.response?.status;
 
-    if (status === 401) {
+    if (status === 401 && !isPublicAuthRequest(error.config?.url)) {
       Cookies.remove(AUTH_COOKIE_NAMES.authToken);
       Cookies.remove(AUTH_COOKIE_NAMES.onboardingSession);
       Cookies.remove(AUTH_COOKIE_NAMES.approvalStatus);

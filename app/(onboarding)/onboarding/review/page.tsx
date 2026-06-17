@@ -2,10 +2,11 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { CheckCircle2 } from "lucide-react";
+import { CheckCircle2, ArrowRight } from "lucide-react";
 import * as CheckboxPrimitive from "@radix-ui/react-checkbox";
 import { OnboardingStepper } from "@/components/onboarding/OnboardingStepper";
 import { Button } from "@/components/ui/Button";
+import { Spinner } from "@/components/ui/Spinner";
 import {
   Dialog, DialogContent, DialogTitle,
 } from "@/components/ui/Modal";
@@ -25,10 +26,27 @@ export default function ReviewPage() {
   const uploadedDocs = store.documents.filter((d) => d.uploaded);
 
   useEffect(() => {
+    let isMounted = true;
     getOnboardingReview()
-      .catch((err) => console.error("Failed to fetch review data", err))
-      .finally(() => setIsLoading(false));
-  }, []);
+      .then((result) => {
+        if (!isMounted) return;
+        if (result.submitted) {
+          // Vendor already submitted (e.g. navigated back after success) —
+          // don't let them re-submit, send them to the status page instead.
+          toast.info("You've already submitted your information for review.");
+          router.replace("/pending");
+          return;
+        }
+        setIsLoading(false);
+      })
+      .catch((err) => {
+        console.error("Failed to fetch review data", err);
+        if (isMounted) setIsLoading(false);
+      });
+    return () => {
+      isMounted = false;
+    };
+  }, [router]);
 
   const handleSubmit = async () => {
     if (!confirmed) return;
@@ -71,13 +89,13 @@ export default function ReviewPage() {
           <div className="flex-1 overflow-y-auto p-8 pt-6 pr-6">
           {isLoading ? (
             <div className="flex justify-center items-center py-12">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+              <Spinner className="h-8 w-8" />
             </div>
           ) : (
             <>
               {/* Summary card */}
           <div className="rounded-xl border border-border p-5 space-y-4 mb-5">
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <p className="text-xs text-muted-foreground">Business Name</p>
                 <p className="text-sm font-medium mt-0.5">
@@ -112,7 +130,7 @@ export default function ReviewPage() {
               <div className="space-y-2.5">
                 {uploadedDocs.map((doc) => (
                   <div key={doc.type} className="flex items-center gap-2">
-                    <CheckCircle2 className="h-4 w-4 text-primary shrink-0" />
+                    <CheckCircle2 className="h-4 w-4 text-primary shrink-0" aria-hidden="true" />
                     <div>
                       <p className="text-sm font-medium">{doc.file_name}</p>
                       <p className="text-xs text-muted-foreground">{doc.label}</p>
@@ -145,7 +163,7 @@ export default function ReviewPage() {
               onClick={(e) => e.stopPropagation()}
             >
               <CheckboxPrimitive.Indicator>
-                <svg className="h-3.5 w-3.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                <svg className="h-3.5 w-3.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3} aria-hidden="true">
                   <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
                 </svg>
               </CheckboxPrimitive.Indicator>
@@ -178,9 +196,7 @@ export default function ReviewPage() {
               onClick={handleSubmit}
             >
               Submit for Verification
-              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M17 8l4 4m0 0l-4 4m4-4H3" />
-              </svg>
+              <ArrowRight className="h-4 w-4" aria-hidden="true" />
             </Button>
           </div>
             </>
@@ -194,7 +210,7 @@ export default function ReviewPage() {
         <DialogContent size="sm" showClose>
           <div className="flex flex-col items-center text-center py-4">
             {/* Animated checkmark with confetti decorations */}
-            <div className="relative mb-5">
+            <div className="relative mb-5" aria-hidden="true">
               {/* Confetti dots */}
               {(
                 [
@@ -218,7 +234,7 @@ export default function ReviewPage() {
                 />
               ))}
               <div className="h-20 w-20 rounded-full bg-primary flex items-center justify-center">
-                <CheckCircle2 className="h-10 w-10 text-white" />
+                <CheckCircle2 className="h-10 w-10 text-white" aria-hidden="true" />
               </div>
             </div>
 
