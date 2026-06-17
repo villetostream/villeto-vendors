@@ -47,7 +47,7 @@ export function EmptyState({
       )}
     >
       <div className="flex h-14 w-14 items-center justify-center rounded-full bg-muted mb-4">
-        {icon ?? <Inbox className="h-6 w-6 text-muted-foreground" />}
+        {icon ?? <Inbox className="h-6 w-6 text-muted-foreground" aria-hidden="true" />}
       </div>
       <h3 className="text-sm font-semibold text-foreground">{title}</h3>
       {description && (
@@ -71,7 +71,7 @@ export function ErrorState({
   return (
     <div className="flex flex-col items-center justify-center py-16 px-4 text-center">
       <div className="flex h-14 w-14 items-center justify-center rounded-full bg-red-50 mb-4">
-        <AlertCircle className="h-6 w-6 text-red-500" />
+        <AlertCircle className="h-6 w-6 text-red-500" aria-hidden="true" />
       </div>
       <p className="text-sm text-muted-foreground">{message}</p>
       {onRetry && (

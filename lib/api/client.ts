@@ -12,6 +12,7 @@
 
 import axios, { AxiosError, InternalAxiosRequestConfig } from "axios";
 import Cookies from "js-cookie";
+import { AUTH_COOKIE_NAMES, ACTIVE_ORG_STORAGE_KEY } from "@/lib/constants/auth";
 
 // ─────────────────────────────────────────────
 // CONFIG
@@ -38,7 +39,7 @@ export const apiClient = axios.create({
 apiClient.interceptors.request.use(
   (config: InternalAxiosRequestConfig) => {
     // 1. Inject auth token
-    const token = Cookies.get("villeto_auth_token");
+    const token = Cookies.get(AUTH_COOKIE_NAMES.authToken);
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
@@ -46,7 +47,7 @@ apiClient.interceptors.request.use(
     // 2. Inject active org_id from localStorage
     //    (set by org switcher in orgStore)
     if (typeof window !== "undefined") {
-      const orgId = localStorage.getItem("villeto_active_org_id");
+      const orgId = localStorage.getItem(ACTIVE_ORG_STORAGE_KEY);
       if (orgId && config.headers) {
         config.headers["X-Org-Id"] = orgId;
       }
@@ -66,9 +67,11 @@ apiClient.interceptors.response.use(
 
     // Token expired or invalid → clear session and redirect
     if (status === 401) {
-      Cookies.remove("villeto_auth_token");
-      Cookies.remove("villeto_onboarding_session");
+      Cookies.remove(AUTH_COOKIE_NAMES.authToken);
+      Cookies.remove(AUTH_COOKIE_NAMES.onboardingSession);
+      Cookies.remove(AUTH_COOKIE_NAMES.approvalStatus);
       if (typeof window !== "undefined") {
+        localStorage.removeItem(ACTIVE_ORG_STORAGE_KEY);
         window.location.href = "/auth/login";
       }
     }
@@ -97,10 +100,10 @@ export const uploadClient = axios.create({
 });
 
 uploadClient.interceptors.request.use((config) => {
-  const token = Cookies.get("villeto_auth_token");
+  const token = Cookies.get(AUTH_COOKIE_NAMES.authToken);
   if (token) config.headers.Authorization = `Bearer ${token}`;
   if (typeof window !== "undefined") {
-    const orgId = localStorage.getItem("villeto_active_org_id");
+    const orgId = localStorage.getItem(ACTIVE_ORG_STORAGE_KEY);
     if (orgId) config.headers["X-Org-Id"] = orgId;
   }
   // Let browser set Content-Type with boundary for multipart
@@ -114,9 +117,11 @@ uploadClient.interceptors.response.use(
     const status = error.response?.status;
 
     if (status === 401) {
-      Cookies.remove("villeto_auth_token");
-      Cookies.remove("villeto_onboarding_session");
+      Cookies.remove(AUTH_COOKIE_NAMES.authToken);
+      Cookies.remove(AUTH_COOKIE_NAMES.onboardingSession);
+      Cookies.remove(AUTH_COOKIE_NAMES.approvalStatus);
       if (typeof window !== "undefined") {
+        localStorage.removeItem(ACTIVE_ORG_STORAGE_KEY);
         window.location.href = "/auth/login";
       }
     }

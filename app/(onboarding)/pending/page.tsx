@@ -13,6 +13,8 @@ import { useAuthStore } from "@/lib/stores/authStore";
 import { getMe } from "@/lib/api/auth";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import Cookies from "js-cookie";
+import { AUTH_COOKIE_NAMES, AUTH_COOKIE_OPTIONS } from "@/lib/constants/auth";
 
 const POLL_INTERVAL_MS = 5_000; // 5 seconds
 
@@ -93,13 +95,7 @@ export default function PendingPage() {
         // Keep cookie in sync for middleware
         const status = freshUser.approvalStatus;
         if (status) {
-          import("js-cookie").then((Cookies) => {
-            Cookies.default.set("villeto_approval_status", status, {
-              expires: 7,
-              secure: process.env.NODE_ENV === "production",
-              sameSite: "Lax",
-            });
-          });
+          Cookies.set(AUTH_COOKIE_NAMES.approvalStatus, status, AUTH_COOKIE_OPTIONS);
         }
 
         // Auto-redirect when approved AND onboarding completed

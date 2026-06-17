@@ -10,13 +10,7 @@
 import { apiClient } from "./client";
 import { AuthUser, InviteTokenPayload } from "@/lib/types";
 import Cookies from "js-cookie";
-
-// Cookie config
-const COOKIE_OPTIONS = {
-  expires: 7, // 7 days
-  secure: process.env.NODE_ENV === "production",
-  sameSite: "Lax" as const,
-};
+import { AUTH_COOKIE_OPTIONS, AUTH_COOKIE_NAMES } from "@/lib/constants/auth";
 
 // ─────────────────────────────────────────────
 // INVITE TOKEN
@@ -96,7 +90,7 @@ export async function signUp(payload: {
     (outer?.auth_token as string);
 
   if (authToken) {
-    Cookies.set("villeto_auth_token", authToken, COOKIE_OPTIONS);
+    Cookies.set(AUTH_COOKIE_NAMES.authToken, authToken, AUTH_COOKIE_OPTIONS);
   }
 
   // Persist onboarding session (try common casing variants)
@@ -110,29 +104,7 @@ export async function signUp(payload: {
     // fallback — any truthy value lets the middleware onboarding guard pass
     "onboarding";
 
-  Cookies.set("villeto_onboarding_session", session, COOKIE_OPTIONS);
-}
-
-// ─────────────────────────────────────────────
-// LOGIN
-// ─────────────────────────────────────────────
-
-/**
- * Vendor sign in.
- * POST /auth/login
- */
-export async function login(payload: {
-  email: string;
-  password: string;
-}): Promise<{ auth_token: string; user: AuthUser }> {
-  // INTEGRATION POINT ↓
-  const { data } = await apiClient.post<{
-    data: { auth_token: string; user: AuthUser };
-  }>("/auth/login", payload);
-
-  Cookies.set("villeto_auth_token", data.data.auth_token, COOKIE_OPTIONS);
-
-  return data.data;
+  Cookies.set(AUTH_COOKIE_NAMES.onboardingSession, session, AUTH_COOKIE_OPTIONS);
 }
 
 // ─────────────────────────────────────────────
@@ -148,8 +120,9 @@ export async function logout(): Promise<void> {
     // INTEGRATION POINT ↓
     await apiClient.post("/vendors/auth/logout");
   } finally {
-    Cookies.remove("villeto_auth_token");
-    Cookies.remove("villeto_onboarding_session");
+    Cookies.remove(AUTH_COOKIE_NAMES.authToken);
+    Cookies.remove(AUTH_COOKIE_NAMES.onboardingSession);
+    Cookies.remove(AUTH_COOKIE_NAMES.approvalStatus);
     if (typeof window !== "undefined") {
       localStorage.removeItem("villeto_active_org_id");
     }

@@ -4,19 +4,23 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ReactQueryDevtools } from "@tanstack/react-query-devtools";
 import { Toaster } from "sonner";
 import { useEffect, useRef } from "react";
+import { usePathname, useRouter } from "next/navigation";
 import { useAuthStore } from "@/lib/stores/authStore";
 import { getMe } from "@/lib/api/auth";
 import Cookies from "js-cookie";
+import { AUTH_COOKIE_NAMES, AUTH_COOKIE_OPTIONS } from "@/lib/constants/auth";
 
 function AuthInitializer({ children }: { children: React.ReactNode }) {
   const { setUser, clearAuth, setLoading } = useAuthStore();
   const initialized = useRef(false);
+  const router = useRouter();
+  const pathname = usePathname();
 
   useEffect(() => {
     if (initialized.current) return;
     initialized.current = true;
 
-    const token = Cookies.get("villeto_auth_token");
+    const token = Cookies.get(AUTH_COOKIE_NAMES.authToken);
     if (!token) {
       setLoading(false);
       return;
@@ -26,15 +30,21 @@ function AuthInitializer({ children }: { children: React.ReactNode }) {
       .then((user) => {
         setUser(user);
         if (user.approvalStatus) {
-          Cookies.set("villeto_approval_status", user.approvalStatus, {
-            expires: 7,
-            secure: process.env.NODE_ENV === "production",
-            sameSite: "Lax",
-          });
+          Cookies.set(AUTH_COOKIE_NAMES.approvalStatus, user.approvalStatus, AUTH_COOKIE_OPTIONS);
         }
       })
-      .catch(() => clearAuth());
-  }, [setUser, clearAuth, setLoading]);
+      .catch(() => {
+        // Cookie existed but the session is no longer valid server-side
+        // (expired/revoked token). Clear local state AND send the vendor
+        // back to login instead of leaving them on a half-authenticated,
+        // broken-looking page with no way back in.
+        clearAuth();
+        const loginUrl = pathname && pathname !== "/auth/login"
+          ? `/auth/login?next=${encodeURIComponent(pathname)}`
+          : "/auth/login";
+        router.replace(loginUrl);
+      });
+  }, [setUser, clearAuth, setLoading, router, pathname]);
 
   return <>{children}</>;
 }

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { AUTH_COOKIE_NAMES } from "@/lib/constants/auth";
 
 /**
  * EDGE MIDDLEWARE
@@ -122,8 +123,8 @@ export async function middleware(request: NextRequest) {
 
   // ── 2. Already logged-in → skip login page ────────────────────
   if (pathname === "/auth/login") {
-    const authToken = request.cookies.get("villeto_auth_token")?.value;
-    const approvalStatus = request.cookies.get("villeto_approval_status")?.value;
+    const authToken = request.cookies.get(AUTH_COOKIE_NAMES.authToken)?.value;
+    const approvalStatus = request.cookies.get(AUTH_COOKIE_NAMES.approvalStatus)?.value;
 
     if (authToken) {
       // If approved, go to dashboard. Otherwise go to pending (safety first)
@@ -138,7 +139,7 @@ export async function middleware(request: NextRequest) {
     pathname.startsWith(r)
   );
   if (isOnboardingRoute) {
-    const authToken = request.cookies.get("villeto_auth_token")?.value;
+    const authToken = request.cookies.get(AUTH_COOKIE_NAMES.authToken)?.value;
     if (!authToken) {
       return NextResponse.redirect(new URL("/auth/login", request.url));
     }
@@ -148,7 +149,7 @@ export async function middleware(request: NextRequest) {
   // ── 4. Protected dashboard routes — need auth token ───────────
   const isProtected = PROTECTED_ROUTES.some((r) => pathname.startsWith(r));
   if (isProtected) {
-    const authToken = request.cookies.get("villeto_auth_token")?.value;
+    const authToken = request.cookies.get(AUTH_COOKIE_NAMES.authToken)?.value;
     if (!authToken) {
       const loginUrl = new URL("/auth/login", request.url);
       loginUrl.searchParams.set("next", pathname);
@@ -161,7 +162,7 @@ export async function middleware(request: NextRequest) {
                              pathname.startsWith("/invoices");
     
     if (isDashboardRoute && pathname !== "/pending") {
-      const approvalStatus = request.cookies.get("villeto_approval_status")?.value;
+      const approvalStatus = request.cookies.get(AUTH_COOKIE_NAMES.approvalStatus)?.value;
       if (approvalStatus !== "approved") {
         return NextResponse.redirect(new URL("/pending", request.url));
       }

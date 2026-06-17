@@ -7,6 +7,7 @@
 import { create } from "zustand";
 import { AuthUser } from "@/lib/types";
 import Cookies from "js-cookie";
+import { AUTH_COOKIE_NAMES, ACTIVE_ORG_STORAGE_KEY } from "@/lib/constants/auth";
 
 interface AuthState {
   user: AuthUser | null;
@@ -32,11 +33,11 @@ export const useAuthStore = create<AuthState>((set) => ({
     }),
 
   clearAuth: () => {
-    Cookies.remove("villeto_auth_token");
-    Cookies.remove("villeto_onboarding_session");
-    Cookies.remove("villeto_approval_status");
+    Cookies.remove(AUTH_COOKIE_NAMES.authToken);
+    Cookies.remove(AUTH_COOKIE_NAMES.onboardingSession);
+    Cookies.remove(AUTH_COOKIE_NAMES.approvalStatus);
     if (typeof window !== "undefined") {
-      localStorage.removeItem("villeto_active_org_id");
+      localStorage.removeItem(ACTIVE_ORG_STORAGE_KEY);
       localStorage.removeItem("villeto-onboarding");
       sessionStorage.removeItem("villeto-onboarding");
     }

@@ -3,6 +3,7 @@
 import { useMutation, type UseMutationResult } from "@tanstack/react-query";
 import { apiClient } from "@/lib/api/client";
 import Cookies from "js-cookie";
+import { AUTH_COOKIE_OPTIONS, AUTH_COOKIE_NAMES } from "@/lib/constants/auth";
 
 interface LoginPayload {
   email: string;
@@ -33,12 +34,6 @@ interface LoginResponse {
   };
 }
 
-const COOKIE_OPTIONS = {
-  expires: 7, // 7 days
-  secure: process.env.NODE_ENV === "production",
-  sameSite: "Lax" as const,
-};
-
 export const useLogin = (): UseMutationResult<LoginResponse, Error, LoginPayload> => {
   return useMutation<LoginResponse, Error, LoginPayload>({
     mutationFn: async (payload: LoginPayload) => {
@@ -48,12 +43,12 @@ export const useLogin = (): UseMutationResult<LoginResponse, Error, LoginPayload
       // Ensure we extract the token exactly as structured in the backend response
       const token = loginData?.data?.accessToken;
       if (token) {
-        Cookies.set("villeto_auth_token", token, COOKIE_OPTIONS);
+        Cookies.set(AUTH_COOKIE_NAMES.authToken, token, AUTH_COOKIE_OPTIONS);
       }
-      
+
       const approvalStatus = loginData?.data?.data?.approvalStatus;
       if (approvalStatus) {
-        Cookies.set("villeto_approval_status", approvalStatus, COOKIE_OPTIONS);
+        Cookies.set(AUTH_COOKIE_NAMES.approvalStatus, approvalStatus, AUTH_COOKIE_OPTIONS);
       }
 
       return loginData;
