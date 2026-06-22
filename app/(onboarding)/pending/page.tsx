@@ -8,9 +8,8 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { Send, XCircle } from "lucide-react";
 import { OnboardingStepper } from "@/components/onboarding/OnboardingStepper";
 import { Button } from "@/components/ui/Button";
-import { sendMessage } from "@/lib/api/vendor";
+import { sendMessage, getVendorMe } from "@/lib/api/vendor";
 import { useAuthStore } from "@/lib/stores/authStore";
-import { getMe } from "@/lib/api/auth";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import Cookies from "js-cookie";
@@ -99,7 +98,8 @@ export default function PendingPage() {
   useEffect(() => {
     const poll = async () => {
       try {
-        const freshUser = await getMe();
+        // Use the real /vendors/me endpoint (was incorrectly calling /auth/me)
+        const freshUser = await getVendorMe();
         const current = userRef.current;
 
         // Only push a new object into the store (and trigger downstream
@@ -120,7 +120,7 @@ export default function PendingPage() {
           Cookies.set(AUTH_COOKIE_NAMES.approvalStatus, status, AUTH_COOKIE_OPTIONS);
         }
 
-        // Auto-redirect when approved AND onboarding completed
+        // ── Approved: stop polling and redirect to dashboard ─────
         if (
           freshUser.approvalStatus === "approved" &&
           freshUser.onboardingStatus === "completed"
@@ -128,6 +128,18 @@ export default function PendingPage() {
           if (intervalRef.current) clearInterval(intervalRef.current);
           toast.success("You've been approved! Redirecting to your dashboard…");
           router.push("/dashboard");
+          return;
+        }
+
+        // ── Rejected: stop polling and notify vendor in-place ────
+        // The UI already reads `user.approvalStatus` to flip to the
+        // rejection panel — we just stop the unnecessary polling here.
+        if (freshUser.approvalStatus === "rejected") {
+          if (intervalRef.current) clearInterval(intervalRef.current);
+          // Only show the toast once (when the status just changed)
+          if (current?.approvalStatus !== "rejected") {
+            toast.error("Your application has been reviewed and was not approved.");
+          }
         }
       } catch {
         // Silently ignore poll failures — don't disrupt the UI
