@@ -1,108 +1,125 @@
 /**
  * VENDOR API
- * Profile, organizations, dashboard stats.
+ * Company relationships, switching, procurement summary, profile.
  */
 
 import { apiClient } from "./client";
-import { AuthUser, ApprovalStatus, OnboardingStatus, DashboardStats, Organization } from "@/lib/types";
+import {
+  ApiEnvelope,
+  CompanyRelationship,
+  CurrentVendor,
+  DashboardSummary,
+  SummaryFilters,
+  UpdateVendorProfilePayload,
+  VendorProfile,
+} from "@/lib/types";
+
+// ─────────────────────────────────────────────
+// MULTI-COMPANY
+// ─────────────────────────────────────────────
 
 /**
- * Get vendor profile.
- * GET /vendor/profile
+ * List every tenant company relationship for the logged-in vendor account.
+ * GET /vendors/me/companies
  */
-export async function getVendorProfile(): Promise<AuthUser & {
-  registration_number: string;
-  country: string;
-  business_address: string;
-  bank_name: string;
-  account_number: string;
-  documents: { type: string; label: string; file_name: string; url: string }[];
-  profile_completion: number;
-}> {
-  // INTEGRATION POINT ↓
-  const { data } = await apiClient.get("/vendor/profile");
+export async function getVendorCompanies(): Promise<CompanyRelationship[]> {
+  const { data } = await apiClient.get<ApiEnvelope<{ data: CompanyRelationship[] }>>(
+    "/vendors/me/companies"
+  );
+  return data.data.data;
+}
+
+export interface SwitchCompanyResult {
+  accessToken: string;
+  onboardingMode: string;
+  currentVendor: CurrentVendor;
+  companies: CompanyRelationship[];
+}
+
+/**
+ * Switch the active company context. Returns a fresh JWT scoped to the
+ * selected company-specific vendor row — the old token should be treated
+ * as no longer valid for this session from this point on (server-side
+ * invalidation to be confirmed with backend).
+ * POST /vendors/me/switch-company
+ */
+export async function switchCompany(vendorId: string): Promise<SwitchCompanyResult> {
+  const { data } = await apiClient.post<ApiEnvelope<SwitchCompanyResult>>(
+    "/vendors/me/switch-company",
+    { vendorId }
+  );
+  return data.data;
+}
+
+// ─────────────────────────────────────────────
+// PROCUREMENT SUMMARY
+// ─────────────────────────────────────────────
+
+/**
+ * Dashboard summary scoped to the currently selected company (from the
+ * active JWT — no header needed).
+ * GET /vendor-portal/summary
+ */
+export async function getVendorSummary(filters: SummaryFilters = {}): Promise<DashboardSummary> {
+  const { data } = await apiClient.get<ApiEnvelope<DashboardSummary>>(
+    "/vendor-portal/summary",
+    { params: filters }
+  );
+  return data.data;
+}
+
+// ─────────────────────────────────────────────
+// PROFILE
+// ─────────────────────────────────────────────
+
+/**
+ * Vendor profile for the currently selected company context.
+ * GET /vendor-portal/profile
+ *
+ * Note: this endpoint currently returns identity fields (legalName,
+ * displayName, address, etc.) mixed with tenant-scoped fields (status,
+ * approvalStatus, isPaymentEnabled) in one flat object. The Tier 1/Tier 2
+ * field-lock proposal (see PROFILE_FIELD_TIERS below) assumes these will
+ * eventually be split at the API level; until then the frontend enforces
+ * the split purely client-side by disabling inputs for locked fields.
+ */
+export async function getVendorProfile(): Promise<VendorProfile> {
+  const { data } = await apiClient.get<ApiEnvelope<VendorProfile>>(
+    "/vendor-portal/profile"
+  );
   return data.data;
 }
 
 /**
- * Update vendor profile section.
- * PATCH /vendor/profile
+ * Update the tenant-editable profile fields only.
+ * PATCH /vendor-portal/profile
+ *
+ * Deliberately typed to only accept Tier 2 fields (displayName, phone,
+ * description, contactFirstName, contactLastName, address, country) per
+ * UpdateVendorProfilePayload — legalName/registrationNumber/documents are
+ * not accepted here even if a future backend change allows them in the
+ * body, because the UI must never offer to edit them from this form. Use
+ * a distinct "request correction" flow for those (not yet built — pending
+ * the endpoint backend needs to add).
  */
 export async function updateVendorProfile(
-  section: "business_identity" | "banking",
-  payload: Record<string, unknown>
-): Promise<{ success: boolean }> {
-  // INTEGRATION POINT ↓
-  const { data } = await apiClient.patch(`/vendor/profile/${section}`, payload);
-  return data;
-}
-
-/**
- * Get all organizations this vendor is connected to.
- * GET /vendor/organizations
- */
-export async function getVendorOrganizations(): Promise<Organization[]> {
-  // INTEGRATION POINT ↓
-  const { data } = await apiClient.get("/vendor/organizations");
+  payload: UpdateVendorProfilePayload
+): Promise<VendorProfile> {
+  const { data } = await apiClient.patch<ApiEnvelope<VendorProfile>>(
+    "/vendor-portal/profile",
+    payload
+  );
   return data.data;
 }
 
-/**
- * Get dashboard stats scoped to active org.
- * GET /dashboard/stats
- * Automatically scoped by X-Org-Id header.
- */
-export async function getDashboardStats(): Promise<DashboardStats> {
-  // INTEGRATION POINT ↓
-  const { data } = await apiClient.get("/dashboard/stats");
-  return data.data;
-}
+// ─────────────────────────────────────────────
+// PENDING-APPROVAL MESSAGING
+// No confirmed backend endpoint yet for this — kept as a stub matching the
+// UI in app/(onboarding)/pending/page.tsx. Do not wire this to a live
+// endpoint until backend confirms one exists; calling it today will 404.
+// ─────────────────────────────────────────────
 
-/**
- * Get the current authenticated vendor's profile and approval status.
- * GET /vendors/me
- *
- * This is the canonical endpoint for polling approval status on the
- * /pending page. Returns vendor identity, onboarding status, approvalStatus,
- * and decisionNote.
- */
-export async function getVendorMe(): Promise<AuthUser> {
-  const { data } = await apiClient.get<{
-    message: string;
-    status: number;
-    data: {
-      vendorId: string;
-      email: string;
-      displayName: string;
-      legalName: string;
-      status: string;
-      onboardingStatus: string;
-      approvalStatus: string;
-      decisionNote: string | null;
-      isPaymentEnabled: boolean;
-    };
-  }>("/vendors/me");
-
-  const v = data.data;
-
-  // Map backend field names → internal AuthUser shape
-  return {
-    id: v.vendorId,
-    email: v.email,
-    business_name: v.displayName ?? v.legalName,
-    status: "active" as AuthUser["status"], // status field not needed for this poll
-    approvalStatus: v.approvalStatus as ApprovalStatus,
-    onboardingStatus: v.onboardingStatus as OnboardingStatus,
-    decisionNote: v.decisionNote ?? null,
-  };
-}
-
-/**
- * Send a message to the reviewing company (pending approval phase).
- * POST /vendor/messages
- */
 export async function sendMessage(message: string): Promise<{ success: boolean }> {
-  // INTEGRATION POINT ↓
-  const { data } = await apiClient.post("/vendor/messages", { message });
+  const { data } = await apiClient.post("/vendor-portal/messages", { message });
   return data;
 }

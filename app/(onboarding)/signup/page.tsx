@@ -12,7 +12,8 @@ import { Button } from "@/components/ui/Button";
 import { FormField } from "@/components/ui/Label";
 import { useOnboardingStore } from "@/lib/stores/onboardingStore";
 import { useAuthStore } from "@/lib/stores/authStore";
-import { signUp, getMe } from "@/lib/api/auth";
+import { signUp } from "@/lib/api/auth";
+import { getVendorProfile } from "@/lib/api/vendor";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
@@ -108,8 +109,17 @@ function SignupContent() {
       // rest of this session (Providers' AuthInitializer only hydrates
       // once, before this token existed).
       try {
-        const freshUser = await getMe();
-        setUser(freshUser);
+        const freshProfile = await getVendorProfile();
+        setUser({
+          id: freshProfile.vendorId,
+          email: freshProfile.email,
+          business_name: freshProfile.displayName || freshProfile.legalName,
+          status: freshProfile.status,
+          approvalStatus: freshProfile.approvalStatus,
+          onboardingStatus: freshProfile.onboardingStatus,
+          decisionNote: freshProfile.decisionNote,
+          isPaymentEnabled: freshProfile.isPaymentEnabled,
+        });
       } catch {
         // Non-fatal — the dashboard/onboarding layouts will re-fetch via
         // their own guards if this fails; don't block the signup flow.

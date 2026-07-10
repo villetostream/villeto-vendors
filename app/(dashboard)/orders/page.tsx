@@ -2,74 +2,80 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Search, Filter, ChevronDown, MoreVertical } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { Search, ChevronLeft, ChevronRight, MoreVertical } from "lucide-react";
 import { useDebounce } from "use-debounce";
 import { useOrders } from "@/lib/hooks/useOrders";
-import { useOrgStore } from "@/lib/stores/orgStore";
-import { OrderStatusBadge, PriorityBadge } from "@/components/ui/StatusBadge";
+import { useCompany } from "@/lib/hooks/useCompany";
+import { OrderStatusBadge } from "@/components/ui/StatusBadge";
 import { TableSkeleton } from "@/components/ui/Skeleton";
 import { EmptyState, ErrorState } from "@/components/ui/Spinner";
-import { Pagination } from "@/components/ui/Pagination";
-import { formatDate, cn } from "@/lib/utils";
+import { formatCurrency, cn } from "@/lib/utils";
 import { OrderStatus } from "@/lib/types";
 
 const STATUS_TABS: { label: string; value: OrderStatus | "all" }[] = [
   { label: "All Orders", value: "all" },
-  { label: "Assigned", value: "assigned" },
+  { label: "Issued", value: "issued" },
   { label: "Acknowledged", value: "acknowledged" },
   { label: "Ready for delivery", value: "ready_for_delivery" },
-  { label: "Invoiced", value: "invoiced" },
+  { label: "Partially delivered", value: "partially_delivered" },
+  { label: "Delivered", value: "delivered" },
+  { label: "Closed", value: "closed" },
+  // Display label reads "Withdrawn" — filter value stays "cancelled",
+  // the backend value, unchanged. See ORDER_STATUS_DISPLAY_LABEL.
+  { label: "Withdrawn", value: "cancelled" },
 ];
 
-const ORDERS_COLUMNS = ["PO Number", "Organization", "Issue Date", "Priority", "Deadline", "Status", "Action"];
+const ORDERS_COLUMNS = ["PO Number", "Line Items", "Currency", "Total Amount", "Status", "Action"];
 
-const PER_PAGE_OPTIONS = [4, 10, 25, 50];
+const LIMIT_OPTIONS = [10, 20, 50];
 
 export default function OrdersPage() {
-  const activeOrg = useOrgStore((s) => s.activeOrg);
+  const router = useRouter();
+  const { activeCompany } = useCompany();
   const [activeTab, setActiveTab] = useState<OrderStatus | "all">("all");
   const [search, setSearch] = useState("");
   const [debouncedSearch] = useDebounce(search, 400);
   const [page, setPage] = useState(1);
-  const [perPage, setPerPage] = useState(4);
+  const [limit, setLimit] = useState(10);
 
-  // Filter/tab/page-size changes should always reset back to page 1,
-  // otherwise a user filtering down to fewer results can get stuck on a
-  // page number that no longer exists.
   useEffect(() => {
     setPage(1);
-  }, [activeTab, debouncedSearch, perPage]);
+  }, [activeTab, debouncedSearch, limit]);
 
   const filters = {
     status: activeTab === "all" ? undefined : activeTab,
-    search: debouncedSearch || undefined,
     page,
-    per_page: perPage,
+    limit,
   };
 
   const { data, isLoading, isError, refetch, isFetching } = useOrders(filters);
 
-  const orders = data?.data ?? [];
-  const total = data?.total ?? 0;
-  const totalPages = data?.total_pages ?? Math.max(1, Math.ceil(total / perPage));
+  const orders = data ?? [];
+  // NOTE: the list endpoint doesn't return a total count yet (flagged
+  // with backend as an enhancement). Without it we can't render "Page X
+  // of Y" or a real page-number control — only infer whether there's
+  // likely a next page from whether this page came back full.
+  const hasNextPage = orders.length === limit;
+
+  // Client-side search — the endpoint doesn't take a `search` param yet,
+  // so this only filters what's already on the current page, not across
+  // the whole result set. Flag with backend if full-text search is needed.
+  const visibleOrders = debouncedSearch
+    ? orders.filter((o) => o.poNumber.toLowerCase().includes(debouncedSearch.toLowerCase()))
+    : orders;
 
   return (
     <div className="space-y-5">
-      {/* Header */}
       <div className="flex items-center gap-3">
         <h1 className="text-2xl font-bold text-foreground">Orders</h1>
-        <span className="flex h-6 min-w-6 items-center justify-center rounded-full bg-primary text-white text-xs font-bold px-2">
-          {total}
-        </span>
       </div>
       <p className="text-sm text-muted-foreground -mt-3">
         Manage and track your purchase orders from{" "}
-        <strong>{activeOrg?.name ?? "your organisation"}</strong>.
+        <strong>{activeCompany?.companyName ?? "your company"}</strong>.
       </p>
 
-      {/* Main card */}
       <div className="bg-white rounded-2xl border border-dashboard-border overflow-hidden">
-        {/* Tabs + Search row */}
         <div className="flex flex-col gap-3 px-5 pt-4 pb-3 border-b border-dashboard-border sm:flex-row sm:items-center sm:justify-between sm:gap-4 sm:pb-0">
           <div className="flex items-center gap-1 overflow-x-auto scrollbar-none">
             {STATUS_TABS.map((tab) => (
@@ -91,37 +97,24 @@ export default function OrdersPage() {
           <div className="flex items-center gap-2 shrink-0 pb-2">
             <div className="relative flex-1 sm:flex-initial">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" aria-hidden="true" />
-              <label htmlFor="order-search" className="sr-only">Search orders</label>
+              <label htmlFor="order-search" className="sr-only">Search orders on this page</label>
               <input
                 id="order-search"
                 type="text"
-                placeholder="Search..."
+                placeholder="Search this page..."
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                className="h-9 pl-8 pr-3 rounded-xl border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary w-full sm:w-44"
+                className="h-9 pl-8 pr-3 rounded-xl border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary w-full sm:w-48"
               />
             </div>
-            <button
-              type="button"
-              aria-label="Filter orders"
-              className="h-9 px-3 rounded-xl border border-border text-sm text-muted-foreground flex items-center gap-1.5 hover:bg-muted transition-colors shrink-0"
-            >
-              <Filter className="h-3.5 w-3.5" aria-hidden="true" />
-              <span className="hidden sm:inline">Filter</span>
-              <ChevronDown className="h-3.5 w-3.5" aria-hidden="true" />
-            </button>
           </div>
         </div>
 
-        {/* Table */}
         {isLoading ? (
-          <TableSkeleton rows={perPage} columns={ORDERS_COLUMNS.length} />
+          <TableSkeleton rows={limit} columns={ORDERS_COLUMNS.length} />
         ) : isError ? (
-          <ErrorState
-            message="Couldn't load orders. Please check your connection and try again."
-            onRetry={() => refetch()}
-          />
-        ) : orders.length === 0 ? (
+          <ErrorState message="Couldn't load orders. Please check your connection and try again." onRetry={() => refetch()} />
+        ) : visibleOrders.length === 0 ? (
           <EmptyState
             title={debouncedSearch || activeTab !== "all" ? "No matching orders" : "No orders yet"}
             description={
@@ -143,18 +136,23 @@ export default function OrdersPage() {
                 </tr>
               </thead>
               <tbody>
-                {orders.map((order) => (
-                  <tr key={order.id} className="border-b border-dashboard-border/60 hover:bg-muted/30 transition-colors">
-                    <td className="px-5 py-3.5 text-sm font-semibold whitespace-nowrap">{order.po_number}</td>
-                    <td className="px-5 py-3.5 text-sm text-muted-foreground whitespace-nowrap">{order.organization}</td>
-                    <td className="px-5 py-3.5 text-sm text-muted-foreground whitespace-nowrap">{formatDate(order.issue_date)}</td>
-                    <td className="px-5 py-3.5"><PriorityBadge priority={order.priority} /></td>
-                    <td className="px-5 py-3.5 text-sm text-muted-foreground whitespace-nowrap">{formatDate(order.deadline)}</td>
+                {visibleOrders.map((order) => (
+                  <tr 
+                    key={order.purchaseOrderId} 
+                    onClick={() => router.push(`/orders/${order.purchaseOrderId}`)}
+                    className="border-b border-dashboard-border/60 hover:bg-muted/30 transition-colors cursor-pointer"
+                  >
+                    <td className="px-5 py-3.5 text-sm font-semibold whitespace-nowrap">{order.poNumber}</td>
+                    <td className="px-5 py-3.5 text-sm text-muted-foreground whitespace-nowrap">{order.lineItemCount}</td>
+                    <td className="px-5 py-3.5 text-sm text-muted-foreground whitespace-nowrap">{order.currency}</td>
+                    <td className="px-5 py-3.5 text-sm text-muted-foreground whitespace-nowrap">
+                      {formatCurrency(order.totalAmount, order.currency)}
+                    </td>
                     <td className="px-5 py-3.5"><OrderStatusBadge status={order.status} /></td>
-                    <td className="px-5 py-3.5">
+                    <td className="px-5 py-3.5" onClick={(e) => e.stopPropagation()}>
                       <Link
-                        href={`/orders/${order.id}`}
-                        aria-label={`View order ${order.po_number}`}
+                        href={`/orders/${order.purchaseOrderId}`}
+                        aria-label={`View order ${order.poNumber}`}
                         className="p-1.5 rounded-lg hover:bg-muted inline-flex transition-colors"
                       >
                         <MoreVertical className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
@@ -167,26 +165,42 @@ export default function OrdersPage() {
           </div>
         )}
 
-        {/* Pagination */}
         {!isLoading && !isError && orders.length > 0 && (
           <div className="flex flex-col gap-3 px-5 py-3.5 border-t border-dashboard-border sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <span>
-                Showing {(page - 1) * perPage + 1}-{Math.min(page * perPage, total)} of {total} entries
-              </span>
+              <span>Page {page}</span>
               <label htmlFor="orders-per-page" className="sr-only">Results per page</label>
               <select
                 id="orders-per-page"
-                value={perPage}
-                onChange={(e) => setPerPage(Number(e.target.value))}
+                value={limit}
+                onChange={(e) => setLimit(Number(e.target.value))}
                 className="h-7 px-2 rounded-lg border border-border text-xs focus:outline-none"
               >
-                {PER_PAGE_OPTIONS.map((n) => (
-                  <option key={n} value={n}>{n}</option>
+                {LIMIT_OPTIONS.map((n) => (
+                  <option key={n} value={n}>{n} / page</option>
                 ))}
               </select>
             </div>
-            <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />
+            <nav className="flex items-center gap-1" aria-label="Pagination">
+              <button
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                disabled={page === 1}
+                aria-label="Previous page"
+                className="px-3 py-1.5 text-sm rounded-lg border border-border disabled:opacity-40 hover:bg-muted transition-colors flex items-center gap-1"
+              >
+                <ChevronLeft className="h-3.5 w-3.5" aria-hidden="true" />
+                Previous
+              </button>
+              <button
+                onClick={() => setPage((p) => p + 1)}
+                disabled={!hasNextPage}
+                aria-label="Next page"
+                className="px-3 py-1.5 text-sm rounded-lg border border-border disabled:opacity-40 hover:bg-muted transition-colors flex items-center gap-1"
+              >
+                Next
+                <ChevronRight className="h-3.5 w-3.5" aria-hidden="true" />
+              </button>
+            </nav>
           </div>
         )}
       </div>

@@ -124,11 +124,13 @@ export async function middleware(request: NextRequest) {
   // ── 2. Already logged-in → skip login page ────────────────────
   if (pathname === "/auth/login") {
     const authToken = request.cookies.get(AUTH_COOKIE_NAMES.authToken)?.value;
-    const approvalStatus = request.cookies.get(AUTH_COOKIE_NAMES.approvalStatus)?.value;
+    const vendorStatus = request.cookies.get(AUTH_COOKIE_NAMES.vendorStatus)?.value;
 
     if (authToken) {
-      // If approved, go to dashboard. Otherwise go to pending (safety first)
-      const destination = approvalStatus === "approved" ? "/dashboard" : "/pending";
+      // Active (payment-enabled) → dashboard. Anything else → pending
+      // (safety first — pending page itself explains why: under review,
+      // rejected, or approved-but-payment-setup-in-progress).
+      const destination = (vendorStatus ?? "").toLowerCase() === "active" ? "/dashboard" : "/pending";
       return NextResponse.redirect(new URL(destination, request.url));
     }
     return NextResponse.next();
@@ -162,8 +164,28 @@ export async function middleware(request: NextRequest) {
                              pathname.startsWith("/invoices");
     
     if (isDashboardRoute && pathname !== "/pending") {
+      // Gate on `status === "active"` (payment-enabled), NOT approvalStatus.
+      // Approval means "documents verified"; active means "money can move".
+      // A vendor can be approved and still correctly blocked here while
+      // payment setup finishes — see villeto_vendor_status cookie, set
+      // alongside approvalStatus in authStore/useAuth on every login,
+      // switch-company, and pending-page poll.
+      //
+      // NOTE: backend has returned inconsistent casing for this field
+      // ("Inactive" vs "active") — compared case-insensitively here since
+      // Edge Middleware can't cheaply import the shared isStatusActive()
+      // helper's full module graph. Keep this in sync with that helper.
+      const vendorStatus = request.cookies.get(AUTH_COOKIE_NAMES.vendorStatus)?.value;
       const approvalStatus = request.cookies.get(AUTH_COOKIE_NAMES.approvalStatus)?.value;
-      if (approvalStatus !== "approved") {
+
+      // Rejected vendors go to /pending to see the decision note, same as
+      // not-yet-active vendors — but this is a distinct reason, not a
+      // "wait" state, so /pending itself branches on approvalStatus too.
+      if (approvalStatus === "rejected") {
+        return NextResponse.redirect(new URL("/pending", request.url));
+      }
+
+      if ((vendorStatus ?? "").toLowerCase() !== "active") {
         return NextResponse.redirect(new URL("/pending", request.url));
       }
     }

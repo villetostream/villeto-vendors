@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Sidebar } from "@/components/dashboard/Sidebar";
 import { TopBar } from "@/components/dashboard/TopBar";
+import { MessagingWidget } from "@/components/messaging/MessagingWidget";
 
 export function DashboardShell({ children }: { children: React.ReactNode }) {
   const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
@@ -19,6 +20,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
           <div className="p-4 sm:p-6 page-enter">{children}</div>
         </main>
       </div>
+      <MessagingWidget />
     </div>
   );
 }

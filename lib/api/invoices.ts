@@ -1,82 +1,96 @@
 /**
  * INVOICES API
- * All endpoints for invoice management.
+ * Vendor-portal endpoints for invoice submission and management.
+ *
+ * All payloads are typed against InvoiceLineItemInput (name, description,
+ * quantity, unitPrice, taxAmount, sku, unitOfMeasure only) — deliberately
+ * excluding the buyer/accounting-internal fields present in the raw
+ * backend schema (categoryId, departmentId, accountingAccountRef,
+ * accountingItemRef, accountingClassRef, accountingLocationRef,
+ * accountingProjectRef, accountingTaxCodeRef, accountingResolutionStatus,
+ * vendorSelectionMode, catalogVendorId, lockedVendorId, preferredVendorId).
+ * Those look like they belong to the buyer-side procurement/accounting
+ * system, not something a vendor should ever fill in — confirm with
+ * backend before any of them are added to a vendor-facing form.
  */
 
 import { apiClient } from "./client";
-import { Invoice, InvoiceFilters, PaginatedResponse } from "@/lib/types";
+import {
+  ApiEnvelope,
+  CreateInvoicePayload,
+  Invoice,
+  InvoiceFilters,
+  UpdateInvoicePayload,
+} from "@/lib/types";
 
 /**
- * Get paginated invoices.
- * GET /invoices?org_id=xxx&status=xxx&page=1
+ * GET /vendor-portal/invoices?page=&limit=&status=&paymentStatus=&vendorId=&purchaseOrderId=
+ * Returns a bare array today — same pagination caveat as orders.
  */
-export async function getInvoices(
-  filters: InvoiceFilters = {}
-): Promise<PaginatedResponse<Invoice>> {
-  // INTEGRATION POINT ↓
-  const { data } = await apiClient.get("/invoices", { params: filters });
+export async function getInvoices(filters: InvoiceFilters = {}): Promise<Invoice[]> {
+  const { data } = await apiClient.get<ApiEnvelope<Invoice[]>>("/vendor-portal/invoices", {
+    params: filters,
+  });
   return data.data;
 }
 
 /**
- * Get a single invoice.
- * GET /invoices/:id
+ * GET /vendor-portal/invoices/:invoiceId
  */
-export async function getInvoice(id: string): Promise<Invoice> {
-  // INTEGRATION POINT ↓
-  const { data } = await apiClient.get(`/invoices/${id}`);
+export async function getInvoice(invoiceId: string): Promise<Invoice> {
+  const { data } = await apiClient.get<ApiEnvelope<Invoice>>(
+    `/vendor-portal/invoices/${invoiceId}`
+  );
   return data.data;
 }
 
 /**
- * Create a new invoice.
- * POST /invoices
+ * POST /vendor-portal/invoices
  */
-export async function createInvoice(payload: {
-  order_id?: string;
-  delivery_date: string;
-  items: { name: string; quantity: number; unit_price: number }[];
-}): Promise<Invoice> {
-  // INTEGRATION POINT ↓
-  const { data } = await apiClient.post("/invoices", payload);
+export async function createInvoice(payload: CreateInvoicePayload): Promise<Invoice> {
+  const { data } = await apiClient.post<ApiEnvelope<Invoice>>(
+    "/vendor-portal/invoices",
+    payload
+  );
   return data.data;
 }
 
 /**
- * Update/edit an invoice (only allowed for draft/pending status).
- * PATCH /invoices/:id
+ * PATCH /vendor-portal/invoices/:invoiceId
+ * Only allowed while the invoice hasn't progressed past "submitted" —
+ * backend enforces this; frontend should still hide the edit action once
+ * status moves to under_review/approved/rejected/paid rather than relying
+ * solely on a 4xx response.
  */
 export async function updateInvoice(
-  id: string,
-  payload: Partial<{
-    delivery_date: string;
-    items: { id?: string; name: string; quantity: number; unit_price: number }[];
-  }>
+  invoiceId: string,
+  payload: UpdateInvoicePayload
 ): Promise<Invoice> {
-  // INTEGRATION POINT ↓
-  const { data } = await apiClient.patch(`/invoices/${id}`, payload);
+  const { data } = await apiClient.patch<ApiEnvelope<Invoice>>(
+    `/vendor-portal/invoices/${invoiceId}`,
+    payload
+  );
   return data.data;
 }
 
 /**
- * Delete a draft invoice.
- * DELETE /invoices/:id
+ * DELETE /vendor-portal/invoices/:invoiceId
  */
-export async function deleteInvoice(id: string): Promise<{ success: boolean }> {
-  // INTEGRATION POINT ↓
-  const { data } = await apiClient.delete(`/invoices/${id}`);
+export async function deleteInvoice(invoiceId: string): Promise<{ success: boolean }> {
+  const { data } = await apiClient.delete(`/vendor-portal/invoices/${invoiceId}`);
   return data;
 }
 
 /**
- * Download invoice as PDF.
- * GET /invoices/:id/download
- * Returns: Blob
+ * POST /vendor-portal/invoices/:invoiceId/line-items
  */
-export async function downloadInvoicePdf(id: string): Promise<Blob> {
-  // INTEGRATION POINT ↓
-  const { data } = await apiClient.get(`/invoices/${id}/download`, {
-    responseType: "blob",
-  });
-  return data;
+export async function addInvoiceLineItems(
+  invoiceId: string,
+  lineItems: CreateInvoicePayload["lineItems"]
+): Promise<Invoice> {
+  const { data } = await apiClient.post<ApiEnvelope<Invoice>>(
+    `/vendor-portal/invoices/${invoiceId}/line-items`,
+    { lineItems }
+  );
+  return data.data;
 }

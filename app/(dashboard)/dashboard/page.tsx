@@ -1,16 +1,18 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { FilePlus2, ClipboardList, Clock, CheckCircle2, MoreVertical } from "lucide-react";
-import { getDashboardStats } from "@/lib/api/vendor";
-import { getOrders } from "@/lib/api/orders";
-import { queryKeys, useOrgStore } from "@/lib/stores/orgStore";
+import { getVendorSummary } from "@/lib/api/vendor";
+import { useCompanyStore, queryKeys } from "@/lib/stores/companyStore";
+import { useCompany } from "@/lib/hooks/useCompany";
 import { Button } from "@/components/ui/Button";
-import { OrderStatusBadge, PriorityBadge } from "@/components/ui/StatusBadge";
+import { OrderStatusBadge } from "@/components/ui/StatusBadge";
 import { StatCardSkeleton, TableSkeleton } from "@/components/ui/Skeleton";
 import { EmptyState, ErrorState } from "@/components/ui/Spinner";
-import { formatCurrency, formatDate } from "@/lib/utils";
+import { formatCurrency } from "@/lib/utils";
+import { SummaryFilters } from "@/lib/types";
 
 function StatCard({
   label,
@@ -34,45 +36,40 @@ function StatCard({
         </div>
       </div>
       <p className="text-2xl font-bold text-foreground mb-3">{value}</p>
-      <Link
-        href={linkHref}
-        className="text-xs text-primary hover:underline font-medium"
-      >
+      <Link href={linkHref} className="text-xs text-primary hover:underline font-medium">
         View all
       </Link>
     </div>
   );
 }
 
-const RECENT_ORDERS_COLUMNS = ["PO Number", "Organization", "Issue Date", "Priority", "Deadline", "Status", "Action"];
+const RECENT_ORDERS_COLUMNS = ["PO Number", "Line Items", "Currency", "Total Amount", "Status", "Action"];
 
 export default function DashboardPage() {
-  const orgId = useOrgStore((s) => s.activeOrgId) ?? "";
-  const activeOrg = useOrgStore((s) => s.activeOrg);
+  const router = useRouter();
+  const companyId = useCompanyStore((s) => s.activeCompanyId) ?? "";
+  const { activeCompany } = useCompany();
+
+  // const dateRange = useCompanyStore((s) => s.dateRange);
+
+  const summaryFilters: SummaryFilters = {
+    // TODO: Uncomment when backend supports date filtering (currently causes 400 Bad Request)
+    // ...(dateRange?.from && { startDate: format(dateRange.from, "yyyy-MM-dd") }),
+    // ...(dateRange?.to && { endDate: format(dateRange.to, "yyyy-MM-dd") }),
+  };
 
   const {
-    data: stats,
-    isLoading: statsLoading,
-    isError: statsError,
-    refetch: refetchStats,
+    data: summary,
+    isLoading: summaryLoading,
+    isError: summaryError,
+    refetch: refetchSummary,
   } = useQuery({
-    queryKey: queryKeys.dashboardStats(orgId),
-    queryFn: getDashboardStats,
-    enabled: !!orgId,
+    queryKey: queryKeys.summary(companyId, summaryFilters),
+    queryFn: () => getVendorSummary(summaryFilters),
+    enabled: !!companyId,
   });
 
-  const {
-    data: ordersData,
-    isLoading: ordersLoading,
-    isError: ordersError,
-    refetch: refetchOrders,
-  } = useQuery({
-    queryKey: queryKeys.orders(orgId, { per_page: 6 }),
-    queryFn: () => getOrders({ per_page: 6 }),
-    enabled: !!orgId,
-  });
-
-  const orders = ordersData?.data ?? [];
+  const orders = summary?.recentOrders ?? [];
 
   return (
     <div className="space-y-6">
@@ -83,7 +80,7 @@ export default function DashboardPage() {
           <p className="text-sm text-muted-foreground mt-0.5">
             Welcome back! Here&apos;s what&apos;s happening at{" "}
             <span className="font-medium text-foreground">
-              {activeOrg?.name ?? "your organisation"}
+              {activeCompany?.companyName ?? "your company"}
             </span>
             .
           </p>
@@ -97,46 +94,46 @@ export default function DashboardPage() {
       </div>
 
       {/* Stats grid */}
-      {statsLoading ? (
+      {summaryLoading ? (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           {Array.from({ length: 4 }, (_, i) => <StatCardSkeleton key={i} />)}
         </div>
-      ) : statsError ? (
+      ) : summaryError ? (
         <div className="bg-white rounded-2xl border border-dashboard-border">
           <ErrorState
             message="Couldn't load your dashboard stats. Please try again."
-            onRetry={() => refetchStats()}
+            onRetry={() => refetchSummary()}
           />
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           <StatCard
             label="Active POs"
-            value={stats?.active_pos ?? 0}
+            value={summary?.activePurchaseOrders ?? 0}
             icon={ClipboardList}
             iconBg="bg-blue-50 text-blue-600"
             linkHref="/orders"
           />
           <StatCard
             label="Invoices Under Review"
-            value={stats?.invoices_under_review ?? 0}
+            value={summary?.invoicesUnderReview ?? 0}
             icon={Clock}
             iconBg="bg-purple-50 text-purple-600"
             linkHref="/invoices?status=under_review"
           />
           <StatCard
             label="Payments In Progress"
-            value={stats?.payments_in_progress ?? 0}
+            value={summary?.paymentsInProgress ?? 0}
             icon={FilePlus2}
             iconBg="bg-amber-50 text-amber-600"
-            linkHref="/invoices?status=approved"
+            linkHref="/invoices?paymentStatus=in_progress"
           />
           <StatCard
             label="Total Paid"
-            value={formatCurrency(stats?.total_paid ?? 0, stats?.currency ?? "NGN")}
+            value={formatCurrency(summary?.totalPaid ?? 0)}
             icon={CheckCircle2}
             iconBg="bg-primary/10 text-primary"
-            linkHref="/invoices?status=paid"
+            linkHref="/invoices?paymentStatus=paid"
           />
         </div>
       )}
@@ -144,36 +141,25 @@ export default function DashboardPage() {
       {/* Recent orders table */}
       <div className="bg-white rounded-2xl border border-dashboard-border overflow-hidden">
         <div className="flex items-center justify-between px-6 py-4 border-b border-dashboard-border">
-          <h2 className="text-base font-semibold text-foreground">
-            Recent Orders
-          </h2>
+          <h2 className="text-base font-semibold text-foreground">Recent Orders</h2>
           <Link href="/orders" className="text-sm text-primary hover:underline font-medium">
             View all
           </Link>
         </div>
 
-        {ordersLoading ? (
+        {summaryLoading ? (
           <TableSkeleton rows={5} columns={RECENT_ORDERS_COLUMNS.length} />
-        ) : ordersError ? (
-          <ErrorState
-            message="Couldn't load recent orders. Please try again."
-            onRetry={() => refetchOrders()}
-          />
+        ) : summaryError ? (
+          <ErrorState message="Couldn't load recent orders. Please try again." onRetry={() => refetchSummary()} />
         ) : orders.length === 0 ? (
-          <EmptyState
-            title="No orders yet"
-            description="Orders assigned to you will appear here."
-          />
+          <EmptyState title="No orders yet" description="Orders assigned to you will appear here." />
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead>
                 <tr className="border-b border-dashboard-border">
                   {RECENT_ORDERS_COLUMNS.map((col) => (
-                    <th
-                      key={col}
-                      className="px-5 py-3 text-left text-xs font-medium text-muted-foreground"
-                    >
+                    <th key={col} className="px-5 py-3 text-left text-xs font-medium text-muted-foreground">
                       {col}
                     </th>
                   ))}
@@ -181,32 +167,24 @@ export default function DashboardPage() {
               </thead>
               <tbody>
                 {orders.map((order) => (
-                  <tr
-                    key={order.id}
-                    className="border-b border-dashboard-border/60 hover:bg-muted/30 transition-colors"
+                  <tr 
+                    key={order.purchaseOrderId} 
+                    onClick={() => router.push(`/orders/${order.purchaseOrderId}`)}
+                    className="border-b border-dashboard-border/60 hover:bg-muted/30 transition-colors cursor-pointer"
                   >
-                    <td className="px-5 py-3.5 text-sm font-semibold text-foreground">
-                      {order.po_number}
-                    </td>
+                    <td className="px-5 py-3.5 text-sm font-semibold text-foreground">{order.poNumber}</td>
+                    <td className="px-5 py-3.5 text-sm text-muted-foreground">{order.lineItemCount}</td>
+                    <td className="px-5 py-3.5 text-sm text-muted-foreground">{order.currency}</td>
                     <td className="px-5 py-3.5 text-sm text-muted-foreground">
-                      {order.organization}
-                    </td>
-                    <td className="px-5 py-3.5 text-sm text-muted-foreground">
-                      {formatDate(order.issue_date)}
-                    </td>
-                    <td className="px-5 py-3.5">
-                      <PriorityBadge priority={order.priority} />
-                    </td>
-                    <td className="px-5 py-3.5 text-sm text-muted-foreground">
-                      {formatDate(order.deadline)}
+                      {formatCurrency(order.totalAmount, order.currency)}
                     </td>
                     <td className="px-5 py-3.5">
                       <OrderStatusBadge status={order.status} />
                     </td>
-                    <td className="px-5 py-3.5">
+                    <td className="px-5 py-3.5" onClick={(e) => e.stopPropagation()}>
                       <Link
-                        href={`/orders/${order.id}`}
-                        aria-label={`View order ${order.po_number}`}
+                        href={`/orders/${order.purchaseOrderId}`}
+                        aria-label={`View order ${order.poNumber}`}
                         className="p-1.5 rounded-lg hover:bg-muted inline-flex transition-colors"
                       >
                         <MoreVertical className="h-4 w-4 text-muted-foreground" aria-hidden="true" />

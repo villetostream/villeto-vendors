@@ -1,100 +1,90 @@
 /**
- * ORDERS API
- * All endpoints for purchase orders.
+ * PURCHASE ORDERS API
+ * Vendor-portal endpoints for purchase orders.
  */
 
 import { apiClient } from "./client";
-import { Order, OrderFilters, PaginatedResponse } from "@/lib/types";
+import {
+  AcknowledgeOrderPayload,
+  ApiEnvelope,
+  ConfirmDeliveryPayload,
+  Order,
+  OrderFilters,
+  OrderListItem,
+} from "@/lib/types";
 
 /**
- * Get paginated orders.
- * GET /orders?org_id=xxx&status=xxx&page=1
- *
- * org_id is injected automatically by apiClient interceptor via X-Org-Id header.
+ * GET /vendor-portal/orders?page=&limit=&status=
+ * Returns a bare array today (no total/totalPages) — pagination UI can
+ * only infer "has next page" from whether a full page came back, not show
+ * a real page count, until backend adds a wrapper with totals.
  */
-export async function getOrders(
-  filters: OrderFilters = {}
-): Promise<PaginatedResponse<Order>> {
-  // INTEGRATION POINT ↓
-  const { data } = await apiClient.get("/orders", { params: filters });
+export async function getOrders(filters: OrderFilters = {}): Promise<OrderListItem[]> {
+  const { data } = await apiClient.get<ApiEnvelope<OrderListItem[]>>("/vendor-portal/orders", {
+    params: filters,
+  });
   return data.data;
 }
 
 /**
- * Get a single order with full details.
- * GET /orders/:id
+ * GET /vendor-portal/orders/:purchaseOrderId
  */
-export async function getOrder(id: string): Promise<Order> {
-  // INTEGRATION POINT ↓
-  const { data } = await apiClient.get(`/orders/${id}`);
+export async function getOrder(purchaseOrderId: string): Promise<Order> {
+  const { data } = await apiClient.get<ApiEnvelope<Order>>(
+    `/vendor-portal/orders/${purchaseOrderId}`
+  );
   return data.data;
 }
 
 /**
- * Acknowledge an assigned order.
- * POST /orders/:id/acknowledge
+ * PATCH /vendor-portal/orders/:purchaseOrderId/acknowledge
  *
- * Includes delivery dates per item.
+ * Confirmed endpoint, UNCONFIRMED body. The product mockups show the
+ * vendor entering a per-item delivery date before acknowledging, so this
+ * sends `{ lineItems: [{ purchaseOrderLineItemId, deliveryDate }] }` as
+ * the best guess. If backend's real contract takes no body (as originally
+ * documented) or a different shape, this call will need updating — the
+ * dates are also kept in local component state as a fallback so the UI
+ * still reflects them even if the backend silently ignores the field.
  */
 export async function acknowledgeOrder(
-  id: string,
-  payload: { items: { id: string; delivery_date: string }[] }
+  purchaseOrderId: string,
+  payload?: AcknowledgeOrderPayload
 ): Promise<Order> {
-  // INTEGRATION POINT ↓
-  const { data } = await apiClient.post(`/orders/${id}/acknowledge`, payload);
+  const { data } = await apiClient.patch<ApiEnvelope<Order>>(
+    `/vendor-portal/orders/${purchaseOrderId}/acknowledge`,
+    payload
+  );
   return data.data;
 }
 
 /**
- * Mark order as ready for delivery.
- * POST /orders/:id/ready-for-delivery
+ * PATCH /vendor-portal/orders/:purchaseOrderId/ready-for-delivery
  */
-export async function markReadyForDelivery(id: string): Promise<Order> {
-  // INTEGRATION POINT ↓
-  const { data } = await apiClient.post(`/orders/${id}/ready-for-delivery`);
+export async function markReadyForDelivery(purchaseOrderId: string): Promise<Order> {
+  const { data } = await apiClient.patch<ApiEnvelope<Order>>(
+    `/vendor-portal/orders/${purchaseOrderId}/ready-for-delivery`
+  );
   return data.data;
 }
 
 /**
- * Mark order as delivered (full delivery).
- * POST /orders/:id/deliver
- * body: { type: "full" }
+ * UNCONFIRMED ENDPOINT — no delivery-confirmation contract exists yet.
+ * Guessed as `PATCH /vendor-portal/orders/:purchaseOrderId/confirm-delivery`
+ * taking `{ deliveryType: "full" | "partial", lineItems: [...] }`, where
+ * "full" delivers every item at its full ordered quantity and "partial"
+ * carries the vendor-entered (capped, never exceeding ordered quantity)
+ * quantities. Resulting order.status is expected to become "delivered"
+ * for a full delivery or "partially_delivered" for a partial one — verify
+ * both the path and the status transition with backend before shipping.
  */
-export async function markFullDelivery(id: string): Promise<Order> {
-  // INTEGRATION POINT ↓
-  const { data } = await apiClient.post(`/orders/${id}/deliver`, {
-    type: "full",
-  });
-  return data.data;
-}
-
-/**
- * Mark order as partially delivered.
- * POST /orders/:id/deliver
- * body: { type: "partial", items: [{ id, delivered_quantity }] }
- */
-export async function markPartialDelivery(
-  id: string,
-  items: { id: string; delivered_quantity: number }[]
+export async function confirmDelivery(
+  purchaseOrderId: string,
+  payload: ConfirmDeliveryPayload
 ): Promise<Order> {
-  // INTEGRATION POINT ↓
-  const { data } = await apiClient.post(`/orders/${id}/deliver`, {
-    type: "partial",
-    items,
-  });
-  return data.data;
-}
-
-/**
- * Fulfill remaining items for a partially-delivered order.
- * POST /orders/:id/fulfill
- * body: { items: [{ id, delivered_quantity }] }
- */
-export async function fulfillRemainingDelivery(
-  id: string,
-  items: { id: string; delivered_quantity: number }[]
-): Promise<Order> {
-  // INTEGRATION POINT ↓
-  const { data } = await apiClient.post(`/orders/${id}/fulfill`, { items });
+  const { data } = await apiClient.patch<ApiEnvelope<Order>>(
+    `/vendor-portal/orders/${purchaseOrderId}/confirm-delivery`,
+    payload
+  );
   return data.data;
 }

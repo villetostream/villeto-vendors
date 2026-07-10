@@ -13,7 +13,7 @@ import { FormField } from "@/components/ui/Label";
 import { useLogin } from "@/lib/hooks/useAuth";
 import { useAuthStore } from "@/lib/stores/authStore";
 import { useOnboardingStore } from "@/lib/stores/onboardingStore";
-import { ApprovalStatus, OnboardingStatus, VendorStatus } from "@/lib/types";
+import { isStatusActive } from "@/lib/utils";
 import { toast } from "sonner";
 
 const schema = z.object({
@@ -23,25 +23,32 @@ const schema = z.object({
 
 type FormData = z.infer<typeof schema>;
 
+const ONBOARDING_STEP_ROUTES: Record<string, string> = {
+  business_identity: "business-identity",
+  banking_details: "banking",
+  documents: "documents",
+  review: "review",
+};
+
 function LoginContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const next = searchParams.get("next") ?? "/dashboard";
-  const { setUser } = useAuthStore();
   const { hydrateFromSession } = useOnboardingStore();
   const [showPassword, setShowPassword] = useState(false);
   const [isNavigating, setIsNavigating] = useState(false);
 
   // ── Redirect if already authenticated ───────────────────────
   const { user, isAuthenticated, isLoading } = useAuthStore();
-  
+
   useEffect(() => {
     if (isLoading || !isAuthenticated || !user || isNavigating) return;
 
-    const nextPath = next || "/dashboard";
-    if (user.approvalStatus === "approved" && user.onboardingStatus === "completed") {
-      router.replace(nextPath);
-    } else if (user.approvalStatus === "rejected" || ["completed", "submitted", "under_review", "pending_approval"].includes(user.onboardingStatus || "")) {
+    if (isStatusActive(user.status)) {
+      router.replace(next);
+    } else {
+      // Not yet active — approved-but-payment-pending, under review, or
+      // rejected all land on /pending, which branches on the reason.
       router.replace("/pending");
     }
   }, [user, isAuthenticated, isLoading, isNavigating, router, next]);
@@ -56,58 +63,39 @@ function LoginContent() {
 
   const onSubmit = async (data: FormData) => {
     try {
+      // useLogin's mutationFn already persists the token cookie and
+      // populates authStore + companyStore from the response — no need
+      // to duplicate that here.
       const res = await loginMutation.mutateAsync(data);
-      const vendorData = res.data.data;
+      const { currentVendor, onboardingMode } = res.data;
 
-      setUser({
-        id: vendorData.vendorId,
-        email: vendorData.email,
-        business_name: vendorData.legalName || vendorData.displayName,
-        status: vendorData.status as VendorStatus,
-        approvalStatus: vendorData.approvalStatus as ApprovalStatus,
-        onboardingStatus: vendorData.onboardingStatus as OnboardingStatus,
-        decisionNote: vendorData.decisionNote,
-      });
-
-      // Hydrate onboarding store with vendor identity + any partial data from server
       hydrateFromSession({
-        vendorId: vendorData.vendorId,
-        email: vendorData.email,
-        legalName: vendorData.legalName,
-        displayName: vendorData.displayName,
-        businessIdentity: vendorData.businessIdentity,
+        vendorId: currentVendor.vendorId,
+        email: currentVendor.email,
+        legalName: currentVendor.legalName,
+        displayName: currentVendor.displayName,
+        businessIdentity: currentVendor.businessIdentity,
       });
 
       setIsNavigating(true);
 
-      // ── Route by approval + onboarding status ──────────────────
-      if (
-        vendorData.approvalStatus === "approved" &&
-        vendorData.onboardingStatus === "completed"
-      ) {
+      if (isStatusActive(currentVendor.status)) {
         router.push(next);
         return;
       }
 
-      const pendingStatuses = ["completed", "submitted", "under_review", "pending_approval"];
-      if (
-        vendorData.approvalStatus === "rejected" ||
-        pendingStatuses.includes(vendorData.onboardingStatus || "")
-      ) {
+      // "review_and_submit" = vendor already has a reusable profile from
+      // another company and just needs to confirm/submit to this one —
+      // not the full wizard. A dedicated review-and-submit screen is a
+      // follow-up; for now this safely lands on /pending, which explains
+      // their status rather than dropping them into the wrong flow.
+      if (onboardingMode === "review_and_submit" || currentVendor.onboardingStatus !== "not_started") {
         router.push("/pending");
         return;
       }
 
-      const stepMap: Record<string, string> = {
-        business_identity: "business-identity",
-        banking_details: "banking",
-        documents: "documents",
-        review: "review",
-      };
-
-      const currentStep = vendorData.currentStep || "business_identity";
-      const routeStep = stepMap[currentStep] || "business-identity";
-
+      const currentStep = currentVendor.currentStep || "business_identity";
+      const routeStep = ONBOARDING_STEP_ROUTES[currentStep] || "business-identity";
       router.push(`/onboarding/${routeStep}`);
     } catch (err: unknown) {
       setIsNavigating(false);
@@ -117,7 +105,6 @@ function LoginContent() {
 
   return (
     <div className="min-h-screen onboarding-bg flex flex-col relative overflow-hidden">
-      {/* Corner grid decorators */}
       <div className="pointer-events-none absolute bottom-0 left-0 w-48 h-48 opacity-30"
         style={{ backgroundImage: "linear-gradient(rgba(43,185,176,0.15) 1px, transparent 1px), linear-gradient(90deg, rgba(43,185,176,0.15) 1px, transparent 1px)", backgroundSize: "16px 16px" }} />
       <div className="pointer-events-none absolute bottom-0 right-0 w-48 h-48 opacity-30"
@@ -133,19 +120,13 @@ function LoginContent() {
             <VilletoLogo size="md" />
           </div>
 
-          <h1 className="text-2xl font-bold text-foreground text-center mb-1">
-            Sign in as a Vendor
-          </h1>
+          <h1 className="text-2xl font-bold text-foreground text-center mb-1">Sign in as a Vendor</h1>
           <p className="text-sm text-muted-foreground text-center mb-8">
             Enter your credentials to access your vendor account
           </p>
 
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
-            <FormField
-              label="Email Address"
-              required
-              error={errors.email?.message}
-            >
+            <FormField label="Email Address" required error={errors.email?.message}>
               <Input
                 type="email"
                 placeholder="Enter email address"
@@ -155,11 +136,7 @@ function LoginContent() {
               />
             </FormField>
 
-            <FormField
-              label="Password"
-              required
-              error={errors.password?.message}
-            >
+            <FormField label="Password" required error={errors.password?.message}>
               <div className="relative">
                 <Input
                   type={showPassword ? "text" : "password"}
@@ -179,13 +156,7 @@ function LoginContent() {
               </div>
             </FormField>
 
-            <Button
-              type="submit"
-              variant="primary"
-              size="lg"
-              loading={isSubmitting || loginMutation.isPending || isNavigating}
-              className="w-full mt-2"
-            >
+            <Button type="submit" variant="primary" size="lg" loading={isSubmitting || loginMutation.isPending || isNavigating} className="w-full mt-2">
               Login
               <ArrowRight className="h-4 w-4" aria-hidden="true" />
             </Button>

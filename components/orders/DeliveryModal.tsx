@@ -7,13 +7,13 @@ import {
 } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
 import { cn } from "@/lib/utils";
-import { DeliveryType, OrderItem } from "@/lib/types";
+import { DeliveryType, OrderLineItem } from "@/lib/types";
 
 interface DeliveryModalProps {
   open: boolean;
   onClose: () => void;
   onConfirmFull: () => void;
-  onConfirmPartial: (items: { id: string; delivered_quantity: number }[]) => void;
+  onConfirmPartial: (items: { purchaseOrderLineItemId: string; deliveredQuantity: number }[]) => void;
   isPending: boolean;
 }
 
@@ -116,8 +116,8 @@ function DeliveryOption({
 // ─── Partial Delivery Panel (inline in order detail page) ─────────────────────
 
 interface PartialDeliveryPanelProps {
-  items: OrderItem[];
-  onConfirm: (items: { id: string; delivered_quantity: number }[]) => void;
+  items: OrderLineItem[];
+  onConfirm: (items: { purchaseOrderLineItemId: string; deliveredQuantity: number }[]) => void;
   onCancel: () => void;
   isPending: boolean;
 }
@@ -129,7 +129,7 @@ export function PartialDeliveryPanel({
   isPending,
 }: PartialDeliveryPanelProps) {
   const [quantities, setQuantities] = useState<Record<string, number>>(
-    Object.fromEntries(items.map((i) => [i.id, 0]))
+    Object.fromEntries(items.map((i) => [i.purchaseOrderLineItemId, 0]))
   );
 
   const handleQuantityChange = (id: string, value: number, max: number) => {
@@ -142,9 +142,9 @@ export function PartialDeliveryPanel({
   const hasAnyQuantity = Object.values(quantities).some((q) => q > 0);
 
   const handleConfirm = () => {
-    const payload = Object.entries(quantities).map(([id, delivered_quantity]) => ({
-      id,
-      delivered_quantity,
+    const payload = Object.entries(quantities).map(([id, deliveredQuantity]) => ({
+      purchaseOrderLineItemId: id,
+      deliveredQuantity,
     }));
     onConfirm(payload);
   };
@@ -168,28 +168,28 @@ export function PartialDeliveryPanel({
           </thead>
           <tbody>
             {items.map((item) => (
-              <tr key={item.id} className="border-b border-border/60">
+              <tr key={item.purchaseOrderLineItemId} className="border-b border-border/60">
                 <td className="px-4 py-3 text-sm font-medium">{item.name}</td>
                 <td className="px-4 py-3 text-sm text-muted-foreground">{item.description}</td>
                 <td className="px-4 py-3">
                   {/* Stepper input */}
                   <div className="flex items-center border border-border rounded-lg overflow-hidden w-24">
                     <button
-                      onClick={() => handleQuantityChange(item.id, quantities[item.id] - 1, item.quantity)}
+                      onClick={() => handleQuantityChange(item.purchaseOrderLineItemId, quantities[item.purchaseOrderLineItemId] - 1, item.quantity)}
                       className="px-2 py-1 hover:bg-muted transition-colors text-muted-foreground text-lg leading-none"
                     >
                       ‹
                     </button>
                     <input
                       type="number"
-                      value={quantities[item.id]}
-                      onChange={(e) => handleQuantityChange(item.id, parseInt(e.target.value) || 0, item.quantity)}
+                      value={quantities[item.purchaseOrderLineItemId]}
+                      onChange={(e) => handleQuantityChange(item.purchaseOrderLineItemId, parseInt(e.target.value) || 0, item.quantity)}
                       className="flex-1 text-center text-sm py-1 border-x border-border focus:outline-none w-10"
                       min={0}
                       max={item.quantity}
                     />
                     <button
-                      onClick={() => handleQuantityChange(item.id, quantities[item.id] + 1, item.quantity)}
+                      onClick={() => handleQuantityChange(item.purchaseOrderLineItemId, quantities[item.purchaseOrderLineItemId] + 1, item.quantity)}
                       className="px-2 py-1 hover:bg-muted transition-colors text-muted-foreground text-lg leading-none"
                     >
                       ›
@@ -197,7 +197,7 @@ export function PartialDeliveryPanel({
                   </div>
                 </td>
                 <td className="px-4 py-3 text-sm text-muted-foreground">
-                  {item.delivery_date ?? "2024-04-15"}
+                  {item.deliveryDate ?? "2024-04-15"}
                 </td>
               </tr>
             ))}

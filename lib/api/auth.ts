@@ -8,9 +8,9 @@
  */
 
 import { apiClient } from "./client";
-import { AuthUser, InviteTokenPayload } from "@/lib/types";
+import { InviteTokenPayload } from "@/lib/types";
 import Cookies from "js-cookie";
-import { AUTH_COOKIE_OPTIONS, AUTH_COOKIE_NAMES, ACTIVE_ORG_STORAGE_KEY } from "@/lib/constants/auth";
+import { AUTH_COOKIE_OPTIONS, AUTH_COOKIE_NAMES } from "@/lib/constants/auth";
 
 // ─────────────────────────────────────────────
 // INVITE TOKEN
@@ -105,8 +105,10 @@ export async function logout(): Promise<void> {
     Cookies.remove(AUTH_COOKIE_NAMES.authToken);
     Cookies.remove(AUTH_COOKIE_NAMES.onboardingSession);
     Cookies.remove(AUTH_COOKIE_NAMES.approvalStatus);
+    Cookies.remove(AUTH_COOKIE_NAMES.vendorStatus);
+    Cookies.remove(AUTH_COOKIE_NAMES.activeCompanyId);
     if (typeof window !== "undefined") {
-      localStorage.removeItem(ACTIVE_ORG_STORAGE_KEY);
+      localStorage.removeItem("villeto-onboarding");
     }
   }
 }
@@ -114,13 +116,9 @@ export async function logout(): Promise<void> {
 // ─────────────────────────────────────────────
 // CURRENT USER
 // ─────────────────────────────────────────────
-
-/**
- * Get the current authenticated vendor.
- * GET /auth/me
- */
-export async function getMe(): Promise<AuthUser> {
-  // INTEGRATION POINT ↓
-  const { data } = await apiClient.get<{ data: AuthUser }>("/auth/me");
-  return data.data;
-}
+//
+// There is no confirmed "/auth/me" endpoint in the real vendor-portal API.
+// Session rehydration on page load now uses getVendorProfile() +
+// getVendorCompanies() from lib/api/vendor.ts instead — see
+// components/shared/Providers.tsx. getMe() was removed rather than left
+// as dead code pointing at a 404.
