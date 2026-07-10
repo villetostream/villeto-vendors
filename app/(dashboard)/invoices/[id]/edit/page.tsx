@@ -1,10 +1,12 @@
 "use client";
 
-import { Suspense } from "react";
+import { use, Suspense } from "react";
 import { InvoiceForm } from "@/components/invoices/InvoiceForm";
 import { Spinner } from "@/components/ui/Spinner";
 
-export default function CreateInvoicePage() {
+export default function EditInvoicePage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = use(params);
+
   return (
     <Suspense
       fallback={
@@ -13,7 +15,7 @@ export default function CreateInvoicePage() {
         </div>
       }
     >
-      <InvoiceForm mode="create" />
+      <InvoiceForm mode="edit" invoiceId={id} />
     </Suspense>
   );
 }

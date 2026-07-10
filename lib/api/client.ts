@@ -2,32 +2,28 @@
  * API CLIENT
  * Central axios instance for all API calls.
  *
- * Features:
- * - Automatic auth token injection from cookie/memory
- * - Automatic org_id injection (from active org context)
- * - Request/response interceptors
- * - 401 handling → redirect to login
- * - Error normalization
+ * Company/tenant scoping now comes from the JWT itself (companyId claim,
+ * set server-side on login/switch-company) — NOT an X-Org-Id header. This
+ * replaced the earlier header-based design specifically because it lets
+ * two tabs silently diverge (tab A switches company, tab B keeps sending
+ * the old header and gets tab-A's-old data mixed with tab-B's-new token).
+ * A superseded JWT is the enforcement point instead: see
+ * lib/hooks/useCompany.ts for the switch flow and the cross-tab broadcast
+ * that keeps other tabs from acting on a stale context.
  */
 
 import axios, { AxiosError, InternalAxiosRequestConfig } from "axios";
 import Cookies from "js-cookie";
-import { AUTH_COOKIE_NAMES, ACTIVE_ORG_STORAGE_KEY } from "@/lib/constants/auth";
+import { AUTH_COOKIE_NAMES } from "@/lib/constants/auth";
+import { broadcastAuthEvent } from "@/lib/utils/authBroadcast";
 
-// ─────────────────────────────────────────────
-// CONFIG
-// ─────────────────────────────────────────────
-
-const BASE_URL =
-  process.env.NEXT_PUBLIC_API_URL ?? "https://api.villeto.com";
+const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "https://api.villeto.com";
 
 /**
  * Endpoints a vendor can hit *without* an existing session. A 401 from one
  * of these almost always means "wrong credentials" or "invalid/expired
  * token", not "your session expired" — so it must NOT trigger the global
- * clear-cookies-and-hard-redirect behavior below. Without this, simply
- * typing the wrong password on the login page would wipe the inline error
- * toast via an immediate full-page redirect before the vendor ever saw it.
+ * clear-cookies-and-hard-redirect behavior below.
  */
 const PUBLIC_AUTH_PATHS = [
   "/vendors/auth/login",
@@ -41,9 +37,24 @@ function isPublicAuthRequest(url?: string): boolean {
   return PUBLIC_AUTH_PATHS.some((path) => url.includes(path));
 }
 
-// ─────────────────────────────────────────────
-// CLIENT
-// ─────────────────────────────────────────────
+function clearSessionCookies() {
+  Cookies.remove(AUTH_COOKIE_NAMES.authToken);
+  Cookies.remove(AUTH_COOKIE_NAMES.onboardingSession);
+  Cookies.remove(AUTH_COOKIE_NAMES.approvalStatus);
+  Cookies.remove(AUTH_COOKIE_NAMES.vendorStatus);
+  Cookies.remove(AUTH_COOKIE_NAMES.activeCompanyId);
+}
+
+function handleSessionExpired() {
+  clearSessionCookies();
+  if (typeof window !== "undefined") {
+    // Tell any other open tabs their session/token is gone too — a
+    // superseded or expired token in tab A should not let tab B keep
+    // acting on a company context that's no longer valid anywhere.
+    broadcastAuthEvent({ type: "logout" });
+    window.location.href = "/auth/login";
+  }
+}
 
 export const apiClient = axios.create({
   baseURL: BASE_URL,
@@ -54,50 +65,26 @@ export const apiClient = axios.create({
   },
 });
 
-// ── Request interceptor ───────────────────────
-
 apiClient.interceptors.request.use(
   (config: InternalAxiosRequestConfig) => {
-    // 1. Inject auth token
     const token = Cookies.get(AUTH_COOKIE_NAMES.authToken);
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
-
-    // 2. Inject active org_id from localStorage
-    //    (set by org switcher in orgStore)
-    if (typeof window !== "undefined") {
-      const orgId = localStorage.getItem(ACTIVE_ORG_STORAGE_KEY);
-      if (orgId && config.headers) {
-        config.headers["X-Org-Id"] = orgId;
-      }
-    }
-
     return config;
   },
   (error) => Promise.reject(error)
 );
-
-// ── Response interceptor ─────────────────────
 
 apiClient.interceptors.response.use(
   (response) => response,
   async (error: AxiosError) => {
     const status = error.response?.status;
 
-    // Token expired or invalid → clear session and redirect.
-    // Skip this for public/unauthenticated endpoints (see comment above).
     if (status === 401 && !isPublicAuthRequest(error.config?.url)) {
-      Cookies.remove(AUTH_COOKIE_NAMES.authToken);
-      Cookies.remove(AUTH_COOKIE_NAMES.onboardingSession);
-      Cookies.remove(AUTH_COOKIE_NAMES.approvalStatus);
-      if (typeof window !== "undefined") {
-        localStorage.removeItem(ACTIVE_ORG_STORAGE_KEY);
-        window.location.href = "/auth/login";
-      }
+      handleSessionExpired();
     }
 
-    // Normalize error for consumers
     const apiError = {
       message:
         (error.response?.data as { message?: string })?.message ??
@@ -117,17 +104,12 @@ apiClient.interceptors.response.use(
 
 export const uploadClient = axios.create({
   baseURL: BASE_URL,
-  timeout: 120_000, // 2 min for large file uploads
+  timeout: 120_000,
 });
 
 uploadClient.interceptors.request.use((config) => {
   const token = Cookies.get(AUTH_COOKIE_NAMES.authToken);
   if (token) config.headers.Authorization = `Bearer ${token}`;
-  if (typeof window !== "undefined") {
-    const orgId = localStorage.getItem(ACTIVE_ORG_STORAGE_KEY);
-    if (orgId) config.headers["X-Org-Id"] = orgId;
-  }
-  // Let browser set Content-Type with boundary for multipart
   delete config.headers["Content-Type"];
   return config;
 });
@@ -138,13 +120,7 @@ uploadClient.interceptors.response.use(
     const status = error.response?.status;
 
     if (status === 401 && !isPublicAuthRequest(error.config?.url)) {
-      Cookies.remove(AUTH_COOKIE_NAMES.authToken);
-      Cookies.remove(AUTH_COOKIE_NAMES.onboardingSession);
-      Cookies.remove(AUTH_COOKIE_NAMES.approvalStatus);
-      if (typeof window !== "undefined") {
-        localStorage.removeItem(ACTIVE_ORG_STORAGE_KEY);
-        window.location.href = "/auth/login";
-      }
+      handleSessionExpired();
     }
 
     const apiError = {

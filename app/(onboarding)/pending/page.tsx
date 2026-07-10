@@ -5,17 +5,18 @@ import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Send, XCircle } from "lucide-react";
+import { Send, XCircle, CreditCard } from "lucide-react";
 import { OnboardingStepper } from "@/components/onboarding/OnboardingStepper";
 import { Button } from "@/components/ui/Button";
-import { sendMessage, getVendorMe } from "@/lib/api/vendor";
+import { sendMessage } from "@/lib/api/vendor";
+import { getVendorProfile } from "@/lib/api/vendor";
 import { useAuthStore } from "@/lib/stores/authStore";
 import { toast } from "sonner";
-import { cn } from "@/lib/utils";
+import { cn, isStatusActive } from "@/lib/utils";
 import Cookies from "js-cookie";
 import { AUTH_COOKIE_NAMES, AUTH_COOKIE_OPTIONS } from "@/lib/constants/auth";
 
-const POLL_INTERVAL_MS = 5_000; // 5 seconds
+const POLL_INTERVAL_MS = 5_000;
 
 const schema = z.object({
   message: z.string().trim().min(1, "Message cannot be empty"),
@@ -23,70 +24,103 @@ const schema = z.object({
 
 type FormData = z.infer<typeof schema>;
 
-/** Animated clock/timer SVG — three rotating arcs around a clock face */
-function TimerAnimation({ rejected }: { rejected: boolean }) {
-  const color = rejected ? "#ef4444" : "#f59e0b";
-  const bg = rejected ? "bg-red-50" : "bg-amber-50";
-  const ring = rejected ? "bg-red-100" : "bg-amber-100";
+/**
+ * Three distinct waiting states, not one binary "pending" — approval and
+ * activation (payment-enablement) are separate backend gates, and a
+ * vendor sitting in "approved, payment setup in progress" with no
+ * indication of that is the most likely state to generate a confused
+ * support ticket ("I was approved days ago, why can't I log in?").
+ */
+type PendingPhase = "under_review" | "payment_setup" | "rejected";
 
-  return (
-    <div className={cn("relative h-14 w-14 rounded-full flex items-center justify-center shrink-0", bg)} aria-hidden="true">
-      <div className={cn("h-10 w-10 rounded-full flex items-center justify-center", ring)}>
-        {rejected ? (
+function getPhase(approvalStatus?: string, status?: string): PendingPhase {
+  if (approvalStatus === "rejected") return "rejected";
+  if (approvalStatus === "approved" && !isStatusActive(status)) return "payment_setup";
+  return "under_review";
+}
+
+function PhaseAnimation({ phase }: { phase: PendingPhase }) {
+  if (phase === "rejected") {
+    return (
+      <div className="relative h-14 w-14 rounded-full flex items-center justify-center shrink-0 bg-red-50" aria-hidden="true">
+        <div className="h-10 w-10 rounded-full flex items-center justify-center bg-red-100">
           <XCircle className="h-5 w-5 text-red-500" />
-        ) : (
-          <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none">
-            {/* Clock face */}
-            <circle cx="12" cy="12" r="9" stroke={color} strokeWidth="2" />
-            {/* Hour hand */}
-            <line
-              x1="12" y1="12" x2="12" y2="7"
-              stroke={color} strokeWidth="2" strokeLinecap="round"
-              style={{ transformOrigin: "12px 12px", animation: "spin 12s linear infinite" }}
-            />
-            {/* Minute hand */}
-            <line
-              x1="12" y1="12" x2="16" y2="12"
-              stroke={color} strokeWidth="1.5" strokeLinecap="round"
-              style={{ transformOrigin: "12px 12px", animation: "spin 1s linear infinite" }}
-            />
-            {/* Centre dot */}
-            <circle cx="12" cy="12" r="1.2" fill={color} />
-            {/* Top mark */}
-            <line x1="12" y1="4" x2="12" y2="5.5" stroke={color} strokeWidth="1.5" strokeLinecap="round" />
-          </svg>
-        )}
+        </div>
       </div>
+    );
+  }
 
-      {/* Orbiting dot — only for pending */}
-      {!rejected && (
-        <span
-          className="absolute h-2.5 w-2.5 rounded-full bg-amber-400"
-          style={{
-            top: "50%", left: "50%",
-            marginTop: "-1.25rem", marginLeft: "-0.3125rem",
-            transformOrigin: "0.3125rem 1.25rem",
-            animation: "spin 2s linear infinite",
-          }}
-        />
-      )}
+  if (phase === "payment_setup") {
+    return (
+      <div className="relative h-14 w-14 rounded-full flex items-center justify-center shrink-0 bg-teal-50" aria-hidden="true">
+        <div className="h-10 w-10 rounded-full flex items-center justify-center bg-teal-100">
+          <CreditCard className="h-5 w-5 text-teal-600" />
+        </div>
+      </div>
+    );
+  }
 
+  const color = "#f59e0b";
+  return (
+    <div className="relative h-14 w-14 rounded-full flex items-center justify-center shrink-0 bg-amber-50" aria-hidden="true">
+      <div className="h-10 w-10 rounded-full flex items-center justify-center bg-amber-100">
+        <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none">
+          <circle cx="12" cy="12" r="9" stroke={color} strokeWidth="2" />
+          <line
+            x1="12" y1="12" x2="12" y2="7"
+            stroke={color} strokeWidth="2" strokeLinecap="round"
+            style={{ transformOrigin: "12px 12px", animation: "spin 12s linear infinite" }}
+          />
+          <line
+            x1="12" y1="12" x2="16" y2="12"
+            stroke={color} strokeWidth="1.5" strokeLinecap="round"
+            style={{ transformOrigin: "12px 12px", animation: "spin 1s linear infinite" }}
+          />
+          <circle cx="12" cy="12" r="1.2" fill={color} />
+          <line x1="12" y1="4" x2="12" y2="5.5" stroke={color} strokeWidth="1.5" strokeLinecap="round" />
+        </svg>
+      </div>
+      <span
+        className="absolute h-2.5 w-2.5 rounded-full bg-amber-400"
+        style={{
+          top: "50%", left: "50%",
+          marginTop: "-1.25rem", marginLeft: "-0.3125rem",
+          transformOrigin: "0.3125rem 1.25rem",
+          animation: "spin 2s linear infinite",
+        }}
+      />
       <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
     </div>
   );
 }
 
+const PHASE_COPY: Record<PendingPhase, { title: string; subtitle: string; badge: string; badgeClasses: string }> = {
+  under_review: {
+    title: "Pending Approval",
+    subtitle: "Your credentials are under review.",
+    badge: "Under Review",
+    badgeClasses: "bg-amber-100 text-amber-700",
+  },
+  payment_setup: {
+    title: "Setting Up Payments",
+    subtitle: "You're approved — we're finishing payment setup.",
+    badge: "Approved · Payment Setup",
+    badgeClasses: "bg-teal-100 text-teal-700",
+  },
+  rejected: {
+    title: "Application Rejected",
+    subtitle: "Your application was not approved at this time.",
+    badge: "Rejected",
+    badgeClasses: "bg-red-100 text-red-700",
+  },
+};
+
 export default function PendingPage() {
   const router = useRouter();
   const { user, setUser } = useAuthStore();
-  const isRejected = user?.approvalStatus === "rejected";
+  const phase = getPhase(user?.approvalStatus, user?.status);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Polling is set up once (see effect below) but needs to compare against
-  // the *latest* user on every tick, not whatever it was when the interval
-  // was created — a ref (rather than the `user` value itself) avoids that
-  // stale-closure trap without having to tear down/recreate the interval
-  // every time the user object changes.
   const userRef = useRef(user);
   useEffect(() => {
     userRef.current = user;
@@ -94,59 +128,58 @@ export default function PendingPage() {
 
   const [sent, setSent] = useState(false);
 
-  // ── Real-time approval status polling ──────────────────────────
   useEffect(() => {
     const poll = async () => {
       try {
-        // Use the real /vendors/me endpoint (was incorrectly calling /auth/me)
-        const freshUser = await getVendorMe();
+        const profile = await getVendorProfile();
         const current = userRef.current;
 
-        // Only push a new object into the store (and trigger downstream
-        // re-renders for every component reading useAuthStore) when
-        // something the UI actually cares about has changed.
+        const freshUser = {
+          id: profile.vendorId,
+          email: profile.email,
+          business_name: profile.displayName || profile.legalName,
+          status: profile.status,
+          approvalStatus: profile.approvalStatus,
+          onboardingStatus: profile.onboardingStatus,
+          decisionNote: profile.decisionNote,
+          isPaymentEnabled: profile.isPaymentEnabled,
+        };
+
         const meaningfullyChanged =
           freshUser.approvalStatus !== current?.approvalStatus ||
-          freshUser.onboardingStatus !== current?.onboardingStatus ||
+          freshUser.status !== current?.status ||
           freshUser.decisionNote !== current?.decisionNote;
 
         if (meaningfullyChanged) {
           setUser(freshUser);
         }
 
-        // Keep cookie in sync for middleware
-        const status = freshUser.approvalStatus;
-        if (status) {
-          Cookies.set(AUTH_COOKIE_NAMES.approvalStatus, status, AUTH_COOKIE_OPTIONS);
+        if (freshUser.approvalStatus) {
+          Cookies.set(AUTH_COOKIE_NAMES.approvalStatus, freshUser.approvalStatus, AUTH_COOKIE_OPTIONS);
+        }
+        if (freshUser.status) {
+          Cookies.set(AUTH_COOKIE_NAMES.vendorStatus, freshUser.status, AUTH_COOKIE_OPTIONS);
         }
 
-        // ── Approved: stop polling and redirect to dashboard ─────
-        if (
-          freshUser.approvalStatus === "approved" &&
-          freshUser.onboardingStatus === "completed"
-        ) {
+        // Active (payment-enabled) → stop polling, go to dashboard.
+        if (isStatusActive(freshUser.status)) {
           if (intervalRef.current) clearInterval(intervalRef.current);
-          toast.success("You've been approved! Redirecting to your dashboard…");
+          toast.success("You're all set! Redirecting to your dashboard…");
           router.push("/dashboard");
           return;
         }
 
-        // ── Rejected: stop polling and notify vendor in-place ────
-        // The UI already reads `user.approvalStatus` to flip to the
-        // rejection panel — we just stop the unnecessary polling here.
         if (freshUser.approvalStatus === "rejected") {
           if (intervalRef.current) clearInterval(intervalRef.current);
-          // Only show the toast once (when the status just changed)
           if (current?.approvalStatus !== "rejected") {
             toast.error("Your application has been reviewed and was not approved.");
           }
         }
       } catch {
-        // Silently ignore poll failures — don't disrupt the UI
+        // Silently ignore poll failures — don't disrupt the UI.
       }
     };
 
-    // Fire once immediately, then every POLL_INTERVAL_MS
     poll();
     intervalRef.current = setInterval(poll, POLL_INTERVAL_MS);
 
@@ -173,9 +206,11 @@ export default function PendingPage() {
     }
   };
 
+  const copy = PHASE_COPY[phase];
+  const isRejected = phase === "rejected";
+
   return (
     <div className="w-full max-w-2xl flex flex-col h-full">
-      {/* Stepper */}
       <div className="shrink-0 pb-6">
         <OnboardingStepper currentStep="pending" pendingStep isRejected={isRejected} />
       </div>
@@ -186,7 +221,6 @@ export default function PendingPage() {
           isRejected ? "border-red-200" : "border-border/50"
         )}
       >
-        {/* ── Header row: title + timer side by side ── */}
         <div
           className={cn(
             "shrink-0 px-8 py-5 border-b flex items-center justify-between gap-4",
@@ -194,55 +228,42 @@ export default function PendingPage() {
           )}
         >
           <div className="flex items-center gap-4">
-            <TimerAnimation rejected={isRejected} />
+            <PhaseAnimation phase={phase} />
             <div>
-              <h2
-                className={cn(
-                  "text-2xl font-bold leading-tight",
-                  isRejected ? "text-red-700" : "text-foreground"
-                )}
-              >
-                {isRejected ? "Application Rejected" : "Pending Approval"}
+              <h2 className={cn("text-2xl font-bold leading-tight", isRejected ? "text-red-700" : "text-foreground")}>
+                {copy.title}
               </h2>
               <p className={cn("text-sm mt-0.5", isRejected ? "text-red-500" : "text-muted-foreground")}>
-                {isRejected
-                  ? "Your application was not approved at this time."
-                  : "Your credentials are under review."}
+                {copy.subtitle}
               </p>
             </div>
           </div>
 
-          {/* Status badge */}
-          <span
-            className={cn(
-              "shrink-0 text-xs font-semibold px-3 py-1.5 rounded-full",
-              isRejected
-                ? "bg-red-100 text-red-700"
-                : "bg-amber-100 text-amber-700"
-            )}
-          >
-            {isRejected ? "Rejected" : "Under Review"}
+          <span className={cn("shrink-0 text-xs font-semibold px-3 py-1.5 rounded-full", copy.badgeClasses)}>
+            {copy.badge}
           </span>
         </div>
 
-        {/* ── Body ── */}
         <div className="flex-1 flex flex-col min-h-0 px-8 py-6 gap-5">
-
-          {/* Info blurb */}
           <p className="text-sm text-muted-foreground leading-relaxed shrink-0">
-            {isRejected ? (
+            {phase === "rejected" && (
               <>
-                Unfortunately your vendor application was{" "}
-                <strong className="text-red-600">rejected</strong> by{" "}
-                <strong className="text-foreground">Villeto</strong>. You may
-                send a message below to request reconsideration or ask for
-                more information about the decision.
+                Unfortunately your vendor application was <strong className="text-red-600">rejected</strong> by{" "}
+                <strong className="text-foreground">Villeto</strong>. You may send a message below to request
+                reconsideration or ask for more information about the decision.
               </>
-            ) : (
+            )}
+            {phase === "payment_setup" && (
               <>
-                Your credentials are pending approval from{" "}
-                <strong className="text-foreground">Villeto</strong>. You will
-                be redirected to your dashboard immediately upon approval. You
+                Your documents have been <strong className="text-foreground">approved</strong>. We&apos;re now
+                finishing payment setup — this usually only takes a short while. You&apos;ll be redirected
+                automatically the moment it&apos;s ready.
+              </>
+            )}
+            {phase === "under_review" && (
+              <>
+                Your credentials are pending approval from <strong className="text-foreground">Villeto</strong>.
+                You will be redirected to your dashboard automatically once you&apos;re approved and active. You
                 can send a message to the team while you wait.
               </>
             )}
@@ -255,22 +276,17 @@ export default function PendingPage() {
             </div>
           )}
 
-          {/* Message card — grows to fill remaining space */}
           <div
             className={cn(
               "rounded-xl border p-5 flex flex-col flex-1 min-h-0",
               isRejected ? "border-red-200 bg-red-50/30" : "border-border/60"
             )}
           >
-            <form
-              onSubmit={handleSubmit(onSubmit)}
-              className="flex flex-col flex-1 min-h-0 gap-3"
-            >
+            <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col flex-1 min-h-0 gap-3">
               <label className="text-sm font-medium text-foreground shrink-0">
                 Send a message to Villeto
               </label>
 
-              {/* Textarea fills remaining space */}
               <textarea
                 placeholder="Enter your message here…"
                 className={cn(
@@ -286,9 +302,7 @@ export default function PendingPage() {
               />
 
               {errors.message && (
-                <p className="text-xs text-red-500 shrink-0 -mt-1">
-                  {errors.message.message}
-                </p>
+                <p className="text-xs text-red-500 shrink-0 -mt-1">{errors.message.message}</p>
               )}
 
               <p className="text-xs text-muted-foreground shrink-0">
@@ -296,18 +310,10 @@ export default function PendingPage() {
               </p>
 
               {sent && (
-                <p className="text-sm text-green-600 font-medium shrink-0">
-                  ✓ Message sent successfully
-                </p>
+                <p className="text-sm text-green-600 font-medium shrink-0">✓ Message sent successfully</p>
               )}
 
-              <Button
-                type="submit"
-                variant="primary"
-                size="lg"
-                loading={isSubmitting}
-                className="w-full shrink-0 gap-2"
-              >
+              <Button type="submit" variant="primary" size="lg" loading={isSubmitting} className="w-full shrink-0 gap-2">
                 <Send className="h-4 w-4" aria-hidden="true" />
                 Send Message
               </Button>

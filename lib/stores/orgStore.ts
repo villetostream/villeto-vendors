@@ -1,36 +1,29 @@
 /**
- * ORG STORE
- * Global organisation context.
+ * ORG STORE — LEGACY
  *
- * Design decisions:
- * - Active org persisted in BOTH localStorage AND URL (?org=xxx)
- * - Switching org: updates state → invalidates queries → TanStack refetches
- * - All API calls include X-Org-Id header via apiClient interceptor
- * - No full-page reload
+ * This store is a leftover from the original org-based design and has been
+ * superseded by companyStore. It is no longer used by any page or component.
+ * It is kept here to avoid removing files that may still be referenced in
+ * older branches. New code should use @/lib/stores/companyStore.
  *
- * Edge cases handled:
- * - Cached data leakage between orgs: query keys include orgId
- * - Org switch mid-action: pending mutations are cancelled before switch
- * - Permission diff per org: role stored here, checked by useOrgPermission hook
+ * All external imports that no longer exist have been inlined below so this
+ * file compiles cleanly without affecting anything.
  */
 
 import { create } from "zustand";
-import { Organization, OrgRole } from "@/lib/types";
-import { ACTIVE_ORG_STORAGE_KEY } from "@/lib/constants/auth";
 
-interface OrgState {
-  organizations: Organization[];
-  activeOrgId: string | null;
-  activeOrg: Organization | null;
-  isLoadingOrgs: boolean;
+// Inlined — ACTIVE_ORG_STORAGE_KEY was removed from @/lib/constants/auth
+// when the multi-company JWT model replaced localStorage-based org selection.
+const ACTIVE_ORG_STORAGE_KEY = "villeto_active_org_id";
 
-  // Actions
-  setOrganizations: (orgs: Organization[]) => void;
-  switchOrg: (orgId: string, invalidateQueryFn?: () => void) => void;
-  setLoadingOrgs: (loading: boolean) => void;
-
-  // Permissions
-  hasPermission: (action: OrgAction) => boolean;
+// Inlined — Organization and OrgRole were removed from @/lib/types
+// when the multi-company model replaced the old org model.
+export type OrgRole = "admin" | "contributor" | "viewer";
+export interface Organization {
+  id: string;
+  name: string;
+  role: OrgRole;
+  [key: string]: unknown;
 }
 
 export type OrgAction =
@@ -56,6 +49,19 @@ const ROLE_PERMISSIONS: Record<OrgRole, OrgAction[]> = {
   ],
   viewer: ["view_orders", "view_invoices", "download_pdf"],
 };
+
+interface OrgState {
+  organizations: Organization[];
+  activeOrgId: string | null;
+  activeOrg: Organization | null;
+  isLoadingOrgs: boolean;
+
+  setOrganizations: (orgs: Organization[]) => void;
+  switchOrg: (orgId: string, invalidateQueryFn?: () => void) => void;
+  setLoadingOrgs: (loading: boolean) => void;
+
+  hasPermission: (action: OrgAction) => boolean;
+}
 
 function getStoredOrgId(): string | null {
   if (typeof window === "undefined") return null;
@@ -95,13 +101,9 @@ export const useOrgStore = create<OrgState>((set, get) => ({
     const org = organizations.find((o) => o.id === orgId);
     if (!org) return;
 
-    // Persist to localStorage (and URL is handled by the layout component)
     persistOrgId(orgId);
-
     set({ activeOrgId: orgId, activeOrg: org });
 
-    // Trigger TanStack Query invalidation
-    // This will cause all org-scoped queries to refetch
     if (invalidateQueryFn) {
       invalidateQueryFn();
     }
@@ -117,14 +119,12 @@ export const useOrgStore = create<OrgState>((set, get) => ({
 }));
 
 // ─────────────────────────────────────────────
-// QUERY KEYS FACTORY
-// All query keys include orgId to prevent cross-org data leakage
+// QUERY KEYS FACTORY (legacy — use companyStore queryKeys instead)
 // ─────────────────────────────────────────────
 
 export const queryKeys = {
   dashboardStats: (orgId: string) => ["dashboard", "stats", orgId] as const,
-  orders: (orgId: string, filters = {}) =>
-    ["orders", orgId, filters] as const,
+  orders: (orgId: string, filters = {}) => ["orders", orgId, filters] as const,
   order: (orgId: string, id: string) => ["orders", orgId, id] as const,
   invoices: (orgId: string, filters = {}) =>
     ["invoices", orgId, filters] as const,

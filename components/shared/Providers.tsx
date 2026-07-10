@@ -6,12 +6,35 @@ import { Toaster } from "sonner";
 import { useEffect, useRef } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { useAuthStore } from "@/lib/stores/authStore";
-import { getMe } from "@/lib/api/auth";
+import { useCompanyStore } from "@/lib/stores/companyStore";
+import { getVendorCompanies, getVendorProfile } from "@/lib/api/vendor";
 import Cookies from "js-cookie";
-import { AUTH_COOKIE_NAMES, AUTH_COOKIE_OPTIONS } from "@/lib/constants/auth";
+import { AUTH_COOKIE_NAMES } from "@/lib/constants/auth";
+import { AuthUser } from "@/lib/types";
 
+function profileToAuthUser(profile: Awaited<ReturnType<typeof getVendorProfile>>): AuthUser {
+  return {
+    id: profile.vendorId,
+    email: profile.email,
+    business_name: profile.displayName || profile.legalName,
+    status: profile.status,
+    approvalStatus: profile.approvalStatus,
+    onboardingStatus: profile.onboardingStatus,
+    decisionNote: profile.decisionNote,
+    isPaymentEnabled: profile.isPaymentEnabled,
+  };
+}
+
+/**
+ * Rehydrates session state on hard page load / refresh, when the store is
+ * empty but a valid auth token cookie still exists. Two calls, run in
+ * parallel: the profile of whichever company the current token is scoped
+ * to, and the full company list (for the switcher). Neither depends on
+ * "/auth/me", which isn't a real endpoint in the vendor-portal API.
+ */
 function AuthInitializer({ children }: { children: React.ReactNode }) {
   const { setUser, clearAuth, setLoading } = useAuthStore();
+  const { setCompanies, setActive } = useCompanyStore();
   const initialized = useRef(false);
   const router = useRouter();
   const pathname = usePathname();
@@ -26,25 +49,25 @@ function AuthInitializer({ children }: { children: React.ReactNode }) {
       return;
     }
 
-    getMe()
-      .then((user) => {
+    Promise.all([getVendorProfile(), getVendorCompanies()])
+      .then(([profile, companies]) => {
+        const user = profileToAuthUser(profile);
         setUser(user);
-        if (user.approvalStatus) {
-          Cookies.set(AUTH_COOKIE_NAMES.approvalStatus, user.approvalStatus, AUTH_COOKIE_OPTIONS);
-        }
+        setCompanies(companies);
+        const activeCompanyId = Cookies.get(AUTH_COOKIE_NAMES.activeCompanyId);
+        const match = companies.find((c) => c.companyId === activeCompanyId) ?? companies[0];
+        if (match) setActive(match.companyId, match.vendorId);
       })
       .catch(() => {
-        // Cookie existed but the session is no longer valid server-side
-        // (expired/revoked token). Clear local state AND send the vendor
-        // back to login instead of leaving them on a half-authenticated,
-        // broken-looking page with no way back in.
+        // Cookie existed but the session is no longer valid server-side.
         clearAuth();
-        const loginUrl = pathname && pathname !== "/auth/login"
-          ? `/auth/login?next=${encodeURIComponent(pathname)}`
-          : "/auth/login";
+        const loginUrl =
+          pathname && pathname !== "/auth/login"
+            ? `/auth/login?next=${encodeURIComponent(pathname)}`
+            : "/auth/login";
         router.replace(loginUrl);
       });
-  }, [setUser, clearAuth, setLoading, router, pathname]);
+  }, [setUser, setCompanies, setActive, clearAuth, setLoading, router, pathname]);
 
   return <>{children}</>;
 }
@@ -57,7 +80,7 @@ function getQueryClient() {
       defaultOptions: {
         queries: {
           retry: 1,
-          staleTime: 1000 * 60, // 1 min default
+          staleTime: 1000 * 60,
           refetchOnWindowFocus: false,
         },
       },

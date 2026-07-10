@@ -2,37 +2,39 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Search, FilePlus2 } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { Search, FilePlus2, ChevronLeft, ChevronRight } from "lucide-react";
 import { useDebounce } from "use-debounce";
 import { useInvoices } from "@/lib/hooks/useInvoices";
-import { useOrgStore } from "@/lib/stores/orgStore";
-import { InvoiceStatusBadge } from "@/components/ui/StatusBadge";
+import { useCompany } from "@/lib/hooks/useCompany";
+import { InvoiceStatusBadge, InvoicePaymentStatusBadge } from "@/components/ui/StatusBadge";
 import { Button } from "@/components/ui/Button";
 import { EmptyState, ErrorState } from "@/components/ui/Spinner";
 import { TableSkeleton } from "@/components/ui/Skeleton";
-import { Pagination } from "@/components/ui/Pagination";
 import { InvoiceActionMenu } from "@/components/invoices/InvoiceActionMenu";
 import { formatDate, formatCurrency, cn } from "@/lib/utils";
 import { InvoiceStatus } from "@/lib/types";
 
 const STATUS_TABS: { label: string; value: InvoiceStatus | "all" }[] = [
   { label: "All Invoices", value: "all" },
-  { label: "Pending", value: "pending" },
-  { label: "In-Progress", value: "under_review" },
+  { label: "Submitted", value: "submitted" },
+  { label: "Under Review", value: "under_review" },
+  { label: "Approved", value: "approved" },
+  { label: "Rejected", value: "rejected" },
   { label: "Paid", value: "paid" },
-  { label: "Flagged", value: "flagged" },
-  { label: "Draft", value: "draft" },
 ];
 
-const INVOICES_COLUMNS = ["Invoice Number", "Related PO", "Amount", "Submission Date", "Status", "Action"];
+const INVOICES_COLUMNS = ["Invoice Number", "Related PO", "Amount", "Invoice Date", "Status", "Payment", "Action"];
+
+const LIMIT = 10;
 
 export default function InvoicesPage() {
-  const activeOrg = useOrgStore((s) => s.activeOrg);
+  const router = useRouter();
+  const { activeCompany } = useCompany();
   const [activeTab, setActiveTab] = useState<InvoiceStatus | "all">("all");
   const [search, setSearch] = useState("");
   const [debouncedSearch] = useDebounce(search, 400);
   const [page, setPage] = useState(1);
-  const perPage = 10;
 
   useEffect(() => {
     setPage(1);
@@ -40,31 +42,28 @@ export default function InvoicesPage() {
 
   const filters = {
     status: activeTab === "all" ? undefined : activeTab,
-    search: debouncedSearch || undefined,
     page,
-    per_page: perPage,
+    limit: LIMIT,
   };
 
   const { data, isLoading, isError, refetch, isFetching } = useInvoices(filters);
 
-  const invoices = data?.data ?? [];
-  const total = data?.total ?? 0;
-  const totalPages = data?.total_pages ?? Math.max(1, Math.ceil(total / perPage));
+  const invoices = data ?? [];
+  // No total count from the list endpoint yet — see orders/page.tsx note.
+  const hasNextPage = invoices.length === LIMIT;
+
+  const visibleInvoices = debouncedSearch
+    ? invoices.filter((inv) => inv.invoiceNumber.toLowerCase().includes(debouncedSearch.toLowerCase()))
+    : invoices;
 
   return (
     <div className="space-y-5">
-      {/* Header */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <div className="flex items-center gap-3">
-            <h1 className="text-2xl font-bold text-foreground">Invoices</h1>
-            <span className="flex h-6 min-w-6 items-center justify-center rounded-full bg-primary text-white text-xs font-bold px-2">
-              {total}
-            </span>
-          </div>
+          <h1 className="text-2xl font-bold text-foreground">Invoices</h1>
           <p className="text-sm text-muted-foreground mt-0.5">
             Manage and track your invoices for{" "}
-            <strong>{activeOrg?.name ?? "your organisation"}</strong>.
+            <strong>{activeCompany?.companyName ?? "your company"}</strong>.
           </p>
         </div>
         <Button asChild variant="primary" className="self-start sm:self-auto">
@@ -75,9 +74,7 @@ export default function InvoicesPage() {
         </Button>
       </div>
 
-      {/* Main card */}
       <div className="bg-white rounded-2xl border border-dashboard-border overflow-hidden">
-        {/* Tabs + Search */}
         <div className="flex flex-col gap-3 px-5 pt-4 pb-3 border-b border-dashboard-border sm:flex-row sm:items-center sm:justify-between sm:gap-4 sm:pb-0">
           <div className="flex items-center gap-1 overflow-x-auto scrollbar-none">
             {STATUS_TABS.map((tab) => (
@@ -99,28 +96,24 @@ export default function InvoicesPage() {
           <div className="pb-2 shrink-0">
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" aria-hidden="true" />
-              <label htmlFor="invoice-search" className="sr-only">Search invoices</label>
+              <label htmlFor="invoice-search" className="sr-only">Search invoices on this page</label>
               <input
                 id="invoice-search"
                 type="text"
-                placeholder="Search..."
+                placeholder="Search this page..."
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                className="h-9 pl-8 pr-3 rounded-xl border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary w-full sm:w-44"
+                className="h-9 pl-8 pr-3 rounded-xl border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary w-full sm:w-48"
               />
             </div>
           </div>
         </div>
 
-        {/* Table */}
         {isLoading ? (
-          <TableSkeleton rows={perPage} columns={INVOICES_COLUMNS.length} />
+          <TableSkeleton rows={LIMIT} columns={INVOICES_COLUMNS.length} />
         ) : isError ? (
-          <ErrorState
-            message="Couldn't load invoices. Please check your connection and try again."
-            onRetry={() => refetch()}
-          />
-        ) : invoices.length === 0 ? (
+          <ErrorState message="Couldn't load invoices. Please check your connection and try again." onRetry={() => refetch()} />
+        ) : visibleInvoices.length === 0 ? (
           <EmptyState
             title={debouncedSearch || activeTab !== "all" ? "No matching invoices" : "No invoices yet"}
             description={
@@ -142,42 +135,32 @@ export default function InvoicesPage() {
               <thead>
                 <tr className="border-b border-dashboard-border">
                   {INVOICES_COLUMNS.map((col) => (
-                    <th
-                      key={col}
-                      className="px-5 py-3 text-left text-xs font-medium text-muted-foreground whitespace-nowrap"
-                    >
+                    <th key={col} className="px-5 py-3 text-left text-xs font-medium text-muted-foreground whitespace-nowrap">
                       {col}
                     </th>
                   ))}
                 </tr>
               </thead>
               <tbody>
-                {invoices.map((invoice) => (
-                  <tr
-                    key={invoice.id}
-                    className="border-b border-dashboard-border/60 hover:bg-muted/30 transition-colors"
+                {visibleInvoices.map((invoice) => (
+                  <tr 
+                    key={invoice.vendorInvoiceId} 
+                    onClick={() => router.push(`/invoices/${invoice.vendorInvoiceId}`)}
+                    className="border-b border-dashboard-border/60 hover:bg-muted/30 transition-colors cursor-pointer"
                   >
-                    <td className="px-5 py-3.5 text-sm font-semibold text-foreground whitespace-nowrap">
-                      {invoice.invoice_number}
-                    </td>
-                    <td className="px-5 py-3.5 text-sm text-muted-foreground whitespace-nowrap">
-                      {invoice.related_po ?? "—"}
-                    </td>
+                    <td className="px-5 py-3.5 text-sm font-semibold text-foreground whitespace-nowrap">{invoice.invoiceNumber}</td>
+                    <td className="px-5 py-3.5 text-sm text-muted-foreground whitespace-nowrap">{invoice.poNumber ?? "—"}</td>
                     <td className="px-5 py-3.5 text-sm font-medium text-foreground whitespace-nowrap">
-                      {formatCurrency(invoice.amount)}
+                      {formatCurrency(invoice.totalAmount, invoice.currency)}
                     </td>
-                    <td className="px-5 py-3.5 text-sm text-muted-foreground whitespace-nowrap">
-                      {invoice.submission_date
-                        ? formatDate(invoice.submission_date)
-                        : "—"}
-                    </td>
-                    <td className="px-5 py-3.5">
-                      <InvoiceStatusBadge status={invoice.status} />
-                    </td>
-                    <td className="px-5 py-3.5">
+                    <td className="px-5 py-3.5 text-sm text-muted-foreground whitespace-nowrap">{formatDate(invoice.invoiceDate)}</td>
+                    <td className="px-5 py-3.5"><InvoiceStatusBadge status={invoice.status} /></td>
+                    <td className="px-5 py-3.5"><InvoicePaymentStatusBadge status={invoice.paymentStatus} /></td>
+                    <td className="px-5 py-3.5" onClick={(e) => e.stopPropagation()}>
                       <InvoiceActionMenu
-                        invoiceId={invoice.id}
-                        invoiceNumber={invoice.invoice_number}
+                        invoiceId={invoice.vendorInvoiceId}
+                        invoiceNumber={invoice.invoiceNumber}
+                        status={invoice.status}
                       />
                     </td>
                   </tr>
@@ -187,13 +170,29 @@ export default function InvoicesPage() {
           </div>
         )}
 
-        {/* Pagination */}
         {!isLoading && !isError && invoices.length > 0 && (
-          <div className="flex flex-col gap-3 px-5 py-3.5 border-t border-dashboard-border sm:flex-row sm:items-center sm:justify-between">
-            <p className="text-sm text-muted-foreground">
-              Showing {(page - 1) * perPage + 1}-{Math.min(page * perPage, total)} of {total} entries
-            </p>
-            <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />
+          <div className="flex items-center justify-between px-5 py-3.5 border-t border-dashboard-border">
+            <span className="text-sm text-muted-foreground">Page {page}</span>
+            <nav className="flex items-center gap-1" aria-label="Pagination">
+              <button
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                disabled={page === 1}
+                aria-label="Previous page"
+                className="px-3 py-1.5 text-sm rounded-lg border border-border disabled:opacity-40 hover:bg-muted transition-colors flex items-center gap-1"
+              >
+                <ChevronLeft className="h-3.5 w-3.5" aria-hidden="true" />
+                Previous
+              </button>
+              <button
+                onClick={() => setPage((p) => p + 1)}
+                disabled={!hasNextPage}
+                aria-label="Next page"
+                className="px-3 py-1.5 text-sm rounded-lg border border-border disabled:opacity-40 hover:bg-muted transition-colors flex items-center gap-1"
+              >
+                Next
+                <ChevronRight className="h-3.5 w-3.5" aria-hidden="true" />
+              </button>
+            </nav>
           </div>
         )}
       </div>
