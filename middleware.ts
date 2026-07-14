@@ -125,12 +125,16 @@ export async function middleware(request: NextRequest) {
   if (pathname === "/auth/login") {
     const authToken = request.cookies.get(AUTH_COOKIE_NAMES.authToken)?.value;
     const vendorStatus = request.cookies.get(AUTH_COOKIE_NAMES.vendorStatus)?.value;
+    const approvalStatus = request.cookies.get(AUTH_COOKIE_NAMES.approvalStatus)?.value;
 
     if (authToken) {
-      // Active (payment-enabled) → dashboard. Anything else → pending
-      // (safety first — pending page itself explains why: under review,
-      // rejected, or approved-but-payment-setup-in-progress).
-      const destination = (vendorStatus ?? "").toLowerCase() === "active" ? "/dashboard" : "/pending";
+      // Active (payment-enabled) → dashboard.
+      if ((vendorStatus ?? "").toLowerCase() === "active") {
+        return NextResponse.redirect(new URL("/dashboard", request.url));
+      }
+      // Vendor has submitted (approvalStatus is set) → /pending to show review state.
+      // Vendor is still onboarding (approvalStatus not yet set) → onboarding wizard.
+      const destination = approvalStatus ? "/pending" : "/onboarding/business-identity";
       return NextResponse.redirect(new URL(destination, request.url));
     }
     return NextResponse.next();

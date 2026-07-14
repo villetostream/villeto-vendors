@@ -42,6 +42,12 @@ function currentVendorToAuthUser(v: CurrentVendor): AuthUser {
 function persistSessionCookies(user: AuthUser) {
   if (user.approvalStatus) {
     Cookies.set(AUTH_COOKIE_NAMES.approvalStatus, user.approvalStatus, AUTH_COOKIE_OPTIONS);
+  } else {
+    // Explicitly clear a stale approvalStatus cookie from a previous session —
+    // middleware reads this cookie to decide whether to redirect to /pending or
+    // to the onboarding wizard, so a leftover value would send mid-onboarding
+    // vendors to /pending instead of their current step.
+    Cookies.remove(AUTH_COOKIE_NAMES.approvalStatus);
   }
   if (user.status) {
     Cookies.set(AUTH_COOKIE_NAMES.vendorStatus, user.status, AUTH_COOKIE_OPTIONS);

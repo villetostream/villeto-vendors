@@ -183,7 +183,7 @@ export default function DocumentsPage() {
                     onClick={() => fileRefs.current[doc.type]?.click()}
                     aria-label={doc.uploaded ? `Change ${doc.label}` : `Upload ${doc.label}`}
                     className={cn(
-                      "px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors",
+                      "px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors cursor-pointer",
                       doc.uploaded
                         ? "border-border text-foreground hover:bg-muted"
                         : "border-primary/60 text-primary hover:bg-primary/5",

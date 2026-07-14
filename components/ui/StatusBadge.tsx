@@ -99,7 +99,7 @@ export function VendorStatusBadge({
   status,
   approvalStatus,
   className,
-}: BadgeProps & { status: string; approvalStatus?: string }) {
+}: BadgeProps & { status: string; approvalStatus?: string | null }) {
   const cfg = getCompanyStatusConfig(status, approvalStatus);
   return (
     <span

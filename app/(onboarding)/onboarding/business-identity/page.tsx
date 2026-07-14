@@ -74,6 +74,27 @@ export default function BusinessIdentityPage() {
   const prevResolvedRef = useRef("");
 
   /**
+   * Sync invite-context values into the form after Zustand's persist
+   * middleware hydrates from sessionStorage (which happens asynchronously,
+   * after the first render). Without this, defaultValues from useForm() are
+   * captured at mount time before the store is hydrated, leaving the fields
+   * empty even when the invite context is available.
+   */
+  useEffect(() => {
+    if (inviteBusinessName) {
+      // Only set if the field is currently empty — don't overwrite partial
+      // user input on subsequent renders.
+      const current = store.businessIdentity.business_name;
+      if (!current) setValue("business_name", inviteBusinessName, { shouldValidate: false });
+    }
+    if (inviteEmail) {
+      const current = store.businessIdentity.business_email;
+      if (!current) setValue("business_email", inviteEmail, { shouldValidate: false });
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [inviteBusinessName, inviteEmail]);
+
+  /**
    * Magic Lookup + Name match check
    * When reg number has ≥5 chars, call backend to resolve business name.
    * If the business name is pre-filled from the invitation, auto-run the
