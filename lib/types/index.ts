@@ -79,7 +79,7 @@ export interface CurrentVendor {
   legalName: string;
   displayName: string;
   onboardingStatus: OnboardingStatus;
-  approvalStatus: ApprovalStatus;
+  approvalStatus: ApprovalStatus | null;
   decisionNote: string | null;
   status: string; // raw, possibly inconsistently-cased — normalize before use
   isPaymentEnabled: boolean;
@@ -97,7 +97,7 @@ export interface CompanyRelationship {
   companyName: string;
   status: string; // raw, possibly inconsistently-cased
   onboardingStatus: OnboardingStatus;
-  approvalStatus: ApprovalStatus;
+  approvalStatus: ApprovalStatus | null;
   isPaymentEnabled: boolean;
 }
 
@@ -111,7 +111,7 @@ export interface AuthUser {
   business_name: string;
   avatar_url?: string;
   status?: string;
-  approvalStatus?: ApprovalStatus;
+  approvalStatus?: ApprovalStatus | null;
   onboardingStatus?: OnboardingStatus;
   decisionNote?: string | null;
   isPaymentEnabled?: boolean;

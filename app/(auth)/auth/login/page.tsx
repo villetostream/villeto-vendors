@@ -89,7 +89,7 @@ function LoginContent() {
       // not the full wizard. A dedicated review-and-submit screen is a
       // follow-up; for now this safely lands on /pending, which explains
       // their status rather than dropping them into the wrong flow.
-      if (onboardingMode === "review_and_submit" || currentVendor.onboardingStatus !== "not_started") {
+      if (onboardingMode === "review_and_submit" || currentVendor.approvalStatus !== null) {
         router.push("/pending");
         return;
       }

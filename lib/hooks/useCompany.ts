@@ -75,13 +75,33 @@ export function useCompany() {
           });
         }
 
-        if (!isStatusActive(result.currentVendor.status)) {
-          router.replace("/pending");
-        } else {
+        const vendor = result.currentVendor;
+
+        // Active (payment-enabled) → dashboard
+        if (isStatusActive(vendor.status)) {
           router.replace("/dashboard");
+          toast.success(`Now working with ${vendor.companyName}`);
+          return;
         }
 
-        toast.success(`Now working with ${result.currentVendor.companyName}`);
+        // Vendor has submitted (approvalStatus is set) → /pending to show status
+        if (vendor.approvalStatus !== null) {
+          router.replace("/pending");
+          toast.success(`Switched to ${vendor.companyName}`);
+          return;
+        }
+
+        // Vendor is still filling in the onboarding wizard → go to their current step
+        const STEP_ROUTES: Record<string, string> = {
+          business_identity: "business-identity",
+          banking_details: "banking",
+          documents: "documents",
+          review: "review",
+        };
+        const step = vendor.currentStep || "business_identity";
+        const route = STEP_ROUTES[step] || "business-identity";
+        router.replace(`/onboarding/${route}`);
+        toast.success(`Switched to ${vendor.companyName}`);
       } catch {
         toast.error("Couldn't switch company. Please try again.");
       }

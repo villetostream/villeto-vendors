@@ -33,7 +33,7 @@ type FormData = z.infer<typeof schema>;
  */
 type PendingPhase = "under_review" | "payment_setup" | "rejected";
 
-function getPhase(approvalStatus?: string, status?: string): PendingPhase {
+function getPhase(approvalStatus?: string | null, status?: string): PendingPhase {
   if (approvalStatus === "rejected") return "rejected";
   if (approvalStatus === "approved" && !isStatusActive(status)) return "payment_setup";
   return "under_review";

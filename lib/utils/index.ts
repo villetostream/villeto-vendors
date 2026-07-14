@@ -97,7 +97,7 @@ export function getInvoicePaymentStatusConfig(status: InvoicePaymentStatus) {
 // A tenant-removed relationship reads as "Access removed", never "Banned".
 // ─────────────────────────────────────────────
 
-export function getCompanyStatusConfig(rawStatus: string, approvalStatus?: string) {
+export function getCompanyStatusConfig(rawStatus: string, approvalStatus?: string | null) {
   const status = normalizeStatus(rawStatus);
   const approval = normalizeStatus(approvalStatus);
 

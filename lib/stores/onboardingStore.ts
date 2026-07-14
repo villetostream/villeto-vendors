@@ -254,9 +254,16 @@ export const useOnboardingStore = create<OnboardingState>()(
       storage: createJSONStorage(() =>
         typeof window !== "undefined" ? sessionStorage : localStorage
       ),
-      // Persist step progress and form data but NOT sensitive invite identifiers
+      // Persist step progress, form data, and invite-context identity fields.
+      // vendorEmail / businessName / legalBusinessName are included so the
+      // business-identity page can lock and pre-fill invitation fields even after
+      // a navigation or reload clears the in-memory store. They are NOT sensitive
+      // (email was already in the URL params on the invite page).
       partialize: (state) => ({
         currentStep: state.currentStep,
+        vendorEmail: state.vendorEmail,
+        businessName: state.businessName,
+        legalBusinessName: state.legalBusinessName,
         businessIdentity: state.businessIdentity,
         banking: state.banking,
         documents: state.documents,

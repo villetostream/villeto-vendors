@@ -1,4 +1,5 @@
 import { VilletoLogo } from "@/components/shared/VilletoLogo";
+import { OnboardingCompanySwitcher } from "@/components/onboarding/OnboardingCompanySwitcher";
 
 export default function OnboardingLayout({
   children,
@@ -28,8 +29,14 @@ export default function OnboardingLayout({
       {/* Top nav */}
       <header className="shrink-0 relative z-10 flex items-center justify-between px-6 py-5">
         <VilletoLogo size="md" />
-        {/* User email pill injected by child pages via slot */}
-        <div id="onboarding-header-slot" />
+        <div className="flex items-center gap-3">
+          {/* Company switcher — visible when vendor belongs to multiple orgs.
+              Allows switching from /pending (one company) to the active
+              dashboard (another company) without logging out. */}
+          <OnboardingCompanySwitcher />
+          {/* User email pill injected by child pages via slot */}
+          <div id="onboarding-header-slot" />
+        </div>
       </header>
 
       {/* Main content */}
@@ -39,3 +46,4 @@ export default function OnboardingLayout({
     </div>
   );
 }
+
