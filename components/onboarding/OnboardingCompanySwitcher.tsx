@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { ChevronDown, Check, Loader2, LogOut } from "lucide-react";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useRouter } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
 import Cookies from "js-cookie";
 import { getVendorCompanies, switchCompany as switchCompanyApi } from "@/lib/api/vendor";
 import { logout } from "@/lib/api/auth";
@@ -33,6 +33,7 @@ const ONBOARDING_STEP_ROUTES: Record<string, string> = {
  */
 export function OnboardingCompanySwitcher() {
   const router = useRouter();
+  const pathname = usePathname();
   const queryClient = useQueryClient();
   const { setCurrentVendor, clearAuth } = useAuthStore();
   const hydrateFromSession = useOnboardingStore((s) => s.hydrateFromSession);
@@ -121,6 +122,7 @@ export function OnboardingCompanySwitcher() {
   };
 
   if (!companies || companies.length === 0) return null;
+  if (pathname === "/invite" || pathname === "/signup") return null;
 
   return (
     <DropdownMenu.Root>

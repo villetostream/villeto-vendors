@@ -80,18 +80,17 @@ export default function BusinessIdentityPage() {
    * empty even when the invite context is available.
    */
   useEffect(() => {
-    if (inviteBusinessName) {
-      // Only set if the field is currently empty — don't overwrite partial
-      // user input on subsequent renders.
-      const current = store.businessIdentity.business_name;
-      if (!current) setValue("business_name", inviteBusinessName, { shouldValidate: false });
+    if (inviteBusinessName && !businessName && !prevResolvedRef.current) {
+      setValue("business_name", inviteBusinessName, { shouldValidate: false });
     }
     if (inviteEmail) {
-      const current = store.businessIdentity.business_email;
-      if (!current) setValue("business_email", inviteEmail, { shouldValidate: false });
+      // Need to check form value, so we can watch it or use getValues.
+      // Since business_email isn't watched globally, we can use a quick check or just set it if it's currently empty in the store at mount.
+      // Actually, it's safer to just set it. useForm's defaultValues might have missed it.
+      setValue("business_email", inviteEmail, { shouldValidate: false });
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [inviteBusinessName, inviteEmail]);
+  }, [inviteBusinessName, inviteEmail, businessName, setValue]);
 
   /**
    * Magic Lookup + Name match check

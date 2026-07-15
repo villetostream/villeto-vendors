@@ -3,13 +3,11 @@
 import { usePathname } from "next/navigation";
 import { OnboardingStepper } from "./OnboardingStepper";
 
-/** Maps the current URL pathname to the OnboardingStepper's currentStep key. */
 const PATHNAME_TO_STEP: Record<string, string> = {
   "/onboarding/business-identity": "business-identity",
   "/onboarding/banking": "banking",
   "/onboarding/documents": "documents",
   "/onboarding/review": "review",
-  "/pending": "pending",
 };
 
 const ONBOARDING_PATHS = new Set(Object.keys(PATHNAME_TO_STEP));
