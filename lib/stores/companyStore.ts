@@ -10,6 +10,7 @@
  */
 
 import { create } from "zustand";
+import { persist, createJSONStorage } from "zustand/middleware";
 import { CompanyRelationship } from "@/lib/types";
 import Cookies from "js-cookie";
 import { subDays } from "date-fns";
@@ -34,26 +35,40 @@ function getStoredCompanyId(): string | null {
   return Cookies.get(AUTH_COOKIE_NAMES.activeCompanyId) ?? null;
 }
 
-export const useCompanyStore = create<CompanyState>((set) => ({
-  companies: [],
-  activeCompanyId: getStoredCompanyId(),
-  activeVendorId: null,
-  isLoadingCompanies: true,
-  dateRange: {
-    from: subDays(new Date(), 30),
-    to: new Date(),
-  },
+export const useCompanyStore = create<CompanyState>()(
+  persist(
+    (set) => ({
+      companies: [],
+      activeCompanyId: getStoredCompanyId(),
+      activeVendorId: null,
+      isLoadingCompanies: true,
+      dateRange: {
+        from: subDays(new Date(), 30),
+        to: new Date(),
+      },
 
-  setCompanies: (companies) => set({ companies, isLoadingCompanies: false }),
+      setCompanies: (companies) => set({ companies, isLoadingCompanies: false }),
 
-  setActive: (companyId, vendorId) => {
-    Cookies.set(AUTH_COOKIE_NAMES.activeCompanyId, companyId, AUTH_COOKIE_OPTIONS);
-    set({ activeCompanyId: companyId, activeVendorId: vendorId });
-  },
+      setActive: (companyId, vendorId) => {
+        Cookies.set(AUTH_COOKIE_NAMES.activeCompanyId, companyId, AUTH_COOKIE_OPTIONS);
+        set({ activeCompanyId: companyId, activeVendorId: vendorId });
+      },
 
-  setLoadingCompanies: (loading) => set({ isLoadingCompanies: loading }),
-  setDateRange: (range) => set({ dateRange: range }),
-}));
+      setLoadingCompanies: (loading) => set({ isLoadingCompanies: loading }),
+      setDateRange: (range) => set({ dateRange: range }),
+    }),
+    {
+      name: "villeto-company",
+      storage: createJSONStorage(() =>
+        typeof window !== "undefined" ? sessionStorage : localStorage
+      ),
+      partialize: (state) => ({
+        companies: state.companies,
+        activeVendorId: state.activeVendorId,
+      }),
+    }
+  )
+);
 
 // ─────────────────────────────────────────────
 // QUERY KEYS — namespaced by companyId so switching never leaks cached

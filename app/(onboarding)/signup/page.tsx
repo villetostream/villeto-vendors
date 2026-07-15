@@ -132,27 +132,8 @@ function SignupContent() {
   };
 
   return (
-    <div className="min-h-screen onboarding-bg flex flex-col relative">
-      <div
-        className="pointer-events-none absolute bottom-0 left-0 w-48 h-48 opacity-30"
-        style={{
-          backgroundImage:
-            "linear-gradient(rgba(43,185,176,0.15) 1px, transparent 1px), linear-gradient(90deg, rgba(43,185,176,0.15) 1px, transparent 1px)",
-          backgroundSize: "16px 16px",
-        }}
-      />
-      <div
-        className="pointer-events-none absolute bottom-0 right-0 w-48 h-48 opacity-30"
-        style={{
-          backgroundImage:
-            "linear-gradient(rgba(43,185,176,0.15) 1px, transparent 1px), linear-gradient(90deg, rgba(43,185,176,0.15) 1px, transparent 1px)",
-          backgroundSize: "16px 16px",
-        }}
-      />
-
-      {/* Make this container scrollable since layout main no longer handles scrolling */}
-      <div className="relative z-10 flex flex-1 items-center justify-center w-full h-full overflow-y-auto px-4 py-12">
-        <div className="w-full max-w-md bg-white rounded-2xl shadow-sm border border-border/50 p-8">
+    <div className="relative z-10 flex flex-1 items-center justify-center w-full h-full overflow-y-auto px-4 py-12">
+        <div className="w-full max-w-md bg-white rounded-2xl shadow-sm border border-border/50 p-8 pb-10">
           <h1 className="text-2xl font-bold text-foreground text-center mb-1">
             Sign up as a Vendor
           </h1>
@@ -253,7 +234,7 @@ function SignupContent() {
               variant="primary"
               size="lg"
               loading={isSubmitting}
-              className="w-full mt-2"
+              className="w-full mt-8"
             >
               Continue
               <ArrowRight className="h-4 w-4" aria-hidden="true" />
@@ -261,7 +242,6 @@ function SignupContent() {
           </form>
         </div>
       </div>
-    </div>
   );
 }
 
