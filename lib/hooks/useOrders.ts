@@ -28,7 +28,6 @@ export function useOrders(filters: OrderFilters = {}) {
     queryKey: queryKeys.orders(companyId, mergedFilters),
     queryFn: () => getOrders(mergedFilters),
     enabled: !!companyId,
-    staleTime: 1000 * 60,
   });
 }
 

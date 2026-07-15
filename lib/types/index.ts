@@ -264,6 +264,19 @@ export interface OrderListItem {
   totalAmount: number;
 }
 
+export interface TimelineEvent {
+  action: string;
+  timestamp: string;
+  performedBy: {
+    actorId?: string;
+    actorType: "company_user" | "vendor" | "system";
+    email?: string;
+    vendorName?: string;
+    [key: string]: unknown;
+  };
+  notes?: string;
+}
+
 export interface Order {
   purchaseOrderId: string;
   poNumber: string;
@@ -277,6 +290,11 @@ export interface Order {
   approvedAt?: string;
   rejectedAt?: string;
   rejectionReason?: string;
+  acknowledgedAt?: string;
+  readyForDeliveryAt?: string;
+  deliveredAt?: string;
+  closedAt?: string;
+  cancelledAt?: string;
   deliveryDate?: string;
   currency: string;
   subtotal: number;
@@ -288,6 +306,7 @@ export interface Order {
   vendor: OrderVendorRef;
   purchaseRequestId?: string;
   lineItems: OrderLineItem[];
+  timeline?: TimelineEvent[];
 }
 
 export interface OrderFilters {
@@ -299,14 +318,9 @@ export interface OrderFilters {
 }
 
 /**
- * Payload shapes below (AcknowledgeOrderPayload, ConfirmDeliveryPayload)
- * are UNCONFIRMED — backend has only given a bare
- * `PATCH /vendor-portal/orders/:id/acknowledge` with no documented body,
- * and no delivery-confirmation endpoint exists at all yet. These are the
- * frontend's best guess at what the UI in the mockups implies the backend
- * will need, so the acknowledge/delivery flows are buildable now. Must be
- * confirmed (and likely adjusted) once backend provides the real
- * contract — see lib/api/orders.ts.
+/**
+ * Payload shape for acknowledging an order.
+ * Vendor enters per-item delivery dates before acknowledging.
  */
 export interface AcknowledgeOrderPayload {
   lineItems: { purchaseOrderLineItemId: string; deliveryDate: string }[];

@@ -18,25 +18,8 @@ import { DeliveryTypeMenu } from "@/components/orders/DeliveryTypeMenu";
 import { DatePicker } from "@/components/ui/DatePicker";
 import { formatCurrency, formatDate, formatDateTime, cn } from "@/lib/utils";
 import { format } from "date-fns";
-import { DeliveryType, OrderStatus } from "@/lib/types";
+import { DeliveryType, TimelineEvent } from "@/lib/types";
 import { toast } from "sonner";
-
-const WORKFLOW_STEPS: OrderStatus[] = [
-  "issued",
-  "acknowledged",
-  "ready_for_delivery",
-  "delivered",
-  "closed",
-];
-
-const WORKFLOW_LABELS: Partial<Record<OrderStatus, string>> = {
-  issued: "Assigned",
-  acknowledged: "Acknowledged",
-  ready_for_delivery: "Ready for Delivery",
-  partially_delivered: "Partially Delivered",
-  delivered: "Delivered",
-  closed: "Invoiced",
-};
 
 function OrderDetailSkeleton() {
   return (
@@ -124,7 +107,7 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
     );
   }
 
-  const currentStepIdx = WORKFLOW_STEPS.indexOf(order.status);
+
   const canCreateInvoice = ["partially_delivered", "delivered", "closed"].includes(order.status);
   const allDatesEntered = order.lineItems.every((item) => !!draftDates[item.purchaseOrderLineItemId]);
 
@@ -425,40 +408,76 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
             <p className="text-sm text-muted-foreground">This order was withdrawn.</p>
           ) : (
             <div className="space-y-0">
-              {WORKFLOW_STEPS.map((step, idx) => {
-                const isCompleted = idx <= currentStepIdx || (step === "delivered" && order.status === "partially_delivered");
-                const isLast = idx === WORKFLOW_STEPS.length - 1;
-                const label =
-                  step === "delivered" && order.status === "partially_delivered"
-                    ? WORKFLOW_LABELS.partially_delivered
-                    : WORKFLOW_LABELS[step];
+              {(() => {
+                const timelineByAction = (order.timeline || []).reduce((acc: Record<string, TimelineEvent>, event: TimelineEvent) => {
+                  acc[event.action] = event;
+                  return acc;
+                }, {});
 
-                return (
-                  <div key={step} className="flex gap-3">
-                    <div className="flex flex-col items-center">
-                      <div
-                        className={cn(
-                          "h-5 w-5 rounded-full border-2 flex items-center justify-center shrink-0 mt-0.5",
-                          isCompleted ? "border-primary bg-primary" : "border-border bg-white"
+                const isDelivered = order.status === "partially_delivered" || order.status === "delivered";
+
+                const steps = [
+                  {
+                    id: "issued",
+                    label: "Assigned",
+                    timestamp: timelineByAction["assigned_to_vendor"]?.timestamp || timelineByAction["issued"]?.timestamp || order.issuedAt,
+                    done: !!timelineByAction["assigned_to_vendor"] || !!timelineByAction["issued"] || !!order.issuedAt,
+                  },
+                  {
+                    id: "acknowledged",
+                    label: "Acknowledged",
+                    timestamp: timelineByAction["acknowledged"]?.timestamp || order.acknowledgedAt,
+                    done: !!timelineByAction["acknowledged"] || !!order.acknowledgedAt,
+                  },
+                  {
+                    id: "ready_for_delivery",
+                    label: "Ready for Delivery",
+                    timestamp: timelineByAction["ready_for_delivery"]?.timestamp || order.readyForDeliveryAt,
+                    done: !!timelineByAction["ready_for_delivery"] || !!order.readyForDeliveryAt,
+                  },
+                  {
+                    id: "delivered",
+                    label: order.status === "partially_delivered" || timelineByAction["partially_delivered"] ? "Partially Delivered" : "Delivered",
+                    timestamp: timelineByAction["delivered"]?.timestamp || timelineByAction["partially_delivered"]?.timestamp || order.deliveredAt,
+                    done: !!timelineByAction["delivered"] || !!timelineByAction["partially_delivered"] || isDelivered,
+                  },
+                  {
+                    id: "closed",
+                    label: "Invoiced",
+                    timestamp: timelineByAction["closed"]?.timestamp || order.closedAt,
+                    done: !!timelineByAction["closed"] || !!order.closedAt,
+                  }
+                ];
+
+                return steps.map((step, idx) => {
+                  const isLast = idx === steps.length - 1;
+                  return (
+                    <div key={step.id} className="flex gap-3">
+                      <div className="flex flex-col items-center">
+                        <div
+                          className={cn(
+                            "h-5 w-5 rounded-full border-2 flex items-center justify-center shrink-0 mt-0.5",
+                            step.done ? "border-primary bg-primary" : "border-border bg-white"
+                          )}
+                        >
+                          {step.done && <div className="h-2 w-2 rounded-full bg-white" />}
+                        </div>
+                        {!isLast && (
+                          <div className={cn("w-0.5 flex-1 my-1", step.done ? "bg-primary" : "bg-border")} style={{ minHeight: 24 }} />
                         )}
-                      >
-                        {isCompleted && <div className="h-2 w-2 rounded-full bg-white" />}
                       </div>
-                      {!isLast && (
-                        <div className={cn("w-0.5 flex-1 my-1", isCompleted ? "bg-primary" : "bg-border")} style={{ minHeight: 24 }} />
-                      )}
+                      <div className="pb-4 min-w-0">
+                        <p className={cn("text-sm font-medium", step.done ? "text-foreground" : "text-muted-foreground")}>
+                          {step.label}
+                        </p>
+                        {step.timestamp && (
+                          <p className="text-xs text-muted-foreground mt-0.5">{formatDateTime(step.timestamp)}</p>
+                        )}
+                      </div>
                     </div>
-                    <div className="pb-4 min-w-0">
-                      <p className={cn("text-sm font-medium", isCompleted ? "text-foreground" : "text-muted-foreground")}>
-                        {label}
-                      </p>
-                      {step === "issued" && order.issuedAt && (
-                        <p className="text-xs text-muted-foreground mt-0.5">{formatDateTime(order.issuedAt)}</p>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
+                  );
+                });
+              })()}
             </div>
           )}
         </div>

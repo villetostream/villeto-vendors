@@ -1,6 +1,6 @@
 "use client";
 
-import { useMutation, type UseMutationResult } from "@tanstack/react-query";
+import { useMutation, useQueryClient, type UseMutationResult } from "@tanstack/react-query";
 import { apiClient } from "@/lib/api/client";
 import Cookies from "js-cookie";
 import { AUTH_COOKIE_OPTIONS, AUTH_COOKIE_NAMES } from "@/lib/constants/auth";
@@ -34,6 +34,7 @@ export const useLogin = (): UseMutationResult<LoginResponse, Error, LoginPayload
   const setCurrentVendor = useAuthStore((s) => s.setCurrentVendor);
   const setCompanies = useCompanyStore((s) => s.setCompanies);
   const setActive = useCompanyStore((s) => s.setActive);
+  const queryClient = useQueryClient();
 
   return useMutation<LoginResponse, Error, LoginPayload>({
     mutationFn: async (payload: LoginPayload) => {
@@ -44,6 +45,11 @@ export const useLogin = (): UseMutationResult<LoginResponse, Error, LoginPayload
       if (accessToken) {
         Cookies.set(AUTH_COOKIE_NAMES.authToken, accessToken, AUTH_COOKIE_OPTIONS);
       }
+
+      // Clear any cached data from a previous session so the new session
+      // always fetches fresh data immediately — prevents stale orders/invoices
+      // from a different company or user appearing on login.
+      queryClient.clear();
 
       setCurrentVendor(currentVendor, companies);
       setCompanies(companies);
