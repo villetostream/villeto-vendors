@@ -116,10 +116,6 @@ function LoginContent() {
 
       <main className="relative z-10 flex flex-1 items-center justify-center px-4 pb-16">
         <div className="w-full max-w-md bg-white rounded-2xl shadow-sm border border-border/50 p-8">
-          <div className="flex justify-center mb-6">
-            <VilletoLogo size="md" />
-          </div>
-
           <h1 className="text-2xl font-bold text-foreground text-center mb-1">Sign in as a Vendor</h1>
           <p className="text-sm text-muted-foreground text-center mb-8">
             Enter your credentials to access your vendor account

@@ -7,7 +7,6 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useDebounce } from "use-debounce";
 import { CheckCircle2, XCircle, Loader2, ArrowRight } from "lucide-react";
-import { OnboardingStepper } from "@/components/onboarding/OnboardingStepper";
 import { Input } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
 import { FormField } from "@/components/ui/Label";
@@ -158,13 +157,12 @@ export default function BusinessIdentityPage() {
   };
 
   return (
-    <div className="w-full max-w-2xl flex flex-col h-full">
-      <div className="shrink-0 pb-6">
-        <OnboardingStepper currentStep="business-identity" />
-      </div>
-
-      <div className="bg-white rounded-2xl shadow-sm border border-border/50 flex-1 flex flex-col min-h-0 mb-4">
-        <div className="shrink-0 p-8 pb-4 border-b border-border/30">
+    <div className="w-full max-w-2xl flex flex-col h-full min-h-0 px-4 pt-2 pb-6 mx-auto">
+      {/* Form card — flex-1 min-h-0 allows it to shrink to fit the screen, overflow-hidden clips corners */}
+      <div className="bg-white rounded-2xl shadow-sm border border-border/50 mb-6 flex flex-col flex-1 min-h-0 overflow-hidden">
+        
+        {/* Fixed header inside the card */}
+        <div className="shrink-0 p-8 pb-4 border-b border-border/30 bg-white relative z-10">
           <h2 className="text-2xl font-bold text-foreground mb-1">
             Business Identity
           </h2>
@@ -178,7 +176,8 @@ export default function BusinessIdentityPage() {
           </p>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-8 pt-6 pr-6">
+        {/* Scrollable form area */}
+        <div className="flex-1 overflow-y-auto p-8 pt-6">
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
           {/* Business Name — locked if provided by invite */}
           <FormField

@@ -61,11 +61,17 @@ function AuthInitializer({ children }: { children: React.ReactNode }) {
       .catch(() => {
         // Cookie existed but the session is no longer valid server-side.
         clearAuth();
-        const loginUrl =
-          pathname && pathname !== "/auth/login"
-            ? `/auth/login?next=${encodeURIComponent(pathname)}`
-            : "/auth/login";
-        router.replace(loginUrl);
+        
+        // Don't interrupt public flows like invite or signup.
+        const isPublicRoute =
+          pathname?.startsWith("/invite") ||
+          pathname?.startsWith("/signup") ||
+          pathname?.startsWith("/auth/login");
+          
+        if (!isPublicRoute) {
+          const loginUrl = pathname ? `/auth/login?next=${encodeURIComponent(pathname)}` : "/auth/login";
+          router.replace(loginUrl);
+        }
       });
   }, [setUser, setCompanies, setActive, clearAuth, setLoading, router, pathname]);
 

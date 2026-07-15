@@ -2,7 +2,6 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import { cookies } from "next/headers";
 import { ShieldCheck, ArrowRight, AlertCircle } from "lucide-react";
-import { VilletoLogo } from "@/components/shared/VilletoLogo";
 
 interface InvitePageProps {
   searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
@@ -128,29 +127,8 @@ export default async function InvitePage({ searchParams }: InvitePageProps) {
   const businessLabel = invite.legalName || invite.displayName;
 
   return (
-    <div className="min-h-screen onboarding-bg flex flex-col relative overflow-hidden">
-      {/* Corner grid decorators */}
-      <div
-        className="pointer-events-none absolute bottom-0 left-0 w-48 h-48 opacity-30"
-        style={{
-          backgroundImage:
-            "linear-gradient(rgba(43,185,176,0.15) 1px, transparent 1px), linear-gradient(90deg, rgba(43,185,176,0.15) 1px, transparent 1px)",
-          backgroundSize: "16px 16px",
-        }}
-      />
-      <div
-        className="pointer-events-none absolute bottom-0 right-0 w-48 h-48 opacity-30"
-        style={{
-          backgroundImage:
-            "linear-gradient(rgba(43,185,176,0.15) 1px, transparent 1px), linear-gradient(90deg, rgba(43,185,176,0.15) 1px, transparent 1px)",
-          backgroundSize: "16px 16px",
-        }}
-      />
-
-      {/* Card */}
-      <main className="relative z-10 flex flex-1 items-center justify-center px-4 pb-16">
-        <div className="w-full max-w-md bg-white rounded-2xl shadow-sm border border-border/50 p-8 flex flex-col items-center text-center">
-          <VilletoLogo size="md" className="mb-6" />
+    <div className="relative z-10 flex flex-1 items-center justify-center w-full h-full overflow-hidden px-4 pb-16">
+      <div className="w-full max-w-md bg-white rounded-2xl shadow-sm border border-border/50 p-8 flex flex-col items-center text-center">
 
           <h1 className="text-2xl font-bold text-foreground mb-2">
             Welcome to Villeto
@@ -182,17 +160,14 @@ export default async function InvitePage({ searchParams }: InvitePageProps) {
             <ArrowRight className="h-4 w-4" aria-hidden="true" />
           </Link>
         </div>
-      </main>
-    </div>
+      </div>
   );
 }
 
 function InviteLoadError({ token }: { token: string }) {
   return (
-    <div className="min-h-screen onboarding-bg flex flex-col relative overflow-hidden">
-      <main className="relative z-10 flex flex-1 items-center justify-center px-4 pb-16">
-        <div className="w-full max-w-md bg-white rounded-2xl shadow-sm border border-border/50 p-8 flex flex-col items-center text-center">
-          <VilletoLogo size="md" className="mb-6" />
+    <div className="relative z-10 flex flex-1 items-center justify-center w-full h-full overflow-hidden px-4 pb-16">
+      <div className="w-full max-w-md bg-white rounded-2xl shadow-sm border border-border/50 p-8 flex flex-col items-center text-center">
           <div className="flex h-14 w-14 items-center justify-center rounded-full bg-amber-50 mb-4">
             <AlertCircle className="h-6 w-6 text-amber-500" aria-hidden="true" />
           </div>
@@ -210,7 +185,6 @@ function InviteLoadError({ token }: { token: string }) {
             Try again
           </Link>
         </div>
-      </main>
-    </div>
+      </div>
   );
 }

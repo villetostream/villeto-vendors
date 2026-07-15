@@ -48,6 +48,15 @@ function clearSessionCookies() {
 function handleSessionExpired() {
   clearSessionCookies();
   if (typeof window !== "undefined") {
+    // Don't force-redirect if the user is on a public page that doesn't
+    // require a session — /invite and /signup are entry points for new
+    // vendors who have no auth token yet.
+    const publicPaths = ["/invite", "/signup", "/auth/login"];
+    const isPublicPage = publicPaths.some((p) =>
+      window.location.pathname.startsWith(p)
+    );
+    if (isPublicPage) return;
+
     // Tell any other open tabs their session/token is gone too — a
     // superseded or expired token in tab A should not let tab B keep
     // acting on a company context that's no longer valid anywhere.
