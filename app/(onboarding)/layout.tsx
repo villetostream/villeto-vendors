@@ -1,5 +1,6 @@
 import { VilletoLogo } from "@/components/shared/VilletoLogo";
 import { OnboardingCompanySwitcher } from "@/components/onboarding/OnboardingCompanySwitcher";
+import { LayoutStepper } from "@/components/onboarding/LayoutStepper";
 
 export default function OnboardingLayout({
   children,
@@ -26,7 +27,7 @@ export default function OnboardingLayout({
         }}
       />
 
-      {/* Top nav */}
+      {/* Top nav — always visible, never scrolls */}
       <header className="shrink-0 relative z-10 flex items-center justify-between px-6 py-5">
         <VilletoLogo size="md" />
         <div className="flex items-center gap-3">
@@ -39,8 +40,11 @@ export default function OnboardingLayout({
         </div>
       </header>
 
-      {/* Main content */}
-      <main className="flex-1 flex flex-col min-h-0 relative z-10 overflow-hidden items-center justify-start px-4 pt-2 pb-4">
+      {/* Step progress — auto-shows on wizard pages, hidden on /invite and /signup */}
+      <LayoutStepper />
+
+      {/* Main content — pages handle their own scrolling if needed */}
+      <main className="flex-1 min-h-0 relative z-10 flex flex-col items-center justify-start w-full">
         {children}
       </main>
     </div>

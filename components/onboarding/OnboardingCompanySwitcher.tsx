@@ -47,6 +47,10 @@ export function OnboardingCompanySwitcher() {
     queryKey: queryKeys.companies(),
     queryFn: getVendorCompanies,
     staleTime: 1000 * 30,
+    // Only fetch if the user actually has an auth token — the OnboardingLayout
+    // renders this component on /invite and /signup too where no token exists,
+    // and a 401 from those pages triggers the global session-expired redirect.
+    enabled: !!Cookies.get(AUTH_COOKIE_NAMES.authToken),
   });
 
   useEffect(() => {

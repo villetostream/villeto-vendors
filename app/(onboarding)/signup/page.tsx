@@ -6,7 +6,6 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { Eye, EyeOff, ArrowRight } from "lucide-react";
-import { VilletoLogo } from "@/components/shared/VilletoLogo";
 import { Input } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
 import { FormField } from "@/components/ui/Label";
@@ -133,7 +132,7 @@ function SignupContent() {
   };
 
   return (
-    <div className="min-h-screen onboarding-bg flex flex-col relative overflow-hidden">
+    <div className="min-h-screen onboarding-bg flex flex-col relative">
       <div
         className="pointer-events-none absolute bottom-0 left-0 w-48 h-48 opacity-30"
         style={{
@@ -151,12 +150,9 @@ function SignupContent() {
         }}
       />
 
-      <main className="relative z-10 flex flex-1 items-center justify-center px-4 pb-16">
+      {/* Make this container scrollable since layout main no longer handles scrolling */}
+      <div className="relative z-10 flex flex-1 items-center justify-center w-full h-full overflow-y-auto px-4 py-12">
         <div className="w-full max-w-md bg-white rounded-2xl shadow-sm border border-border/50 p-8">
-          <div className="flex justify-center mb-6">
-            <VilletoLogo size="md" />
-          </div>
-
           <h1 className="text-2xl font-bold text-foreground text-center mb-1">
             Sign up as a Vendor
           </h1>
@@ -264,7 +260,7 @@ function SignupContent() {
             </Button>
           </form>
         </div>
-      </main>
+      </div>
     </div>
   );
 }
