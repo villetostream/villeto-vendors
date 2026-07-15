@@ -29,7 +29,6 @@ export function useInvoices(filters: InvoiceFilters = {}) {
     queryKey: queryKeys.invoices(companyId, mergedFilters),
     queryFn: () => getInvoices(mergedFilters),
     enabled: !!companyId,
-    staleTime: 1000 * 60,
   });
 }
 

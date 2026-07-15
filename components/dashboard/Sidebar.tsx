@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
@@ -39,6 +40,7 @@ export function Sidebar({ isMobileOpen = false, onMobileClose }: SidebarProps) {
   const pathname = usePathname();
   const router = useRouter();
   const { user, clearAuth } = useAuthStore();
+  const queryClient = useQueryClient();
   const [logoutModalOpen, setLogoutModalOpen] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
 
@@ -66,6 +68,9 @@ export function Sidebar({ isMobileOpen = false, onMobileClose }: SidebarProps) {
     setIsLoggingOut(true);
     try {
       await logout();
+      // Clear all cached query data so no stale data from this session
+      // is served if a different user logs in afterwards.
+      queryClient.clear();
       clearAuth();
       router.push("/auth/login");
     } catch {

@@ -39,13 +39,8 @@ export async function getOrder(purchaseOrderId: string): Promise<Order> {
 /**
  * PATCH /vendor-portal/orders/:purchaseOrderId/acknowledge
  *
- * Confirmed endpoint, UNCONFIRMED body. The product mockups show the
- * vendor entering a per-item delivery date before acknowledging, so this
- * sends `{ lineItems: [{ purchaseOrderLineItemId, deliveryDate }] }` as
- * the best guess. If backend's real contract takes no body (as originally
- * documented) or a different shape, this call will need updating — the
- * dates are also kept in local component state as a fallback so the UI
- * still reflects them even if the backend silently ignores the field.
+ * Vendor enters a per-item delivery date before acknowledging.
+ * Sends { lineItems: [{ purchaseOrderLineItemId, deliveryDate }] }
  */
 export async function acknowledgeOrder(
   purchaseOrderId: string,

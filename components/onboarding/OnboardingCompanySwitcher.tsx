@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { ChevronDown, Check, Loader2, LogOut } from "lucide-react";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import Cookies from "js-cookie";
 import { getVendorCompanies, switchCompany as switchCompanyApi } from "@/lib/api/vendor";
@@ -33,7 +33,8 @@ const ONBOARDING_STEP_ROUTES: Record<string, string> = {
  */
 export function OnboardingCompanySwitcher() {
   const router = useRouter();
-  const { setCurrentVendor } = useAuthStore();
+  const queryClient = useQueryClient();
+  const { setCurrentVendor, clearAuth } = useAuthStore();
   const hydrateFromSession = useOnboardingStore((s) => s.hydrateFromSession);
   const [switchingTo, setSwitchingTo] = useState<string | null>(null);
 
@@ -107,6 +108,8 @@ export function OnboardingCompanySwitcher() {
   const handleLogout = async () => {
     try {
       await logout();
+      queryClient.clear();
+      clearAuth();
       router.push("/auth/login");
     } catch {
       toast.error("Failed to log out");
