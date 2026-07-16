@@ -89,7 +89,6 @@ export default function BusinessIdentityPage() {
       // Actually, it's safer to just set it. useForm's defaultValues might have missed it.
       setValue("business_email", inviteEmail, { shouldValidate: false });
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [inviteBusinessName, inviteEmail, businessName, setValue]);
 
   /**

@@ -25,7 +25,7 @@ const schema = z.object({
   bank_code: z.string().min(1, "Select a bank"),
   bank_name: z.string().min(1, "Select a bank"),
   routing_number: z.string().optional(),
-  account_number: z.string().min(5, "Account number must be at least 5 digits"),
+  account_number: z.string().min(10, "Account number must be at least 10 digits"),
   flag_note: z.string().optional(),
 });
 
@@ -102,7 +102,7 @@ export default function BankingPage() {
    * INTEGRATION POINT: real call in resolveAccountName()
    */
   useEffect(() => {
-    if (!bankCode || debouncedAccount.length < 5) {
+    if (!bankCode || debouncedAccount.length < 10) {
       setResolvedName("");
       setMatchScore(null);
       return;
@@ -301,7 +301,7 @@ export default function BankingPage() {
               variant="primary"
               size="lg"
               loading={isSubmitting || isNavigating}
-              disabled={resolving}
+              disabled={resolving || !resolvedName}
               className="flex-1"
             >
               Continue
