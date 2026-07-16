@@ -10,9 +10,7 @@ import { Input } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
 import { FormField } from "@/components/ui/Label";
 import { useOnboardingStore } from "@/lib/stores/onboardingStore";
-import { useAuthStore } from "@/lib/stores/authStore";
-import { signUp } from "@/lib/api/auth";
-import { getVendorProfile } from "@/lib/api/vendor";
+import { signUp, logout } from "@/lib/api/auth";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
@@ -53,7 +51,6 @@ function SignupContent() {
   const vendorInvitationIdParam = searchParams.get("vendorInvitationId") ?? "";
 
   const setInviteContext = useOnboardingStore((s) => s.setInviteContext);
-  const setUser = useAuthStore((s) => s.setUser);
 
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
@@ -94,42 +91,24 @@ function SignupContent() {
     setInviteContext,
   ]);
 
-  const onSubmit = async (data: FormData) => {
-    try {
-      await signUp({
-        token,
-        password: data.password,
-        confirmPassword: data.confirmPassword,
-      });
-
-      // signUp() only persists cookies — it doesn't return a full user
-      // object. Populate the global auth store explicitly so Sidebar,
-      // ApprovalGuard, etc. don't see a stale "logged out" state for the
-      // rest of this session (Providers' AuthInitializer only hydrates
-      // once, before this token existed).
+    const onSubmit = async (data: FormData) => {
       try {
-        const freshProfile = await getVendorProfile();
-        setUser({
-          id: freshProfile.vendorId,
-          email: freshProfile.email,
-          business_name: freshProfile.displayName || freshProfile.legalName,
-          status: freshProfile.status,
-          approvalStatus: freshProfile.approvalStatus,
-          onboardingStatus: freshProfile.onboardingStatus,
-          decisionNote: freshProfile.decisionNote,
-          isPaymentEnabled: freshProfile.isPaymentEnabled,
+        await signUp({
+          token,
+          password: data.password,
+          confirmPassword: data.confirmPassword,
         });
-      } catch {
-        // Non-fatal — the dashboard/onboarding layouts will re-fetch via
-        // their own guards if this fails; don't block the signup flow.
-      }
 
-      toast.success("Account created! Welcome to Villeto 🎉");
-      router.push("/onboarding/business-identity");
-    } catch (err: unknown) {
-      toast.error((err as { message?: string })?.message ?? "Signup failed");
-    }
-  };
+        // The requirement is to redirect the user to log in after they create their password.
+        // Because signUp may persist auth cookies, we clear them to enforce a fresh login.
+        await logout();
+        
+        toast.success("Password created successfully! Please log in to continue.");
+        router.push("/auth/login");
+      } catch (err: unknown) {
+        toast.error((err as { message?: string })?.message ?? "Signup failed");
+      }
+    };
 
   return (
     <div className="relative z-10 flex flex-1 items-center justify-center w-full h-full overflow-y-auto px-4 py-12">

@@ -38,6 +38,15 @@ function LoginContent() {
   const [showPassword, setShowPassword] = useState(false);
   const [isNavigating, setIsNavigating] = useState(false);
 
+  // Hard-navigate so the browser sends the freshly-set cookies (vendorStatus,
+  // approvalStatus, authToken) in the HTTP request. router.push() is a
+  // client-side transition — the request goes out before js-cookie has flushed
+  // the new cookies, so the edge middleware reads stale values and can either
+  // redirect back to /auth/login or hang on the spinner until a manual reload.
+  const hardNavigate = (href: string) => {
+    window.location.href = href;
+  };
+
   // ── Redirect if already authenticated ───────────────────────
   const { user, isAuthenticated, isLoading } = useAuthStore();
 
@@ -80,7 +89,7 @@ function LoginContent() {
       setIsNavigating(true);
 
       if (isStatusActive(currentVendor.status)) {
-        router.push(next);
+        hardNavigate(next);
         return;
       }
 
@@ -90,13 +99,13 @@ function LoginContent() {
       // follow-up; for now this safely lands on /pending, which explains
       // their status rather than dropping them into the wrong flow.
       if (onboardingMode === "review_and_submit" || currentVendor.approvalStatus !== null) {
-        router.push("/pending");
+        hardNavigate("/pending");
         return;
       }
 
       const currentStep = currentVendor.currentStep || "business_identity";
       const routeStep = ONBOARDING_STEP_ROUTES[currentStep] || "business-identity";
-      router.push(`/onboarding/${routeStep}`);
+      hardNavigate(`/onboarding/${routeStep}`);
     } catch (err: unknown) {
       setIsNavigating(false);
       toast.error((err as { message?: string })?.message ?? "Invalid email or password");
