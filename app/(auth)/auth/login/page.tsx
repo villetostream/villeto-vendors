@@ -49,9 +49,13 @@ function LoginContent() {
 
   // ── Redirect if already authenticated ───────────────────────
   const { user, isAuthenticated, isLoading } = useAuthStore();
+  const loginMutation = useLogin();
 
   useEffect(() => {
-    if (isLoading || !isAuthenticated || !user || isNavigating) return;
+    // If a login attempt is in progress or completed (status !== 'idle'), 
+    // let the onSubmit handler manage the navigation. This useEffect is 
+    // only for catching users who load the page while already authenticated.
+    if (isLoading || !isAuthenticated || !user || isNavigating || loginMutation.status !== 'idle') return;
 
     if (isStatusActive(user.status)) {
       router.replace(next);
@@ -60,15 +64,13 @@ function LoginContent() {
       // rejected all land on /pending, which branches on the reason.
       router.replace("/pending");
     }
-  }, [user, isAuthenticated, isLoading, isNavigating, router, next]);
+  }, [user, isAuthenticated, isLoading, isNavigating, router, next, loginMutation.status]);
 
   const {
     register,
     handleSubmit,
     formState: { errors, isSubmitting },
   } = useForm<FormData>({ resolver: zodResolver(schema) });
-
-  const loginMutation = useLogin();
 
   const onSubmit = async (data: FormData) => {
     try {

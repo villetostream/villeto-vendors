@@ -90,26 +90,48 @@ export async function signUp(payload: {
 }
 
 // ─────────────────────────────────────────────
+// CLEAR SESSION (client-side only — no network)
+// ─────────────────────────────────────────────
+
+/**
+ * Removes all auth-related cookies and local storage keys on the client
+ * WITHOUT making any network request.
+ *
+ * Use this when you need to clear a session that was never fully
+ * established (e.g. immediately after invitation-accept / signup, before
+ * the vendor has a valid auth token the backend would recognise for logout).
+ *
+ * Calling the real logout() endpoint in that state returns 401 Unauthorized,
+ * which would be mistakenly surfaced to the user as a signup error.
+ */
+export function clearSessionCookies(): void {
+  Cookies.remove(AUTH_COOKIE_NAMES.authToken);
+  Cookies.remove(AUTH_COOKIE_NAMES.onboardingSession);
+  Cookies.remove(AUTH_COOKIE_NAMES.approvalStatus);
+  Cookies.remove(AUTH_COOKIE_NAMES.vendorStatus);
+  Cookies.remove(AUTH_COOKIE_NAMES.activeCompanyId);
+  if (typeof window !== "undefined") {
+    localStorage.removeItem("villeto-onboarding");
+  }
+}
+
+// ─────────────────────────────────────────────
 // LOGOUT
 // ─────────────────────────────────────────────
 
 /**
  * Sign out vendor, clear server session.
- * POST /auth/logout
+ * POST /vendors/auth/logout
+ *
+ * Always clears local cookies/storage even if the network call fails,
+ * so the user is never left in a broken half-logged-in state.
  */
 export async function logout(): Promise<void> {
   try {
     // INTEGRATION POINT ↓
     await apiClient.post("/vendors/auth/logout");
   } finally {
-    Cookies.remove(AUTH_COOKIE_NAMES.authToken);
-    Cookies.remove(AUTH_COOKIE_NAMES.onboardingSession);
-    Cookies.remove(AUTH_COOKIE_NAMES.approvalStatus);
-    Cookies.remove(AUTH_COOKIE_NAMES.vendorStatus);
-    Cookies.remove(AUTH_COOKIE_NAMES.activeCompanyId);
-    if (typeof window !== "undefined") {
-      localStorage.removeItem("villeto-onboarding");
-    }
+    clearSessionCookies();
   }
 }
 
