@@ -27,7 +27,7 @@ type InviteResult =
   // "invalid": backend has definitively confirmed the invite doesn't exist,
   // is expired, or is already consumed → safe to send to /invite/expired
   // with its "request a new invite" messaging.
-  | { ok: false; reason: "invalid" }
+  | { ok: false; reason: "invalid"; consumed?: boolean }
   // "transient": the request itself failed (network error, timeout, 5xx,
   // unparseable response) → we don't actually know the invite's real
   // status, so it would be wrong to tell the vendor it's expired.
@@ -65,9 +65,11 @@ async function validateInviteToken(token: string): Promise<InviteResult> {
   }
 
   if (!res.ok) {
-    // 404/410 are reasonable signals the invite genuinely doesn't exist /
-    // is gone; anything else (5xx, rate limiting, etc.) is transient.
-    return { ok: false, reason: res.status === 404 || res.status === 410 ? "invalid" : "transient" };
+    // 400 and 422 cover "consumed", "already used", or "invalid token" backend responses.
+    // 404 and 410 cover "not found" or "permanently gone".
+    // Anything else (5xx, rate-limiting, etc.) is a transient failure.
+    const isDefinitelyInvalid = [400, 404, 410, 422].includes(res.status);
+    return { ok: false, reason: isDefinitelyInvalid ? "invalid" : "transient" };
   }
 
   let json: { data?: { data?: InvitePreviewData } };
@@ -79,7 +81,11 @@ async function validateInviteToken(token: string): Promise<InviteResult> {
 
   const data = json?.data?.data;
   if (!data) return { ok: false, reason: "transient" };
-  if (data.isExpired || data.isConsumed) return { ok: false, reason: "invalid" };
+
+  // Distinguish consumed (already used) from expired so we can show
+  // the correct message on the /invite/expired page.
+  if (data.isConsumed) return { ok: false, reason: "invalid", consumed: true };
+  if (data.isExpired) return { ok: false, reason: "invalid", consumed: false };
 
   return { ok: true, data };
 }
@@ -103,7 +109,13 @@ export default async function InvitePage({ searchParams }: InvitePageProps) {
 
   if (!result.ok) {
     if (result.reason === "invalid") {
-      redirect("/invite/expired");
+      // Pass the specific reason so /invite/expired can show the right copy:
+      // consumed → "You've already set up your account, please log in"
+      // expired  → "This invite link has expired, contact your organisation"
+      const destination = result.consumed
+        ? "/invite/expired?reason=consumed"
+        : "/invite/expired";
+      redirect(destination);
     }
     // Transient failure — stay on this URL and let the vendor retry
     // instead of telling them (possibly wrongly) that their invite expired.

@@ -10,7 +10,7 @@ import { Input } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
 import { FormField } from "@/components/ui/Label";
 import { useOnboardingStore } from "@/lib/stores/onboardingStore";
-import { signUp, logout } from "@/lib/api/auth";
+import { signUp, clearSessionCookies } from "@/lib/api/auth";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
@@ -91,24 +91,28 @@ function SignupContent() {
     setInviteContext,
   ]);
 
-    const onSubmit = async (data: FormData) => {
-      try {
-        await signUp({
-          token,
-          password: data.password,
-          confirmPassword: data.confirmPassword,
-        });
+  const onSubmit = async (data: FormData) => {
+    try {
+      await signUp({
+        token,
+        password: data.password,
+        confirmPassword: data.confirmPassword,
+      });
 
-        // The requirement is to redirect the user to log in after they create their password.
-        // Because signUp may persist auth cookies, we clear them to enforce a fresh login.
-        await logout();
-        
-        toast.success("Password created successfully! Please log in to continue.");
-        router.push("/auth/login");
-      } catch (err: unknown) {
-        toast.error((err as { message?: string })?.message ?? "Signup failed");
-      }
-    };
+      // Signup succeeded — clear any session cookies the invitation-accept
+      // endpoint may have set, so the vendor is forced to log in fresh.
+      // We use clearSessionCookies() (client-side only) rather than logout()
+      // because the backend logout endpoint requires a valid auth token;
+      // calling it here would return 401 and surface a misleading error toast
+      // even though the account was created successfully.
+      clearSessionCookies();
+
+      toast.success("Password created! Please log in to continue.");
+      router.push("/auth/login");
+    } catch (err: unknown) {
+      toast.error((err as { message?: string })?.message ?? "Signup failed");
+    }
+  };
 
   return (
     <div className="relative z-10 flex flex-1 items-center justify-center w-full h-full overflow-y-auto px-4 py-12">
