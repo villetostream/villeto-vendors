@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { AUTH_COOKIE_NAMES } from "@/lib/constants/auth";
 
 /**
- * EDGE MIDDLEWARE
+ * EDGE PROXY (formerly Middleware)
  * Runs on every request before any page loads.
  *
  * Routing logic:
@@ -85,7 +85,7 @@ function extractInviteToken(request: NextRequest): string | null {
   return null;
 }
 
-export async function middleware(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   // ── 1. Invite token gate ──────────────────────────────────────
