@@ -68,6 +68,8 @@ export default function BusinessIdentityPage() {
 
   const businessName = watch("business_name");
   const regNumber = watch("registration_number");
+  const country = watch("country");
+  const businessAddress = watch("business_address");
   const [debouncedReg] = useDebounce(regNumber, 800);
   const [debouncedName] = useDebounce(businessName, 600);
   const prevResolvedRef = useRef("");
@@ -297,6 +299,7 @@ export default function BusinessIdentityPage() {
               variant="primary"
               size="lg"
               loading={isSubmitting || isNavigating}
+              disabled={!regNumber || !country || !businessAddress}
               className="flex-1"
             >
               Continue
