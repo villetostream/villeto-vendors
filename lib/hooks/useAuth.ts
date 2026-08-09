@@ -11,6 +11,7 @@ import { useCompanyStore } from "@/lib/stores/companyStore";
 interface LoginPayload {
   email: string;
   password: string;
+  invitationToken?: string;
 }
 
 /**

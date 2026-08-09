@@ -34,6 +34,8 @@ function LoginContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const next = searchParams.get("next") ?? "/dashboard";
+  const invitationToken = searchParams.get("invitationToken") ?? undefined;
+  const invitationEmail = searchParams.get("email") ?? "";
   const { hydrateFromSession } = useOnboardingStore();
   const [showPassword, setShowPassword] = useState(false);
   const [isNavigating, setIsNavigating] = useState(false);
@@ -70,14 +72,20 @@ function LoginContent() {
     register,
     handleSubmit,
     formState: { errors, isSubmitting },
-  } = useForm<FormData>({ resolver: zodResolver(schema) });
+  } = useForm<FormData>({
+    resolver: zodResolver(schema),
+    defaultValues: { email: invitationEmail },
+  });
 
   const onSubmit = async (data: FormData) => {
     try {
       // useLogin's mutationFn already persists the token cookie and
       // populates authStore + companyStore from the response — no need
       // to duplicate that here.
-      const res = await loginMutation.mutateAsync(data);
+      const res = await loginMutation.mutateAsync({
+        ...data,
+        ...(invitationToken ? { invitationToken } : {}),
+      });
       const { currentVendor, onboardingMode } = res.data;
 
       hydrateFromSession({
@@ -95,12 +103,17 @@ function LoginContent() {
         return;
       }
 
-      // "review_and_submit" = vendor already has a reusable profile from
-      // another company and just needs to confirm/submit to this one —
-      // not the full wizard. A dedicated review-and-submit screen is a
-      // follow-up; for now this safely lands on /pending, which explains
-      // their status rather than dropping them into the wrong flow.
-      if (onboardingMode === "review_and_submit" || currentVendor.approvalStatus !== null) {
+      // Existing vendors reuse their account/profile, then review and submit
+      // the new company relationship instead of repeating the full wizard.
+      if (
+        onboardingMode === "profile_reuse_review" ||
+        currentVendor.currentStep === "review_and_submit"
+      ) {
+        hardNavigate("/onboarding/review");
+        return;
+      }
+
+      if (currentVendor.approvalStatus !== null) {
         hardNavigate("/pending");
         return;
       }
@@ -129,7 +142,9 @@ function LoginContent() {
         <div className="w-full max-w-md bg-white rounded-2xl shadow-sm border border-border/50 p-8">
           <h1 className="text-2xl font-bold text-foreground text-center mb-1">Sign in as a Vendor</h1>
           <p className="text-sm text-muted-foreground text-center mb-8">
-            Enter your credentials to access your vendor account
+            {invitationToken
+              ? "Use your existing vendor credentials to accept this company invitation"
+              : "Enter your credentials to access your vendor account"}
           </p>
 
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
@@ -139,6 +154,7 @@ function LoginContent() {
                 placeholder="Enter email address"
                 error={!!errors.email}
                 autoComplete="email"
+                readOnly={Boolean(invitationToken && invitationEmail)}
                 {...register("email")}
               />
             </FormField>
