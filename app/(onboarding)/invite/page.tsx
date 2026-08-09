@@ -20,6 +20,10 @@ interface InvitePreviewData {
   expiresAt: string;
   isExpired: boolean;
   isConsumed: boolean;
+  inviteeType: "new_vendor" | "existing_vendor";
+  nextAction: "set_password" | "login_to_accept";
+  hasReusableProfile: boolean;
+  hasActiveVendorRelationship: boolean;
 }
 
 type InviteResult =
@@ -124,16 +128,23 @@ export default async function InvitePage({ searchParams }: InvitePageProps) {
 
   const invite = result.data;
 
-  // Build the CTA href carrying all invite fields so the signup page
-  // can populate the onboarding store without another API call.
-  const ctaHref =
-    `/signup` +
-    `?token=${encodeURIComponent(token)}` +
-    `&email=${encodeURIComponent(invite.email)}` +
-    `&displayName=${encodeURIComponent(invite.displayName)}` +
-    `&legalName=${encodeURIComponent(invite.legalName)}` +
-    `&vendorId=${encodeURIComponent(invite.vendorId)}` +
-    `&vendorInvitationId=${encodeURIComponent(invite.vendorInvitationId)}`;
+  const isExistingVendor =
+    invite.inviteeType === "existing_vendor" ||
+    invite.nextAction === "login_to_accept";
+
+  // New vendors create credentials. Existing vendors verify their existing
+  // credentials while preserving the invitation token so login can attach
+  // the new company relationship transactionally.
+  const ctaHref = isExistingVendor
+    ? `/auth/login?invitationToken=${encodeURIComponent(token)}` +
+      `&email=${encodeURIComponent(invite.email)}`
+    : `/signup` +
+      `?token=${encodeURIComponent(token)}` +
+      `&email=${encodeURIComponent(invite.email)}` +
+      `&displayName=${encodeURIComponent(invite.displayName)}` +
+      `&legalName=${encodeURIComponent(invite.legalName)}` +
+      `&vendorId=${encodeURIComponent(invite.vendorId)}` +
+      `&vendorInvitationId=${encodeURIComponent(invite.vendorInvitationId)}`;
 
   // Show legalName as the primary identifier; fall back to displayName
   const businessLabel = invite.legalName || invite.displayName;
@@ -146,8 +157,9 @@ export default async function InvitePage({ searchParams }: InvitePageProps) {
             Welcome to Villeto
           </h1>
           <p className="text-sm text-muted-foreground mb-8 max-w-xs">
-            You have been invited to register as a secure vendor. Complete our
-            verification process to start receiving payments.
+            {isExistingVendor
+              ? "This company has invited your existing vendor account. Sign in to accept the invitation."
+              : "You have been invited to register as a secure vendor. Complete our verification process to continue."}
           </p>
 
           {/* Vendor info card */}
@@ -163,12 +175,12 @@ export default async function InvitePage({ searchParams }: InvitePageProps) {
             </div>
           </div>
 
-          {/* CTA — passes all invite data through to signup */}
+          {/* CTA routes existing accounts to login and new accounts to signup. */}
           <Link
             href={ctaHref}
             className="w-full h-13 flex items-center justify-center gap-2 bg-primary text-white rounded-xl font-medium text-sm hover:bg-primary/90 transition-colors"
           >
-            Start Vendor Setup
+            {isExistingVendor ? "Sign in to accept" : "Start Vendor Setup"}
             <ArrowRight className="h-4 w-4" aria-hidden="true" />
           </Link>
         </div>

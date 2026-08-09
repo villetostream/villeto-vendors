@@ -138,7 +138,7 @@ export interface InvitePreviewResult {
   isExpired: boolean;
   isConsumed: boolean;
   inviteeType: "new_vendor" | "existing_vendor";
-  nextAction: "set_password" | "verify_existing_password";
+  nextAction: "set_password" | "login_to_accept";
   hasReusableProfile: boolean;
   hasActiveVendorRelationship: boolean;
 }
