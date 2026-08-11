@@ -109,25 +109,23 @@ function LoginContent() {
         return;
       }
 
-      // "review_and_submit" = vendor already has a reusable profile from
-      // another company and just needs to confirm/submit to this one —
-      // not the full wizard. A dedicated review-and-submit screen is a
-      // follow-up; for now this safely lands on /pending, which explains
-      // their status rather than dropping them into the wrong flow.
-      if (onboardingMode === "review_and_submit" && currentVendor.approvalStatus !== null) {
+      // 1. If the vendor has already submitted their profile (regardless of the
+      // onboarding mode they were originally in), route directly to the 
+      // status page to prevent them from bouncing through the wizard.
+      if (currentVendor.approvalStatus !== null) {
         hardNavigate("/pending");
         return;
       }
 
-      if (onboardingMode === "profile_reuse_review" && currentVendor.approvalStatus === null) {
+      // 2. If they haven't submitted yet and are in profile reuse mode, start
+      // them at the beginning of the review wizard with their locked fields.
+      if (onboardingMode === "profile_reuse_review") {
         hardNavigate("/onboarding/business-identity");
         return;
       }
 
-      if (onboardingMode === "profile_reuse_review" && currentVendor.approvalStatus !== null) {
-        hardNavigate("/pending");
-        return;
-      }
+      // 3. Otherwise, they are a standard new vendor — drop them exactly on
+      // the step they left off at.
 
       const currentStep = currentVendor.currentStep || "business_identity";
       const routeStep = ONBOARDING_STEP_ROUTES[currentStep] || "business-identity";

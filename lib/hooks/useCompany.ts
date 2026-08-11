@@ -7,10 +7,12 @@ import Cookies from "js-cookie";
 import { toast } from "sonner";
 import { useCompanyStore } from "@/lib/stores/companyStore";
 import { useAuthStore } from "@/lib/stores/authStore";
+import { useOnboardingStore } from "@/lib/stores/onboardingStore";
 import { switchCompany as switchCompanyApi } from "@/lib/api/vendor";
 import { AUTH_COOKIE_NAMES, AUTH_COOKIE_OPTIONS } from "@/lib/constants/auth";
 import { broadcastAuthEvent, subscribeToAuthBroadcast } from "@/lib/utils/authBroadcast";
 import { isStatusActive } from "@/lib/utils";
+import type { OnboardingMode } from "@/lib/types";
 
 /**
  * useCompany — primary hook for multi-company context.
@@ -35,6 +37,7 @@ export function useCompany() {
   const router = useRouter();
   const store = useCompanyStore();
   const { user, setCurrentVendor } = useAuthStore();
+  const hydrateFromSession = useOnboardingStore((s) => s.hydrateFromSession);
 
   useEffect(() => {
     const unsubscribe = subscribeToAuthBroadcast((event) => {
@@ -62,6 +65,13 @@ export function useCompany() {
         setCurrentVendor(result.currentVendor, result.companies);
         store.setCompanies(result.companies);
         store.setActive(result.currentVendor.companyId, result.currentVendor.vendorId);
+        
+        // Ensure the onboarding store is synced in case they are switching 
+        // to a company where they are mid-onboarding or reusing a profile
+        hydrateFromSession({
+          ...result.currentVendor,
+          onboardingMode: (result.onboardingMode || result.currentVendor.onboardingMode) as OnboardingMode,
+        });
 
         broadcastAuthEvent({
           type: "company-switched",
@@ -106,7 +116,7 @@ export function useCompany() {
         toast.error("Couldn't switch company. Please try again.");
       }
     },
-    [queryClient, router, setCurrentVendor, store]
+    [queryClient, router, setCurrentVendor, store, hydrateFromSession]
   );
 
   return {
