@@ -10,6 +10,7 @@ import {
   BusinessIdentityForm,
   BankingDetailsForm,
   DocumentType,
+  OnboardingMode,
 } from "@/lib/types";
 
 export type OnboardingStep =
@@ -40,6 +41,7 @@ export interface InviteContext {
 
 interface OnboardingState {
   currentStep: OnboardingStep;
+  onboardingMode: OnboardingMode | null;
 
   // Invite context (set after /invite page validates the token)
   inviteToken: string | null;
@@ -84,6 +86,19 @@ interface OnboardingState {
       country?: string | null;
       businessAddress?: string | null;
     } | null;
+    bankingDetails?: {
+      bankName?: string;
+      accountNumber?: string;
+      routingNumber?: string;
+    } | null;
+    documents?: {
+      uploaded?: Array<{
+        documentType: DocumentType;
+        originalName: string;
+        fileUrl: string;
+      }>;
+    } | null;
+    onboardingMode?: OnboardingMode | null;
   }) => void;
   reset: () => void;
 }
@@ -140,6 +155,7 @@ export const useOnboardingStore = create<OnboardingState>()(
   persist(
     (set) => ({
       currentStep: "business-identity",
+      onboardingMode: null,
       inviteToken: null,
       vendorId: null,
       vendorInvitationId: null,
@@ -220,10 +236,35 @@ export const useOnboardingStore = create<OnboardingState>()(
                 current.business_address ||
                 "",
             },
-            ...(isNewVendor
+            onboardingMode: session.onboardingMode ?? null,
+            ...(session.bankingDetails
               ? {
-                  banking: {},
-                  documents: DEFAULT_DOCUMENTS,
+                  banking: {
+                    bank_name: session.bankingDetails.bankName || "",
+                    account_number: session.bankingDetails.accountNumber || "",
+                    routing_number: session.bankingDetails.routingNumber || "",
+                    // We don't have bank_code here necessarily, but the form handles fallback
+                  }
+                }
+              : isNewVendor ? { banking: {} } : {}),
+            ...(session.documents?.uploaded
+              ? {
+                  documents: state.documents.map((d) => {
+                    const uploaded = session.documents!.uploaded!.find((u) => u.documentType === d.type);
+                    if (uploaded) {
+                      return {
+                        ...d,
+                        uploaded: true,
+                        file_name: uploaded.originalName,
+                        url: uploaded.fileUrl,
+                      };
+                    }
+                    return d;
+                  })
+                }
+              : isNewVendor ? { documents: DEFAULT_DOCUMENTS } : {}),
+            ...(isNewVendor && !session.bankingDetails
+              ? {
                   bankResolvedName: null,
                   bankMatchScore: null,
                   bankFlagged: false,
@@ -235,6 +276,7 @@ export const useOnboardingStore = create<OnboardingState>()(
       reset: () =>
         set({
           currentStep: "business-identity",
+          onboardingMode: null,
           inviteToken: null,
           vendorId: null,
           vendorInvitationId: null,
@@ -270,6 +312,7 @@ export const useOnboardingStore = create<OnboardingState>()(
         bankResolvedName: state.bankResolvedName,
         bankMatchScore: state.bankMatchScore,
         bankFlagged: state.bankFlagged,
+        onboardingMode: state.onboardingMode,
       }),
       // Bump version whenever persisted shape changes to trigger migrate()
       version: 2,

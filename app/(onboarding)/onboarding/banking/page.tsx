@@ -174,6 +174,11 @@ export default function BankingPage() {
           </h2>
           <p className="text-sm text-muted-foreground">
             Where should we send your payments?
+            {store.onboardingMode === "profile_reuse_review" && (
+              <span className="block mt-1 text-primary">
+                Your banking details from a previous setup are shown. Update if this company should use different payment details.
+              </span>
+            )}
           </p>
         </div>
 

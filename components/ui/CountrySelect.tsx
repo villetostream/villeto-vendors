@@ -11,6 +11,7 @@ interface CountrySelectProps {
   onChange: (country: Country) => void;
   error?: boolean;
   placeholder?: string;
+  disabled?: boolean;
 }
 
 interface DropdownPos {
@@ -41,6 +42,7 @@ export function CountrySelect({
   onChange,
   error,
   placeholder = "Select country",
+  disabled,
 }: CountrySelectProps) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
@@ -213,7 +215,9 @@ export function CountrySelect({
       <button
         ref={triggerRef}
         type="button"
+        disabled={disabled}
         onClick={() => {
+          if (disabled) return;
           calcPos();
           setOpen((v) => !v);
         }}
@@ -222,7 +226,8 @@ export function CountrySelect({
           open
             ? "border-primary ring-2 ring-primary/20"
             : "border-border hover:border-primary/40",
-          error && !open && "border-red-400 ring-2 ring-red-100"
+          error && !open && !disabled && "border-red-400 ring-2 ring-red-100",
+          disabled && "bg-muted/50 cursor-default hover:border-border opacity-70"
         )}
       >
         {selected ? (

@@ -113,16 +113,18 @@ export function OnboardingCompanySwitcher() {
   const handleLogout = async () => {
     try {
       await logout();
+    } catch (error) {
+      console.error("Logout API failed:", error);
+    } finally {
       queryClient.clear();
       clearAuth();
       router.push("/auth/login");
-    } catch {
-      toast.error("Failed to log out");
     }
   };
 
   if (!companies || companies.length === 0) return null;
-  if (pathname === "/invite" || pathname === "/signup") return null;
+  if (!Cookies.get(AUTH_COOKIE_NAMES.authToken)) return null;
+  if (pathname.startsWith("/invite") || pathname === "/signup") return null;
 
   return (
     <DropdownMenu.Root>
@@ -152,7 +154,7 @@ export function OnboardingCompanySwitcher() {
 
       <DropdownMenu.Portal>
         <DropdownMenu.Content
-          className="z-50 min-w-[260px] overflow-hidden rounded-xl border border-border bg-white shadow-lg p-1 animate-in fade-in-0 zoom-in-95"
+          className="z-50 min-w-[260px] max-h-[300px] overflow-y-auto rounded-xl border border-border bg-white shadow-lg p-1 animate-in fade-in-0 zoom-in-95"
           sideOffset={6}
           align="end"
         >

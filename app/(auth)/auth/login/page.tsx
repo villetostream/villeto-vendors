@@ -13,7 +13,7 @@ import { FormField } from "@/components/ui/Label";
 import { useLogin } from "@/lib/hooks/useAuth";
 import { useAuthStore } from "@/lib/stores/authStore";
 import { useOnboardingStore } from "@/lib/stores/onboardingStore";
-import { isStatusActive } from "@/lib/utils";
+import { isStatusActive, cn } from "@/lib/utils";
 import { toast } from "sonner";
 
 const schema = z.object({
@@ -34,8 +34,11 @@ function LoginContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const next = searchParams.get("next") ?? "/dashboard";
-  const invitationToken = searchParams.get("invitationToken") ?? undefined;
-  const invitationEmail = searchParams.get("email") ?? "";
+  const invitationToken = searchParams.get("invitationToken");
+  const inviteEmail = searchParams.get("email");
+  const inviteCompany = searchParams.get("company");
+  const isInvited = !!invitationToken && !!inviteCompany;
+
   const { hydrateFromSession } = useOnboardingStore();
   const [showPassword, setShowPassword] = useState(false);
   const [isNavigating, setIsNavigating] = useState(false);
@@ -72,9 +75,11 @@ function LoginContent() {
     register,
     handleSubmit,
     formState: { errors, isSubmitting },
-  } = useForm<FormData>({
+  } = useForm<FormData>({ 
     resolver: zodResolver(schema),
-    defaultValues: { email: invitationEmail },
+    defaultValues: {
+      email: inviteEmail ?? "",
+    }
   });
 
   const onSubmit = async (data: FormData) => {
@@ -82,10 +87,8 @@ function LoginContent() {
       // useLogin's mutationFn already persists the token cookie and
       // populates authStore + companyStore from the response — no need
       // to duplicate that here.
-      const res = await loginMutation.mutateAsync({
-        ...data,
-        ...(invitationToken ? { invitationToken } : {}),
-      });
+      const payload = invitationToken ? { ...data, invitationToken } : data;
+      const res = await loginMutation.mutateAsync(payload);
       const { currentVendor, onboardingMode } = res.data;
 
       hydrateFromSession({
@@ -94,6 +97,9 @@ function LoginContent() {
         legalName: currentVendor.legalName,
         displayName: currentVendor.displayName,
         businessIdentity: currentVendor.businessIdentity,
+        bankingDetails: currentVendor.bankingDetails,
+        documents: currentVendor.documents,
+        onboardingMode: currentVendor.onboardingMode,
       });
 
       setIsNavigating(true);
@@ -103,20 +109,23 @@ function LoginContent() {
         return;
       }
 
-      // Existing vendors reuse their account/profile, then review and submit
-      // the new company relationship instead of repeating the full wizard.
-      if (
-        onboardingMode === "profile_reuse_review" ||
-        currentVendor.currentStep === "review_and_submit"
-      ) {
-        hardNavigate("/onboarding/review");
-        return;
-      }
-
+      // 1. If the vendor has already submitted their profile (regardless of the
+      // onboarding mode they were originally in), route directly to the 
+      // status page to prevent them from bouncing through the wizard.
       if (currentVendor.approvalStatus !== null) {
         hardNavigate("/pending");
         return;
       }
+
+      // 2. If they haven't submitted yet and are in profile reuse mode, start
+      // them at the beginning of the review wizard with their locked fields.
+      if (onboardingMode === "profile_reuse_review") {
+        hardNavigate("/onboarding/business-identity");
+        return;
+      }
+
+      // 3. Otherwise, they are a standard new vendor — drop them exactly on
+      // the step they left off at.
 
       const currentStep = currentVendor.currentStep || "business_identity";
       const routeStep = ONBOARDING_STEP_ROUTES[currentStep] || "business-identity";
@@ -140,10 +149,12 @@ function LoginContent() {
 
       <main className="relative z-10 flex flex-1 items-center justify-center px-4 pb-16">
         <div className="w-full max-w-md bg-white rounded-2xl shadow-sm border border-border/50 p-8">
-          <h1 className="text-2xl font-bold text-foreground text-center mb-1">Sign in as a Vendor</h1>
+          <h1 className="text-2xl font-bold text-foreground text-center mb-1">
+            {isInvited ? "Accept Invitation" : "Sign in as a Vendor"}
+          </h1>
           <p className="text-sm text-muted-foreground text-center mb-8">
-            {invitationToken
-              ? "Use your existing vendor credentials to accept this company invitation"
+            {isInvited 
+              ? `Logging in to accept invitation from ${inviteCompany}` 
               : "Enter your credentials to access your vendor account"}
           </p>
 
@@ -154,7 +165,8 @@ function LoginContent() {
                 placeholder="Enter email address"
                 error={!!errors.email}
                 autoComplete="email"
-                readOnly={Boolean(invitationToken && invitationEmail)}
+                readOnly={!!inviteEmail}
+                className={cn(!!inviteEmail && "bg-muted/50 cursor-default")}
                 {...register("email")}
               />
             </FormField>

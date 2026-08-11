@@ -116,7 +116,10 @@ export function getCompanyStatusConfig(rawStatus: string, approvalStatus?: strin
   if (status === "deactivated" || status === "banned") {
     return { label: "Access removed", color: "text-red-700", bg: "bg-red-50" };
   }
-  return { label: "Under review", color: "text-amber-700", bg: "bg-amber-50" };
+  if (approval === "pending") {
+    return { label: "Under review", color: "text-amber-700", bg: "bg-amber-50" };
+  }
+  return { label: "Action required", color: "text-blue-700", bg: "bg-blue-50" };
 }
 
 // ─────────────────────────────────────────────

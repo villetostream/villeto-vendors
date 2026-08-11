@@ -9,7 +9,8 @@ import { uploadDocument } from "@/lib/api/onboarding";
 import { DocumentType } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
-
+import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/Modal";
+import Image from "next/image";
 interface UploadState {
   uploading: boolean;
   progress: number;
@@ -21,6 +22,7 @@ export default function DocumentsPage() {
   const store = useOnboardingStore();
   const [uploadStates, setUploadStates] = useState<Record<string, UploadState>>({});
   const fileRefs = useRef<Record<string, HTMLInputElement | null>>({});
+  const [pendingUpload, setPendingUpload] = useState<{ type: DocumentType, file: File, previewUrl: string } | null>(null);
 
   const setUploadState = (type: string, update: Partial<UploadState>) => {
     setUploadStates((prev) => {
@@ -32,10 +34,16 @@ export default function DocumentsPage() {
     });
   };
 
-  const ALLOWED_EXTENSIONS = [".pdf", ".jpg", ".jpeg", ".png"];
-  const ALLOWED_MIME_TYPES = ["application/pdf", "image/jpeg", "image/png"];
+  const ALLOWED_EXTENSIONS = [".pdf", ".jpg", ".jpeg", ".png", ".doc", ".docx"];
+  const ALLOWED_MIME_TYPES = [
+    "application/pdf", 
+    "image/jpeg", 
+    "image/png",
+    "application/msword",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+  ];
 
-  const handleFileSelect = async (type: DocumentType, file: File) => {
+  const handleFileSelect = (type: DocumentType, file: File) => {
     // The <input accept> attribute only hints the OS file picker — it
     // doesn't actually block a user from selecting "All files" and
     // choosing something else, so validate type explicitly here too.
@@ -43,7 +51,7 @@ export default function DocumentsPage() {
     const isAllowedType =
       ALLOWED_MIME_TYPES.includes(file.type) || ALLOWED_EXTENSIONS.includes(extension);
     if (!isAllowedType) {
-      toast.error("Only PDF, JPG, or PNG files are allowed.");
+      toast.error("Only PDF, DOC, JPG, or PNG files are allowed.");
       return;
     }
 
@@ -53,6 +61,16 @@ export default function DocumentsPage() {
       return;
     }
 
+    const previewUrl = URL.createObjectURL(file);
+    const isPdf = file.type === "application/pdf";
+    const finalUrl = isPdf ? `${previewUrl}#toolbar=0&navpanes=0&scrollbar=0` : previewUrl;
+    setPendingUpload({ type, file, previewUrl: finalUrl });
+  };
+
+  const confirmUpload = async () => {
+    if (!pendingUpload) return;
+    const { type, file } = pendingUpload;
+    setPendingUpload(null);
     setUploadState(type, { uploading: true, progress: 0, error: undefined });
 
     try {
@@ -115,6 +133,8 @@ export default function DocumentsPage() {
           <div className="space-y-3">
           {store.documents.map((doc) => {
             const state = uploadStates[doc.type] ?? { uploading: false, progress: 0 };
+            const isProfileReuse = store.onboardingMode === "profile_reuse_review";
+            const isVerifiedAndLocked = isProfileReuse && doc.uploaded && doc.required;
 
             return (
               <div
@@ -142,7 +162,15 @@ export default function DocumentsPage() {
                       {doc.uploaded ? doc.file_name : doc.label}
                     </p>
                     <p className="text-xs text-muted-foreground">
-                      {doc.uploaded ? doc.label : "PDF, JPG or PNG (max. 10MB)"}
+                      {isVerifiedAndLocked ? (
+                        <span className="text-green-600 font-medium flex items-center gap-1">
+                           Already verified ✓
+                        </span>
+                      ) : doc.uploaded ? (
+                        doc.label
+                      ) : (
+                        "PDF, JPG, PNG or DOC (max. 10MB)"
+                      )}
                     </p>
                     {/* Upload progress */}
                     {state.uploading && (
@@ -167,7 +195,7 @@ export default function DocumentsPage() {
                 </div>
 
                 <div className="flex items-center gap-2 shrink-0">
-                  {doc.uploaded && (
+                  {doc.uploaded && !isVerifiedAndLocked && (
                     <button
                       onClick={() => handleRemove(doc.type)}
                       aria-label={`Remove ${doc.label}`}
@@ -176,21 +204,33 @@ export default function DocumentsPage() {
                       <X className="h-3.5 w-3.5" aria-hidden="true" />
                     </button>
                   )}
-                  <button
-                    type="button"
-                    disabled={state.uploading}
-                    onClick={() => fileRefs.current[doc.type]?.click()}
-                    aria-label={doc.uploaded ? `Change ${doc.label}` : `Upload ${doc.label}`}
-                    className={cn(
-                      "px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors cursor-pointer",
-                      doc.uploaded
-                        ? "border-border text-foreground hover:bg-muted"
-                        : "border-primary/60 text-primary hover:bg-primary/5",
-                      state.uploading && "opacity-50 cursor-not-allowed"
-                    )}
-                  >
-                    {state.uploading ? "Uploading..." : doc.uploaded ? "Change" : "Upload"}
-                  </button>
+                  {doc.url && (
+                    <a
+                      href={doc.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="px-3 py-1.5 rounded-lg border border-border text-xs font-medium text-foreground hover:bg-muted transition-colors"
+                    >
+                      View
+                    </a>
+                  )}
+                  {!isVerifiedAndLocked && (
+                    <button
+                      type="button"
+                      disabled={state.uploading}
+                      onClick={() => fileRefs.current[doc.type]?.click()}
+                      aria-label={doc.uploaded ? `Change ${doc.label}` : `Upload ${doc.label}`}
+                      className={cn(
+                        "px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors cursor-pointer",
+                        doc.uploaded
+                          ? "border-border text-foreground hover:bg-muted"
+                          : "border-primary/60 text-primary hover:bg-primary/5",
+                        state.uploading && "opacity-50 cursor-not-allowed"
+                      )}
+                    >
+                      {state.uploading ? "Uploading..." : doc.uploaded ? "Change" : "Upload"}
+                    </button>
+                  )}
                   <label htmlFor={`doc-upload-${doc.type}`} className="sr-only">
                     Upload {doc.label}
                   </label>
@@ -198,7 +238,7 @@ export default function DocumentsPage() {
                     id={`doc-upload-${doc.type}`}
                     ref={(el) => { fileRefs.current[doc.type] = el; }}
                     type="file"
-                    accept=".pdf,.jpg,.jpeg,.png"
+                    accept=".pdf,.jpg,.jpeg,.png,.doc,.docx"
                     className="hidden"
                     onChange={(e) => {
                       const file = e.target.files?.[0];
@@ -238,6 +278,61 @@ export default function DocumentsPage() {
           </div>
         </div>
       </div>
+      
+      <Dialog open={!!pendingUpload} onOpenChange={(open) => !open && setPendingUpload(null)}>
+        <DialogContent size="lg">
+          <DialogTitle>Confirm Document</DialogTitle>
+          <DialogDescription>
+            Please confirm the document preview before uploading.
+          </DialogDescription>
+          
+          <div className="mt-4 flex flex-col items-center gap-4">
+            {pendingUpload?.previewUrl ? (
+              <div className="relative w-full h-[60vh] rounded-lg overflow-hidden border border-border bg-muted flex items-center justify-center">
+                {pendingUpload.file.type.startsWith("image/") ? (
+                  <Image
+                    src={pendingUpload.previewUrl}
+                    alt="Document Preview"
+                    fill
+                    className="object-contain"
+                  />
+                ) : (
+                  <iframe
+                    src={pendingUpload.previewUrl}
+                    title="Document Preview"
+                    className="w-full h-full"
+                  />
+                )}
+              </div>
+            ) : (
+              <div className="w-full h-[60vh] rounded-lg border border-border bg-muted flex flex-col items-center justify-center text-muted-foreground">
+                <FileText className="h-12 w-12 mb-2" />
+                <span className="text-sm font-medium px-4 text-center break-all">{pendingUpload?.file.name}</span>
+                <span className="text-xs mt-1">Preview not available</span>
+              </div>
+            )}
+            
+            <div className="flex gap-3 w-full mt-4">
+              <Button
+                type="button"
+                variant="outline"
+                className="flex-1"
+                onClick={() => setPendingUpload(null)}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                variant="primary"
+                className="flex-1"
+                onClick={confirmUpload}
+              >
+                Upload
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
