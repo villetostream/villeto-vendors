@@ -23,14 +23,16 @@ export type OnboardingStatus =
   | "completed"
   | "submitted"
   | "under_review"
-  | "pending_approval";
+  | "pending_approval"
+  | "profile_review"
+  | "invited";
 
 /**
  * "full_onboarding": vendor is new, goes through the wizard.
  * "review_and_submit": vendor already has a VendorProfile from another
  * tenant — they only confirm/submit, no re-upload.
  */
-export type OnboardingMode = "full_onboarding" | "review_and_submit";
+export type OnboardingMode = "full_onboarding" | "review_and_submit" | "profile_reuse_review";
 
 export interface VendorDocument {
   vendorDocumentId: string;
@@ -138,7 +140,12 @@ export interface InvitePreviewResult {
   isExpired: boolean;
   isConsumed: boolean;
   inviteeType: "new_vendor" | "existing_vendor";
-  nextAction: "set_password" | "verify_existing_password";
+  nextAction: "set_password" | "verify_existing_password" | "login_to_accept";
+  companyId: string;
+  companyName: string;
+  accountExists: boolean;
+  requiresPasswordSetup: boolean;
+  requiresExistingPassword: boolean;
   hasReusableProfile: boolean;
   hasActiveVendorRelationship: boolean;
 }

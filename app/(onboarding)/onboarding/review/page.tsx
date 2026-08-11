@@ -13,6 +13,8 @@ import { useOnboardingStore } from "@/lib/stores/onboardingStore";
 import { submitOnboarding, getOnboardingReview } from "@/lib/api/onboarding";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { useQueryClient } from "@tanstack/react-query";
+import { queryKeys } from "@/lib/stores/companyStore";
 
 export default function ReviewPage() {
   const router = useRouter();
@@ -21,6 +23,7 @@ export default function ReviewPage() {
   const [submitting, setSubmitting] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const queryClient = useQueryClient();
 
   const uploadedDocs = store.documents.filter((d) => d.uploaded);
 
@@ -52,6 +55,7 @@ export default function ReviewPage() {
     setSubmitting(true);
     try {
       await submitOnboarding();
+      queryClient.invalidateQueries({ queryKey: queryKeys.companies() });
       setShowSuccess(true);
     } catch (err: unknown) {
       toast.error((err as { message?: string })?.message ?? "Submission failed. Please try again.");

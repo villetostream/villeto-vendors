@@ -43,9 +43,12 @@ export default function BusinessIdentityPage() {
     store.legalBusinessName || store.businessName || null;
   const inviteEmail = store.vendorEmail || null;
 
-  // Fields locked by the invitation — vendor cannot change them
-  const isBusinessNameLocked = !!inviteBusinessName;
-  const isEmailLocked = !!inviteEmail;
+  // Fields locked by the invitation or profile reuse
+  const isProfileReuse = store.onboardingMode === "profile_reuse_review";
+  const isBusinessNameLocked = !!inviteBusinessName || isProfileReuse;
+  const isEmailLocked = !!inviteEmail || isProfileReuse;
+  const isRegistrationLocked = isProfileReuse;
+  const isCountryLocked = isProfileReuse;
 
   const {
     register,
@@ -170,7 +173,9 @@ export default function BusinessIdentityPage() {
             Enter your official business registration details.
             {isBusinessNameLocked && (
               <span className="ml-1 text-primary font-medium">
-                Fields pre-filled from your invitation cannot be changed.
+                {isProfileReuse
+                  ? "Your verified business identity has been carried over. Review and continue."
+                  : "Fields pre-filled from your invitation cannot be changed."}
               </span>
             )}
           </p>
@@ -252,6 +257,8 @@ export default function BusinessIdentityPage() {
               <Input
                 placeholder="e.g G442rD42"
                 error={!!errors.registration_number}
+                readOnly={isRegistrationLocked}
+                className={cn(isRegistrationLocked && "bg-muted/50 cursor-default")}
                 {...register("registration_number")}
               />
               {matchStatus === "checking" && (
@@ -266,8 +273,13 @@ export default function BusinessIdentityPage() {
           <FormField label="Country" error={errors.country?.message}>
             <CountrySelect
               value={watch("country")}
-              onChange={(c) => setValue("country", c.name, { shouldValidate: true })}
+              onChange={(c) => {
+                if (!isCountryLocked) {
+                  setValue("country", c.name, { shouldValidate: true });
+                }
+              }}
               error={!!errors.country}
+              disabled={isCountryLocked}
             />
           </FormField>
 

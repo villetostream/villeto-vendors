@@ -152,7 +152,7 @@ export function OnboardingCompanySwitcher() {
 
       <DropdownMenu.Portal>
         <DropdownMenu.Content
-          className="z-50 min-w-[260px] overflow-hidden rounded-xl border border-border bg-white shadow-lg p-1 animate-in fade-in-0 zoom-in-95"
+          className="z-50 min-w-[260px] max-h-[300px] overflow-y-auto rounded-xl border border-border bg-white shadow-lg p-1 animate-in fade-in-0 zoom-in-95"
           sideOffset={6}
           align="end"
         >

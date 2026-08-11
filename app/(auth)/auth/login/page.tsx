@@ -13,7 +13,7 @@ import { FormField } from "@/components/ui/Label";
 import { useLogin } from "@/lib/hooks/useAuth";
 import { useAuthStore } from "@/lib/stores/authStore";
 import { useOnboardingStore } from "@/lib/stores/onboardingStore";
-import { isStatusActive } from "@/lib/utils";
+import { isStatusActive, cn } from "@/lib/utils";
 import { toast } from "sonner";
 
 const schema = z.object({
@@ -34,6 +34,11 @@ function LoginContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const next = searchParams.get("next") ?? "/dashboard";
+  const invitationToken = searchParams.get("invitationToken");
+  const inviteEmail = searchParams.get("email");
+  const inviteCompany = searchParams.get("company");
+  const isInvited = !!invitationToken && !!inviteCompany;
+
   const { hydrateFromSession } = useOnboardingStore();
   const [showPassword, setShowPassword] = useState(false);
   const [isNavigating, setIsNavigating] = useState(false);
@@ -70,14 +75,20 @@ function LoginContent() {
     register,
     handleSubmit,
     formState: { errors, isSubmitting },
-  } = useForm<FormData>({ resolver: zodResolver(schema) });
+  } = useForm<FormData>({ 
+    resolver: zodResolver(schema),
+    defaultValues: {
+      email: inviteEmail ?? "",
+    }
+  });
 
   const onSubmit = async (data: FormData) => {
     try {
       // useLogin's mutationFn already persists the token cookie and
       // populates authStore + companyStore from the response — no need
       // to duplicate that here.
-      const res = await loginMutation.mutateAsync(data);
+      const payload = invitationToken ? { ...data, invitationToken } : data;
+      const res = await loginMutation.mutateAsync(payload);
       const { currentVendor, onboardingMode } = res.data;
 
       hydrateFromSession({
@@ -86,6 +97,9 @@ function LoginContent() {
         legalName: currentVendor.legalName,
         displayName: currentVendor.displayName,
         businessIdentity: currentVendor.businessIdentity,
+        bankingDetails: currentVendor.bankingDetails,
+        documents: currentVendor.documents,
+        onboardingMode: currentVendor.onboardingMode,
       });
 
       setIsNavigating(true);
@@ -100,7 +114,17 @@ function LoginContent() {
       // not the full wizard. A dedicated review-and-submit screen is a
       // follow-up; for now this safely lands on /pending, which explains
       // their status rather than dropping them into the wrong flow.
-      if (onboardingMode === "review_and_submit" || currentVendor.approvalStatus !== null) {
+      if (onboardingMode === "review_and_submit" && currentVendor.approvalStatus !== null) {
+        hardNavigate("/pending");
+        return;
+      }
+
+      if (onboardingMode === "profile_reuse_review" && currentVendor.approvalStatus === null) {
+        hardNavigate("/onboarding/business-identity");
+        return;
+      }
+
+      if (onboardingMode === "profile_reuse_review" && currentVendor.approvalStatus !== null) {
         hardNavigate("/pending");
         return;
       }
@@ -127,9 +151,13 @@ function LoginContent() {
 
       <main className="relative z-10 flex flex-1 items-center justify-center px-4 pb-16">
         <div className="w-full max-w-md bg-white rounded-2xl shadow-sm border border-border/50 p-8">
-          <h1 className="text-2xl font-bold text-foreground text-center mb-1">Sign in as a Vendor</h1>
+          <h1 className="text-2xl font-bold text-foreground text-center mb-1">
+            {isInvited ? "Accept Invitation" : "Sign in as a Vendor"}
+          </h1>
           <p className="text-sm text-muted-foreground text-center mb-8">
-            Enter your credentials to access your vendor account
+            {isInvited 
+              ? `Logging in to accept invitation from ${inviteCompany}` 
+              : "Enter your credentials to access your vendor account"}
           </p>
 
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
@@ -139,6 +167,8 @@ function LoginContent() {
                 placeholder="Enter email address"
                 error={!!errors.email}
                 autoComplete="email"
+                readOnly={!!inviteEmail}
+                className={cn(!!inviteEmail && "bg-muted/50 cursor-default")}
                 {...register("email")}
               />
             </FormField>

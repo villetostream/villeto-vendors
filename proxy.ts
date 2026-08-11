@@ -128,6 +128,12 @@ export async function proxy(request: NextRequest) {
     const approvalStatus = request.cookies.get(AUTH_COOKIE_NAMES.approvalStatus)?.value;
 
     if (authToken) {
+      // If they are navigating to login with an invitationToken, we must
+      // allow them to render the page to accept the invite.
+      if (request.nextUrl.searchParams.has("invitationToken")) {
+        return NextResponse.next();
+      }
+
       // Active (payment-enabled) → dashboard.
       if ((vendorStatus ?? "").toLowerCase() === "active") {
         return NextResponse.redirect(new URL("/dashboard", request.url));

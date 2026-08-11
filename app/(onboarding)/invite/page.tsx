@@ -20,6 +20,15 @@ interface InvitePreviewData {
   expiresAt: string;
   isExpired: boolean;
   isConsumed: boolean;
+  inviteeType: "new_vendor" | "existing_vendor";
+  nextAction: "set_password" | "verify_existing_password" | "login_to_accept";
+  companyId: string;
+  companyName: string;
+  accountExists: boolean;
+  requiresPasswordSetup: boolean;
+  requiresExistingPassword: boolean;
+  hasReusableProfile: boolean;
+  hasActiveVendorRelationship: boolean;
 }
 
 type InviteResult =
@@ -126,17 +135,28 @@ export default async function InvitePage({ searchParams }: InvitePageProps) {
 
   // Build the CTA href carrying all invite fields so the signup page
   // can populate the onboarding store without another API call.
-  const ctaHref =
-    `/signup` +
-    `?token=${encodeURIComponent(token)}` +
-    `&email=${encodeURIComponent(invite.email)}` +
-    `&displayName=${encodeURIComponent(invite.displayName)}` +
-    `&legalName=${encodeURIComponent(invite.legalName)}` +
-    `&vendorId=${encodeURIComponent(invite.vendorId)}` +
-    `&vendorInvitationId=${encodeURIComponent(invite.vendorInvitationId)}`;
+  
+  const isExistingVendor = invite.inviteeType === "existing_vendor" && invite.nextAction === "login_to_accept";
+
+  const ctaHref = isExistingVendor
+    ? `/auth/login` +
+      `?invitationToken=${encodeURIComponent(token)}` +
+      `&email=${encodeURIComponent(invite.email)}` +
+      `&company=${encodeURIComponent(invite.companyName)}`
+    : `/signup` +
+      `?token=${encodeURIComponent(token)}` +
+      `&email=${encodeURIComponent(invite.email)}` +
+      `&displayName=${encodeURIComponent(invite.displayName)}` +
+      `&legalName=${encodeURIComponent(invite.legalName)}` +
+      `&vendorId=${encodeURIComponent(invite.vendorId)}` +
+      `&vendorInvitationId=${encodeURIComponent(invite.vendorInvitationId)}`;
 
   // Show legalName as the primary identifier; fall back to displayName
   const businessLabel = invite.legalName || invite.displayName;
+
+  const welcomeMessage = isExistingVendor
+    ? `You have been invited by ${invite.companyName} to join their network. Log in with your existing credentials to accept.`
+    : `You have been invited to register as a secure vendor. Complete our verification process to start receiving payments.`;
 
   return (
     <div className="relative z-10 flex flex-1 items-center justify-center w-full h-full overflow-hidden px-4 pb-16">
@@ -146,8 +166,7 @@ export default async function InvitePage({ searchParams }: InvitePageProps) {
             Welcome to Villeto
           </h1>
           <p className="text-sm text-muted-foreground mb-8 max-w-xs">
-            You have been invited to register as a secure vendor. Complete our
-            verification process to start receiving payments.
+            {welcomeMessage}
           </p>
 
           {/* Vendor info card */}
@@ -168,7 +187,7 @@ export default async function InvitePage({ searchParams }: InvitePageProps) {
             href={ctaHref}
             className="w-full h-13 flex items-center justify-center gap-2 bg-primary text-white rounded-xl font-medium text-sm hover:bg-primary/90 transition-colors"
           >
-            Start Vendor Setup
+            {isExistingVendor ? "Log in to Accept" : "Start Vendor Setup"}
             <ArrowRight className="h-4 w-4" aria-hidden="true" />
           </Link>
         </div>
