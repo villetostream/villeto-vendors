@@ -68,13 +68,14 @@ export function Sidebar({ isMobileOpen = false, onMobileClose }: SidebarProps) {
     setIsLoggingOut(true);
     try {
       await logout();
-      // Clear all cached query data so no stale data from this session
-      // is served if a different user logs in afterwards.
+    } catch (error) {
+      console.error("Logout API failed:", error);
+    } finally {
+      // Always clear local state and redirect to login, even if the backend
+      // logout call fails (e.g. 401 Unauthorized because the token expired).
       queryClient.clear();
       clearAuth();
       router.push("/auth/login");
-    } catch {
-      toast.error("Logout failed");
       setIsLoggingOut(false);
     }
   };

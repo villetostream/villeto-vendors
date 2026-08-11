@@ -113,16 +113,18 @@ export function OnboardingCompanySwitcher() {
   const handleLogout = async () => {
     try {
       await logout();
+    } catch (error) {
+      console.error("Logout API failed:", error);
+    } finally {
       queryClient.clear();
       clearAuth();
       router.push("/auth/login");
-    } catch {
-      toast.error("Failed to log out");
     }
   };
 
   if (!companies || companies.length === 0) return null;
-  if (pathname === "/invite" || pathname === "/signup") return null;
+  if (!Cookies.get(AUTH_COOKIE_NAMES.authToken)) return null;
+  if (pathname.startsWith("/invite") || pathname === "/signup") return null;
 
   return (
     <DropdownMenu.Root>
