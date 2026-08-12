@@ -85,6 +85,7 @@ export default function BusinessIdentityPage() {
    * empty even when the invite context is available.
    */
   useEffect(() => {
+    // Sync invite fallbacks
     if (inviteBusinessName && !businessName && !prevResolvedRef.current) {
       setValue("business_name", inviteBusinessName, { shouldValidate: false });
     }
@@ -94,7 +95,37 @@ export default function BusinessIdentityPage() {
       // Actually, it's safer to just set it. useForm's defaultValues might have missed it.
       setValue("business_email", inviteEmail, { shouldValidate: false });
     }
-  }, [inviteBusinessName, inviteEmail, businessName, setValue]);
+
+    // Sync populated business identity from store hydration
+    if (store.businessIdentity.business_name && !businessName && !prevResolvedRef.current) {
+      setValue("business_name", store.businessIdentity.business_name, { shouldValidate: false });
+    }
+    if (store.businessIdentity.business_email) {
+      setValue("business_email", store.businessIdentity.business_email, { shouldValidate: false });
+    }
+    if (store.businessIdentity.registration_number && !regNumber) {
+      setValue("registration_number", store.businessIdentity.registration_number, { shouldValidate: false });
+    }
+    if (store.businessIdentity.country && !country) {
+      setValue("country", store.businessIdentity.country, { shouldValidate: false });
+    }
+    if (store.businessIdentity.business_address && !businessAddress) {
+      setValue("business_address", store.businessIdentity.business_address, { shouldValidate: false });
+    }
+  }, [
+    inviteBusinessName,
+    inviteEmail,
+    businessName,
+    regNumber,
+    country,
+    businessAddress,
+    store.businessIdentity.business_name,
+    store.businessIdentity.business_email,
+    store.businessIdentity.registration_number,
+    store.businessIdentity.country,
+    store.businessIdentity.business_address,
+    setValue,
+  ]);
 
   /**
    * Magic Lookup + Name match check

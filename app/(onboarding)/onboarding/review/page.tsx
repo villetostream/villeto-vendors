@@ -132,12 +132,24 @@ export default function ReviewPage() {
               <p className="text-sm font-semibold mb-3">Documents</p>
               <div className="space-y-2.5">
                 {uploadedDocs.map((doc) => (
-                  <div key={doc.type} className="flex items-center gap-2">
-                    <CheckCircle2 className="h-4 w-4 text-primary shrink-0" aria-hidden="true" />
-                    <div>
-                      <p className="text-sm font-medium">{doc.file_name}</p>
-                      <p className="text-xs text-muted-foreground">{doc.label}</p>
+                  <div key={doc.type} className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <CheckCircle2 className="h-4 w-4 text-primary shrink-0" aria-hidden="true" />
+                      <div>
+                        <p className="text-sm font-medium">{doc.file_name}</p>
+                        <p className="text-xs text-muted-foreground">{doc.label}</p>
+                      </div>
                     </div>
+                    {doc.url && (
+                      <a
+                        href={doc.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="px-3 py-1.5 rounded-lg border border-border text-xs font-medium text-foreground hover:bg-muted transition-colors shrink-0"
+                      >
+                        View
+                      </a>
+                    )}
                   </div>
                 ))}
               </div>
