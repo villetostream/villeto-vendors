@@ -114,3 +114,56 @@ export function VendorStatusBadge({
     </span>
   );
 }
+
+export function DeliveryStatusBadge({
+  status,
+  transportScope,
+  className,
+}: BadgeProps & { status: string; transportScope?: string }) {
+  let label = status.replace(/_/g, " ");
+  label = label.charAt(0).toUpperCase() + label.slice(1);
+  
+  let bg = "bg-gray-50";
+  let color = "text-gray-700";
+  let border = "border-gray-200";
+  
+  if (status === "dispatched") {
+    bg = "bg-blue-50";
+    color = "text-blue-700";
+    border = "border-blue-200";
+  } else if (status === "partially_dispatched") {
+    bg = "bg-sky-50";
+    color = "text-sky-700";
+    border = "border-sky-200";
+  } else if (status === "received") {
+    bg = "bg-green-50";
+    color = "text-green-700";
+    border = "border-green-200";
+  } else if (status === "partially_received") {
+    bg = "bg-emerald-50";
+    color = "text-emerald-700";
+    border = "border-emerald-200";
+  } else if (status === "ready") {
+    bg = "bg-indigo-50";
+    color = "text-indigo-700";
+    border = "border-indigo-200";
+  }
+
+  if (transportScope === "non_physical" && status === "dispatched") {
+    label = "Provided";
+  }
+
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border",
+        color,
+        bg,
+        border,
+        className
+      )}
+    >
+      {label}
+    </span>
+  );
+}

@@ -30,7 +30,7 @@ export function DatePicker({
   const [calendarOpen, setCalendarOpen] = React.useState(false);
 
   return (
-    <Popover open={calendarOpen} onOpenChange={setCalendarOpen}>
+    <Popover open={calendarOpen} onOpenChange={setCalendarOpen} modal={true}>
       <PopoverTrigger asChild>
         <button
           type="button"

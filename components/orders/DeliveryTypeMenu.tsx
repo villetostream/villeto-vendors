@@ -12,12 +12,9 @@ interface DeliveryTypeMenuProps {
 }
 
 /**
- * "Full Delivery" fires the confirm-delivery call immediately (quantities
- * are never editable for a full delivery — there's nothing to enter).
- * "Partial Delivery" just closes the popover and hands control back to
- * the order detail page, which switches into its editable-quantity view
- * (see OrderDetailPage's `deliveryMode` state) — that view owns its own
- * Confirm/Cancel actions, matching the "Order – Partial Delivery" mockup.
+ * Dropdown menu for selecting fulfillment declaration type.
+ * Both options open the FulfillmentModal — "Full" pre-fills
+ * all remaining quantities, "Partial" lets the vendor enter them.
  */
 export function DeliveryTypeMenu({ onSelect, isConfirmingFull, trigger }: DeliveryTypeMenuProps) {
   return (
@@ -30,16 +27,13 @@ export function DeliveryTypeMenu({ onSelect, isConfirmingFull, trigger }: Delive
           className="z-50 w-64 rounded-xl border border-border bg-white shadow-lg p-1.5 animate-in fade-in-0 zoom-in-95"
         >
           <div className="px-2.5 py-1.5 text-xs font-medium text-muted-foreground">
-            How was this order delivered?
+            Select fulfillment type
           </div>
 
           <DropdownMenu.Item
             className="flex items-center gap-2.5 px-2.5 py-2.5 rounded-lg text-sm cursor-pointer outline-none hover:bg-muted transition-colors"
             disabled={isConfirmingFull}
-            onSelect={(e) => {
-              e.preventDefault();
-              onSelect("full");
-            }}
+            onSelect={() => onSelect("full")}
           >
             {isConfirmingFull ? (
               <Loader2 className="h-4 w-4 animate-spin text-primary shrink-0" aria-hidden="true" />
@@ -47,8 +41,8 @@ export function DeliveryTypeMenu({ onSelect, isConfirmingFull, trigger }: Delive
               <CheckCircle2 className="h-4 w-4 text-primary shrink-0" aria-hidden="true" />
             )}
             <div>
-              <p className="font-medium text-foreground">Full Delivery</p>
-              <p className="text-xs text-muted-foreground">Every item delivered in full</p>
+              <p className="font-medium text-foreground">Full — all items ready</p>
+              <p className="text-xs text-muted-foreground">All remaining quantities declared ready</p>
             </div>
           </DropdownMenu.Item>
 
@@ -57,15 +51,12 @@ export function DeliveryTypeMenu({ onSelect, isConfirmingFull, trigger }: Delive
               "flex items-center gap-2.5 px-2.5 py-2.5 rounded-lg text-sm cursor-pointer outline-none hover:bg-muted transition-colors",
               isConfirmingFull && "opacity-50 pointer-events-none"
             )}
-            onSelect={(e) => {
-              e.preventDefault();
-              onSelect("partial");
-            }}
+            onSelect={() => onSelect("partial")}
           >
             <PackageCheck className="h-4 w-4 text-amber-600 shrink-0" aria-hidden="true" />
             <div>
-              <p className="font-medium text-foreground">Partial Delivery</p>
-              <p className="text-xs text-muted-foreground">Enter quantity delivered per item</p>
+              <p className="font-medium text-foreground">Partial — quantities will remain</p>
+              <p className="text-xs text-muted-foreground">Enter quantity ready per item</p>
             </div>
           </DropdownMenu.Item>
         </DropdownMenu.Content>

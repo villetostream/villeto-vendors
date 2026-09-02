@@ -1,24 +1,26 @@
 "use client";
 
-import { use, useEffect, useState } from "react";
+import React, { use, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, CheckCircle2, FilePlus2, X } from "lucide-react";
+import { ArrowLeft, CheckCircle2, ChevronDown, ChevronRight, FilePlus2, Package, Truck, Send, Monitor, Wrench } from "lucide-react";
 import {
   useOrder,
   useAcknowledgeOrder,
   useMarkReadyForDelivery,
-  useConfirmDelivery,
+  useCreateFulfillment,
+  useDispatchFulfillment,
 } from "@/lib/hooks/useOrders";
 import { Button } from "@/components/ui/Button";
 import { OrderStatusBadge } from "@/components/ui/StatusBadge";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { ErrorState, EmptyState } from "@/components/ui/Spinner";
 import { DeliveryTypeMenu } from "@/components/orders/DeliveryTypeMenu";
+import { FulfillmentModal, FulfillmentFormData } from "@/components/orders/FulfillmentModal";
 import { DatePicker } from "@/components/ui/DatePicker";
 import { formatCurrency, formatDate, formatDateTime, cn } from "@/lib/utils";
 import { format } from "date-fns";
-import { DeliveryType, TimelineEvent } from "@/lib/types";
+import { Fulfillment, DeliveryType, TimelineEvent } from "@/lib/types";
 import { toast } from "sonner";
 
 function OrderDetailSkeleton() {
@@ -50,6 +52,238 @@ function OrderDetailSkeleton() {
   );
 }
 
+// ── Fulfillment state badge helper ──
+function FulfillmentStateBadge({ state }: { state?: string }) {
+  if (!state || state === "not_started") return null;
+  const map: Record<string, { label: string; cls: string }> = {
+    partial:        { label: "Partial",         cls: "bg-blue-50 text-blue-700 border-blue-200" },
+    ready:          { label: "Ready",           cls: "bg-green-50 text-green-700 border-green-200" },
+    backordered:    { label: "Backordered",     cls: "bg-amber-50 text-amber-700 border-amber-200" },
+    cannot_fulfill: { label: "Cannot Fulfill",  cls: "bg-red-50 text-red-700 border-red-200" },
+  };
+  const entry = map[state] || { label: state, cls: "bg-gray-50 text-gray-600 border-gray-200" };
+  return (
+    <span className={cn("text-xs px-1.5 py-0.5 rounded-md font-medium border inline-flex w-fit", entry.cls)}>
+      {entry.label}
+    </span>
+  );
+}
+
+// ── Fulfillment History Card ──
+function FulfillmentHistorySection({
+  notices,
+  onDispatch,
+  isDispatching
+}: {
+  notices: Fulfillment[];
+  onDispatch: (fulfillmentId: string) => void;
+  isDispatching: (fulfillmentId: string) => boolean;
+}) {
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  if (!notices || notices.length === 0) return null;
+
+  const methodLabel: Record<string, string> = {
+    carrier: "Carrier",
+    vendor_truck: "Vendor Truck",
+    digital: "Digital",
+    service: "Service",
+  };
+
+  return (
+    <div className="bg-white rounded-2xl border border-dashboard-border overflow-hidden">
+      <div className="px-6 py-4 border-b border-border flex items-center gap-2">
+        <Package className="h-4 w-4 text-muted-foreground" />
+        <h2 className="text-base font-semibold">
+          Fulfillment History <span className="text-muted-foreground font-normal ml-1">{notices.length}</span>
+        </h2>
+      </div>
+      <div className="divide-y divide-border">
+        {notices.map((notice, idx) => {
+          const isExpanded = expandedId === notice.vendorDeliveryNoticeId;
+          const method = notice.fulfillmentMethod || "unknown";
+          const isPhysical = ["carrier", "vendor_truck"].includes(method);
+          
+          let titlePrefix = "Fulfillment";
+          let Icon = Package;
+          if (isPhysical) {
+            titlePrefix = "Shipment";
+            Icon = Truck;
+          } else if (method === "digital") {
+            titlePrefix = "Digital Delivery";
+            Icon = Monitor;
+          } else if (method === "service") {
+            titlePrefix = "Service Delivery";
+            Icon = Wrench;
+          }
+
+          return (
+            <div key={notice.vendorDeliveryNoticeId}>
+              <button
+                onClick={() => setExpandedId(isExpanded ? null : notice.vendorDeliveryNoticeId)}
+                className="w-full px-6 py-4 flex items-center gap-4 hover:bg-muted/30 transition-colors text-left"
+              >
+                <div className="flex items-center gap-3 flex-1 min-w-0">
+                  <div className="h-8 w-8 rounded-full bg-muted flex items-center justify-center shrink-0">
+                    <Icon className="h-4 w-4 text-muted-foreground" />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium truncate">
+                      {titlePrefix} #{idx + 1}
+                    </p>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      {notice.readyAt ? formatDateTime(notice.readyAt) : "—"} · {methodLabel[method] || method} · {notice.declaration === "partial" ? "Partial" : "Full"}
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-3 shrink-0">
+                  {isPhysical && (
+                    <span className={cn(
+                      "text-xs px-2 py-0.5 rounded-full font-medium border",
+                      notice.dispatchStatus === "dispatched"
+                        ? "bg-green-50 text-green-700 border-green-200"
+                        : "bg-amber-50 text-amber-700 border-amber-200"
+                    )}>
+                      {notice.dispatchStatus === "dispatched" ? "Dispatched" : "Awaiting Dispatch"}
+                    </span>
+                  )}
+                  {isExpanded
+                    ? <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                    : <ChevronRight className="h-4 w-4 text-muted-foreground" />}
+                </div>
+              </button>
+
+              {isExpanded && (
+                <div className="px-6 pb-4 space-y-3">
+                  {/* Shipment meta */}
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 p-3 rounded-lg bg-muted/30 border border-border/60">
+                    <div>
+                      <p className="text-xs text-muted-foreground">Reference</p>
+                      <p className="text-sm font-medium font-mono text-muted-foreground truncate" title={notice.fulfillmentReference || undefined}>
+                        {notice.fulfillmentReference ? notice.fulfillmentReference.split('-').pop() : "—"}
+                      </p>
+                    </div>
+                    {["carrier", "vendor_truck"].includes(method) && (
+                      <>
+                        <div>
+                          <p className="text-xs text-muted-foreground">Carrier</p>
+                          <p className="text-sm font-medium">{notice.carrier || "—"}</p>
+                        </div>
+                        <div>
+                          <p className="text-xs text-muted-foreground">Tracking #</p>
+                          <p className="text-sm font-medium">{notice.trackingNumber || "—"}</p>
+                        </div>
+                      </>
+                    )}
+                    <div>
+                      <p className="text-xs text-muted-foreground">Packing Slip</p>
+                      <p className="text-sm font-medium">{notice.packingSlipNumber || "—"}</p>
+                    </div>
+                    {notice.expectedDeliveryDate && (
+                      <div>
+                        <p className="text-xs text-muted-foreground">Expected Delivery</p>
+                        <p className="text-sm font-medium">{formatDate(notice.expectedDeliveryDate)}</p>
+                      </div>
+                    )}
+                    {isPhysical && notice.dispatchReference && (
+                      <div>
+                        <p className="text-xs text-muted-foreground">Dispatch Ref</p>
+                        <p className="text-sm font-medium">{notice.dispatchReference}</p>
+                      </div>
+                    )}
+                    {isPhysical && notice.dispatchedAt && (
+                      <div>
+                        <p className="text-xs text-muted-foreground">Dispatched At</p>
+                        <p className="text-sm font-medium">{formatDateTime(notice.dispatchedAt)}</p>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Line items in this shipment */}
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-border">
+                        <th className="py-2 text-left text-xs font-medium text-muted-foreground">Item</th>
+                        <th className="py-2 text-left text-xs font-medium text-muted-foreground">Included Qty</th>
+                        <th className="py-2 text-left text-xs font-medium text-muted-foreground">Status (Buyer)</th>
+                        <th className="py-2 text-left text-xs font-medium text-muted-foreground">Remaining Disposition</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {notice.lineItems.map((li) => (
+                        <tr key={li.vendorDeliveryNoticeLineItemId} className="border-b border-border/40">
+                          <td className="py-2 font-medium">{li.name}</td>
+                          <td className="py-2">
+                            {li.quantityReady} <span className="text-muted-foreground">/ {li.quantityOrdered} total</span>
+                          </td>
+                          <td className="py-2 text-xs">
+                            {li.quantityReady === 0 ? (
+                              <span className="text-muted-foreground">—</span>
+                            ) : li.quantityReceived === li.quantityReady ? (
+                              <span className="text-green-600 font-medium">All Received</span>
+                            ) : (li.quantityReceived || 0) > 0 ? (
+                              <span>{li.quantityReceived} Received, {li.quantityAwaitingReceipt} Awaiting Confirmation</span>
+                            ) : (
+                              <span className="text-muted-foreground">Awaiting Confirmation</span>
+                            )}
+                          </td>
+                          <td className="py-2">
+                            <div className="flex flex-col gap-1 items-start">
+                              {li.remainingDisposition === "cannot_fulfill" ? (
+                                <span className="text-xs text-red-700 bg-red-50 border border-red-200 px-1.5 py-0.5 rounded-md font-medium">
+                                  {li.quantityOrdered - (li.quantityReady || 0)} Cannot Fulfill
+                                </span>
+                              ) : li.remainingDisposition === "backordered" ? (
+                                <span className="text-xs text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded-md font-medium">
+                                  {li.quantityOrdered - (li.quantityReady || 0)} Backordered{li.expectedReadyDate ? ` (${formatDate(li.expectedReadyDate)})` : ""}
+                                </span>
+                              ) : (li.quantityReady || 0) > 0 ? (
+                                <span className="text-xs text-green-700 bg-green-50 border border-green-200 px-1.5 py-0.5 rounded-md font-medium">Fully Ready</span>
+                              ) : (
+                                <span className="text-xs text-muted-foreground">Will fulfill later</span>
+                              )}
+                              {li.dispositionReason && (
+                                <p className="text-xs text-muted-foreground mt-1 max-w-sm">
+                                  <span className="font-medium">Reason:</span> {li.dispositionReason}
+                                </p>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+
+                  {notice.notes && (
+                    <p className="text-xs text-muted-foreground italic">Note: {notice.notes}</p>
+                  )}
+
+                  {isPhysical && notice.dispatchStatus !== "dispatched" && (
+                    <div className="flex justify-end pt-2 border-t border-border/40 mt-3">
+                      <Button
+                        size="sm"
+                        variant="primary"
+                        loading={isDispatching(notice.vendorDeliveryNoticeId)}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onDispatch(notice.vendorDeliveryNoticeId);
+                        }}
+                      >
+                        <Send className="h-4 w-4 mr-2" />
+                        Dispatch Shipment
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+
 export default function OrderDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const router = useRouter();
@@ -57,22 +291,15 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
   const { data: order, isLoading, isError, refetch } = useOrder(id);
   const acknowledge = useAcknowledgeOrder();
   const readyForDelivery = useMarkReadyForDelivery();
-  const confirmDeliveryMutation = useConfirmDelivery();
+  const createFulfillment = useCreateFulfillment();
+  const dispatchFulfillmentMutation = useDispatchFulfillment();
 
-  // Per-item delivery dates entered before acknowledging. Kept in local
-  // state (not just sent to the backend) because acknowledgeOrder's
-  // payload/return contract is unconfirmed — if the backend doesn't
-  // persist or echo these back, the UI still shows what the vendor
-  // entered for the rest of this session. Lost on refresh until backend
-  // confirms a real per-item delivery-date field — flagged in types.
+  // Per-item delivery dates entered before acknowledging
   const [draftDates, setDraftDates] = useState<Record<string, string>>({});
 
-  // "confirm-partial" = editable quantity view is showing (mirrors the
-  // "Order – Partial Delivery" mockup). Quantities default to 0 and are
-  // capped at each item's ordered quantity — can only go lower, never
-  // higher, which is what makes it a *partial* delivery.
-  const [deliveryMode, setDeliveryMode] = useState<"idle" | "confirm-partial">("idle");
-  const [draftQuantities, setDraftQuantities] = useState<Record<string, number>>({});
+  // Fulfillment modal state
+  const [fulfillmentModalOpen, setFulfillmentModalOpen] = useState(false);
+  const [modalDeclaration, setModalDeclaration] = useState<DeliveryType>("full");
 
   useEffect(() => {
     if (!order) return;
@@ -107,9 +334,16 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
     );
   }
 
-
   const canCreateInvoice = ["partially_delivered", "delivered", "closed"].includes(order.status);
   const allDatesEntered = order.lineItems.every((item) => !!draftDates[item.purchaseOrderLineItemId]);
+
+  // Helper: how many units are still fulfillable for an item
+  const getRemainingToReady = (item: typeof order.lineItems[0]) => {
+    if (item.remainingDisposition === "cannot_fulfill") return 0;
+    return item.quantityRemainingToReady ?? (item.quantity - (item.quantityReady || 0));
+  };
+
+  const hasItemsToFulfill = order.lineItems.some(item => getRemainingToReady(item) > 0);
 
   const handleAcknowledge = () => {
     if (!allDatesEntered) {
@@ -127,68 +361,58 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
     });
   };
 
-  const startPartialDelivery = () => {
-    setDraftQuantities(
-      Object.fromEntries(order.lineItems.map((item) => [item.purchaseOrderLineItemId, 0]))
-    );
-    setDeliveryMode("confirm-partial");
-  };
-
   const handleDeliveryTypeSelect = (type: DeliveryType) => {
-    if (type === "partial") {
-      startPartialDelivery();
-      return;
+    setModalDeclaration(type);
+    setFulfillmentModalOpen(true);
+  };
+
+  const handleFulfillmentSubmit = (data: FulfillmentFormData) => {
+    // Validate partial dispositions
+    if (data.declaration === "partial") {
+      const invalidItems = data.lineItems.filter(li => {
+        const item = order.lineItems.find(i => i.purchaseOrderLineItemId === li.purchaseOrderLineItemId);
+        if (!item) return false;
+        const remaining = getRemainingToReady(item);
+        if (remaining === 0) return false;
+        if (li.quantityReady < remaining && !li.remainingDisposition) return true;
+        return false;
+      });
+
+      if (invalidItems.length > 0) {
+        toast.error("Please complete all disposition fields for partial quantities.");
+        return;
+      }
     }
-    // Full delivery — every item at its full ordered quantity, no
-    // further input needed from the vendor.
-    confirmDeliveryMutation.mutate({
-      purchaseOrderId: order.purchaseOrderId,
-      payload: {
-        deliveryType: "full",
-        lineItems: order.lineItems.map((item) => ({
-          purchaseOrderLineItemId: item.purchaseOrderLineItemId,
-          deliveredQuantity: item.quantity,
-        })),
-      },
-    });
-  };
 
-  const setQuantity = (itemId: string, value: number, max: number) => {
-    const clamped = Math.max(0, Math.min(value, max));
-    setDraftQuantities((prev) => ({ ...prev, [itemId]: clamped }));
-  };
-
-  const handleConfirmPartialDelivery = () => {
-    confirmDeliveryMutation.mutate(
+    createFulfillment.mutate(
       {
         purchaseOrderId: order.purchaseOrderId,
         payload: {
-          deliveryType: "partial",
-          lineItems: order.lineItems.map((item) => ({
-            purchaseOrderLineItemId: item.purchaseOrderLineItemId,
-            deliveredQuantity: draftQuantities[item.purchaseOrderLineItemId] ?? 0,
+          declaration: data.declaration,
+          fulfillmentMethod: data.fulfillmentMethod as any,
+          expectedDeliveryDate: data.expectedDeliveryDate,
+          carrier: data.carrier,
+          trackingNumber: data.trackingNumber,
+          packingSlipNumber: data.packingSlipNumber,
+          notes: data.notes,
+          lineItems: data.lineItems.map(li => ({
+            purchaseOrderLineItemId: li.purchaseOrderLineItemId,
+            quantityReady: li.quantityReady,
+            ...(li.remainingDisposition ? { remainingDisposition: li.remainingDisposition as any } : {}),
+            ...(li.expectedReadyDate ? { expectedReadyDate: li.expectedReadyDate } : {}),
+            ...(li.dispositionReason ? { dispositionReason: li.dispositionReason } : {}),
           })),
         },
       },
-      { onSuccess: () => setDeliveryMode("idle") }
+      {
+        onSuccess: () => {
+          setFulfillmentModalOpen(false);
+        },
+      }
     );
   };
 
   const renderCTA = () => {
-    if (deliveryMode === "confirm-partial") {
-      return (
-        <div className="flex items-center gap-2">
-          <Button variant="outline" onClick={() => setDeliveryMode("idle")}>
-            <X className="h-4 w-4" aria-hidden="true" />
-            Cancel
-          </Button>
-          <Button variant="primary" loading={confirmDeliveryMutation.isPending} onClick={handleConfirmPartialDelivery}>
-            Confirm Delivery
-          </Button>
-        </div>
-      );
-    }
-
     switch (order.status) {
       case "issued":
         return (
@@ -203,29 +427,22 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
           </Button>
         );
       case "acknowledged":
-        return (
-          <Button
-            variant="primary"
-            loading={readyForDelivery.isPending}
-            onClick={() => readyForDelivery.mutate(order.purchaseOrderId)}
-          >
-            <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
-            Set as Ready for delivery
-          </Button>
-        );
       case "ready_for_delivery":
-        return (
+      case "partially_delivered": {
+        const isSubsequent = (order.fulfillments?.length || order.deliveryNotices?.length || 0) > 0;
+        return hasItemsToFulfill ? (
           <DeliveryTypeMenu
-            isConfirmingFull={confirmDeliveryMutation.isPending}
+            isConfirmingFull={createFulfillment.isPending}
             onSelect={handleDeliveryTypeSelect}
             trigger={
-              <Button variant="primary" loading={confirmDeliveryMutation.isPending}>
-                <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
-                Set as Delivered
+              <Button variant="primary" loading={createFulfillment.isPending}>
+                <Package className="h-4 w-4" aria-hidden="true" />
+                {isSubsequent ? "Fulfill Remaining" : "Declare Fulfillment"}
               </Button>
             }
           />
-        );
+        ) : null;
+      }
       default:
         return canCreateInvoice ? (
           <Button asChild variant="primary">
@@ -239,7 +456,6 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
   };
 
   const isEnteringDates = order.status === "issued";
-  const isPartialEditing = deliveryMode === "confirm-partial";
 
   return (
     <div className="space-y-5">
@@ -252,6 +468,9 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
             <div className="flex items-center gap-2.5">
               <h1 className="text-xl font-bold">{order.poNumber}</h1>
               <OrderStatusBadge status={order.status} />
+              {order.fulfillmentState && order.fulfillmentState !== "not_started" && (
+                <FulfillmentStateBadge state={order.fulfillmentState} />
+              )}
             </div>
             <p className="text-xs text-muted-foreground mt-0.5">
               Issued on {formatDate(order.issueDate)}
@@ -264,11 +483,6 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
       {isEnteringDates && (
         <div className="text-xs text-red-600 font-medium bg-red-50 border border-red-100 rounded-lg px-3 py-2">
           Enter the delivery date for every item below before acknowledging.
-        </div>
-      )}
-      {isPartialEditing && (
-        <div className="text-xs text-red-600 font-medium bg-red-50 border border-red-100 rounded-lg px-3 py-2">
-          Enter the quantity you delivered below. Quantity can&apos;t exceed what was ordered.
         </div>
       )}
 
@@ -285,6 +499,7 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
 
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_280px] gap-5">
         <div className="space-y-4">
+          {/* ── Order Details Card ── */}
           <div className="bg-white rounded-2xl border border-dashboard-border p-6 space-y-4">
             <h2 className="text-base font-semibold">Order Details</h2>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 pt-2 border-t border-border">
@@ -297,7 +512,7 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
                 <p className="text-sm font-semibold mt-0.5">{order.departmentName ?? "—"}</p>
               </div>
               <div>
-                <p className="text-xs text-muted-foreground">Deadline</p>
+                <p className="text-xs text-muted-foreground">Due date</p>
                 <p className="text-sm font-semibold mt-0.5">{formatDate(order.deliveryDate)}</p>
               </div>
               <div>
@@ -321,6 +536,7 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
             )}
           </div>
 
+          {/* ── Items Table (always read-only) ── */}
           <div className="bg-white rounded-2xl border border-dashboard-border overflow-hidden">
             <div className="px-6 py-4 border-b border-border">
               <h2 className="text-base font-semibold">
@@ -333,75 +549,116 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
                   <tr className="border-b border-border">
                     <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground whitespace-nowrap">Name</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground whitespace-nowrap">Description</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground whitespace-nowrap">
-                      {isPartialEditing ? "Quantity Delivered" : "Quantity"}
-                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground whitespace-nowrap">Quantity</th>
                     {isEnteringDates ? (
                       <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground whitespace-nowrap">Delivery date</th>
-                    ) : !isPartialEditing ? (
+                    ) : (
                       <>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground whitespace-nowrap">Fulfillment</th>
                         <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground whitespace-nowrap">Unit Price</th>
                         <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground whitespace-nowrap">Line Total</th>
                       </>
-                    ) : null}
+                    )}
                   </tr>
                 </thead>
                 <tbody>
-                  {order.lineItems.map((item) => (
-                    <tr key={item.purchaseOrderLineItemId} className="border-b border-border/60">
-                      <td className="px-6 py-3.5 text-sm font-medium whitespace-nowrap">{item.name}</td>
-                      <td className="px-6 py-3.5 text-sm text-muted-foreground max-w-xs truncate">{item.description}</td>
-                      <td className="px-6 py-3.5 text-sm">
-                        {isPartialEditing ? (
-                          <div className="flex items-center gap-1.5">
-                            <label htmlFor={`qty-${item.purchaseOrderLineItemId}`} className="sr-only">
-                              Quantity delivered for {item.name}
-                            </label>
-                            <input
-                              id={`qty-${item.purchaseOrderLineItemId}`}
-                              type="number"
-                              min={0}
-                              max={item.quantity}
-                              value={draftQuantities[item.purchaseOrderLineItemId] ?? 0}
-                              onChange={(e) =>
-                                setQuantity(item.purchaseOrderLineItemId, parseInt(e.target.value) || 0, item.quantity)
-                              }
-                              className="w-16 text-sm border border-border rounded-lg px-2 py-1 text-center focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
-                            />
-                            <span className="text-xs text-muted-foreground">/ {item.quantity}</span>
-                          </div>
-                        ) : (
-                          item.quantity
+                  {order.lineItems.map((item) => {
+                    const qtyReady = item.quantityReady || 0;
+                    const isCancelled = item.remainingDisposition === "cannot_fulfill";
+                    const isFullyReady = qtyReady >= item.quantity;
+                    
+                    return (
+                      <tr
+                        key={item.purchaseOrderLineItemId}
+                        className={cn(
+                          "border-b border-border/60",
+                          isCancelled ? "bg-red-50/30" : ""
                         )}
-                      </td>
-                      {isEnteringDates ? (
-                        <td className="px-6 py-3.5">
-                          <label htmlFor={`date-${item.purchaseOrderLineItemId}`} className="sr-only">
-                            Delivery date for {item.name}
-                          </label>
-                          <DatePicker
-                            date={draftDates[item.purchaseOrderLineItemId] ? new Date(draftDates[item.purchaseOrderLineItemId]) : undefined}
-                            onSelect={(d) =>
-                              setDraftDates((prev) => ({ ...prev, [item.purchaseOrderLineItemId]: d ? format(d, "yyyy-MM-dd") : "" }))
-                            }
-                            disabled={(d) => d < new Date(new Date().setHours(0,0,0,0))}
-                            className="h-9 px-2.5 min-w-[140px]"
-                          />
+                      >
+                        <td className="px-6 py-3.5 text-sm font-medium whitespace-nowrap">{item.name}</td>
+                        <td className="px-6 py-3.5 text-sm text-muted-foreground max-w-xs truncate">{item.description}</td>
+                        <td className="px-6 py-3.5 text-sm">
+                          <span>{item.quantity}</span>
                         </td>
-                      ) : !isPartialEditing ? (
-                        <>
-                          <td className="px-6 py-3.5 text-sm">{formatCurrency(item.unitPrice, order.currency)}</td>
-                          <td className="px-6 py-3.5 text-sm font-medium">{formatCurrency(item.lineTotal, order.currency)}</td>
-                        </>
-                      ) : null}
-                    </tr>
-                  ))}
+                        {isEnteringDates ? (
+                          <td className="px-6 py-3.5">
+                            <label htmlFor={`date-${item.purchaseOrderLineItemId}`} className="sr-only">
+                              Delivery date for {item.name}
+                            </label>
+                            <DatePicker
+                              date={draftDates[item.purchaseOrderLineItemId] ? new Date(draftDates[item.purchaseOrderLineItemId]) : undefined}
+                              onSelect={(d) =>
+                                setDraftDates((prev) => ({ ...prev, [item.purchaseOrderLineItemId]: d ? format(d, "yyyy-MM-dd") : "" }))
+                              }
+                              disabled={(d) => d < new Date(new Date().setHours(0,0,0,0))}
+                              className="h-9 px-2.5 min-w-[140px]"
+                            />
+                          </td>
+                        ) : (
+                          <>
+                            {/* Fulfillment column */}
+                            <td className="px-6 py-3.5">
+                              <div className="flex flex-col gap-1">
+                                {qtyReady > 0 && (
+                                  <span className={cn(
+                                    "text-xs px-1.5 py-0.5 rounded-md inline-flex w-fit font-medium border",
+                                    isFullyReady 
+                                      ? "bg-green-50 text-green-700 border-green-200" 
+                                      : "bg-blue-50 text-blue-700 border-blue-200"
+                                  )}>
+                                    {qtyReady} / {item.quantity} Fulfilled
+                                  </span>
+                                )}
+                                {item.remainingDisposition === "backordered" && (
+                                  <span className="text-xs text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded-md w-fit font-medium">
+                                    Backordered{item.expectedReadyDate ? ` (exp. ${formatDate(item.expectedReadyDate)})` : ""}
+                                  </span>
+                                )}
+                                {isCancelled && (
+                                  <span className="text-xs text-red-700 bg-red-50 border border-red-200 px-1.5 py-0.5 rounded-md w-fit font-medium">
+                                    Cannot Fulfill
+                                  </span>
+                                )}
+                                {item.dispositionReason && (
+                                  <p className="text-xs text-muted-foreground mt-1 max-w-sm">
+                                    <span className="font-medium">Reason:</span> {item.dispositionReason}
+                                  </p>
+                                )}
+                                {!qtyReady && !item.remainingDisposition && (
+                                  <span className="text-xs text-muted-foreground">—</span>
+                                )}
+                              </div>
+                            </td>
+                            <td className="px-6 py-3.5 text-sm">{formatCurrency(item.unitPrice, order.currency)}</td>
+                            <td className="px-6 py-3.5 text-sm font-medium">{formatCurrency(item.lineTotal, order.currency)}</td>
+                          </>
+                        )}
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
           </div>
+
+          {/* ── Fulfillment History ── */}
+          <FulfillmentHistorySection
+            notices={order.fulfillments || order.deliveryNotices || []}
+            onDispatch={(fulfillmentId) => {
+              dispatchFulfillmentMutation.mutate({
+                purchaseOrderId: order.purchaseOrderId,
+                fulfillmentId,
+                payload: { dispatchedAt: new Date().toISOString() },
+              });
+            }}
+            isDispatching={(fulfillmentId) =>
+              dispatchFulfillmentMutation.isPending &&
+              dispatchFulfillmentMutation.variables?.fulfillmentId === fulfillmentId
+            }
+          />
         </div>
 
+        {/* ── Workflow Progress Sidebar ── */}
         <div className="bg-white rounded-2xl border border-dashboard-border p-5 h-fit">
           <h3 className="text-sm font-semibold mb-4">Workflow Progress</h3>
           {order.status === "cancelled" ? (
@@ -415,6 +672,7 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
                 }, {});
 
                 const isDelivered = order.status === "partially_delivered" || order.status === "delivered";
+                const fulfillmentCount = order.fulfillments?.length || order.deliveryNotices?.length || 0;
 
                 const steps = [
                   {
@@ -434,10 +692,11 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
                     label: "Ready for Delivery",
                     timestamp: timelineByAction["ready_for_delivery"]?.timestamp || order.readyForDeliveryAt,
                     done: !!timelineByAction["ready_for_delivery"] || !!order.readyForDeliveryAt,
+                    subtitle: fulfillmentCount > 0 ? `${fulfillmentCount} shipment${fulfillmentCount > 1 ? "s" : ""} created` : undefined,
                   },
                   {
                     id: "delivered",
-                    label: order.status === "partially_delivered" || timelineByAction["partially_delivered"] ? "Partially Delivered" : "Delivered",
+                    label: order.status === "delivered" ? "Delivered" : (fulfillmentCount > 0 ? `Partially Delivered (${fulfillmentCount}x)` : "Delivered"),
                     timestamp: timelineByAction["delivered"]?.timestamp || timelineByAction["partially_delivered"]?.timestamp || order.deliveredAt,
                     done: !!timelineByAction["delivered"] || !!timelineByAction["partially_delivered"] || isDelivered,
                   },
@@ -473,6 +732,9 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
                         {step.timestamp && (
                           <p className="text-xs text-muted-foreground mt-0.5">{formatDateTime(step.timestamp)}</p>
                         )}
+                        {"subtitle" in step && step.subtitle && (
+                          <p className="text-xs text-blue-600 mt-0.5">{step.subtitle}</p>
+                        )}
                       </div>
                     </div>
                   );
@@ -482,6 +744,16 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
           )}
         </div>
       </div>
+
+      {/* ── Fulfillment Modal ── */}
+      <FulfillmentModal
+        open={fulfillmentModalOpen}
+        onClose={() => setFulfillmentModalOpen(false)}
+        onSubmit={handleFulfillmentSubmit}
+        lineItems={order.lineItems}
+        isSubmitting={createFulfillment.isPending}
+        initialDeclaration={modalDeclaration}
+      />
     </div>
   );
 }

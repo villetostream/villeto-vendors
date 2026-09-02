@@ -6,10 +6,11 @@ import {
   getOrder,
   acknowledgeOrder,
   markReadyForDelivery,
-  confirmDelivery,
+  createFulfillment,
+  dispatchFulfillment,
 } from "@/lib/api/orders";
 import { useCompanyStore, queryKeys } from "@/lib/stores/companyStore";
-import { AcknowledgeOrderPayload, ConfirmDeliveryPayload, OrderFilters } from "@/lib/types";
+import { AcknowledgeOrderPayload, CreateFulfillmentPayload, DispatchFulfillmentPayload, OrderFilters } from "@/lib/types";
 import { toast } from "sonner";
 // import { format } from "date-fns";
 
@@ -85,28 +86,54 @@ export function useMarkReadyForDelivery() {
   });
 }
 
-/**
- * See lib/api/orders.ts confirmDelivery — endpoint path and payload shape
- * are unconfirmed with backend.
- */
-export function useConfirmDelivery() {
+export function useCreateFulfillment() {
   const queryClient = useQueryClient();
   const companyId = useCompanyStore((s) => s.activeCompanyId) ?? "";
 
   return useMutation({
-    mutationFn: ({ purchaseOrderId, payload }: { purchaseOrderId: string; payload: ConfirmDeliveryPayload }) =>
-      confirmDelivery(purchaseOrderId, payload),
-    onSuccess: (data, variables) => {
+    mutationFn: ({
+      purchaseOrderId,
+      payload,
+    }: {
+      purchaseOrderId: string;
+      payload: CreateFulfillmentPayload;
+    }) => createFulfillment(purchaseOrderId, payload),
+    onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: queryKeys.ordersList(companyId) });
-      if (data?.purchaseOrderId && data?.poNumber && data?.lineItems) {
-        queryClient.setQueryData(queryKeys.order(companyId, data.purchaseOrderId), data);
-      } else {
-        queryClient.invalidateQueries({ queryKey: queryKeys.order(companyId, variables.purchaseOrderId) });
-      }
-      toast.success(
-        data?.status === "delivered" ? "Delivery confirmed" : "Partial delivery recorded"
-      );
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.order(companyId, variables.purchaseOrderId),
+      });
+      toast.success("Fulfillment submitted");
     },
-    onError: () => toast.error("Failed to confirm delivery"),
+    onError: (error) =>
+      toast.error(
+        (error as { message?: string }).message ?? "Failed to submit fulfillment"
+      ),
+  });
+}
+
+export function useDispatchFulfillment() {
+  const queryClient = useQueryClient();
+  const companyId = useCompanyStore((s) => s.activeCompanyId) ?? "";
+
+  return useMutation({
+    mutationFn: ({
+      purchaseOrderId,
+      fulfillmentId,
+      payload,
+    }: {
+      purchaseOrderId: string;
+      fulfillmentId: string;
+      payload: DispatchFulfillmentPayload;
+    }) => dispatchFulfillment(purchaseOrderId, fulfillmentId, payload),
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.ordersList(companyId) });
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.order(companyId, variables.purchaseOrderId),
+      });
+      toast.success("Fulfillment marked as dispatched");
+    },
+    onError: (error) =>
+      toast.error((error as { message?: string }).message ?? "Failed to mark fulfillment as dispatched"),
   });
 }

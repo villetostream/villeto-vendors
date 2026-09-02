@@ -7,17 +7,20 @@ import { apiClient } from "./client";
 import {
   AcknowledgeOrderPayload,
   ApiEnvelope,
-  ConfirmDeliveryPayload,
+  CreateFulfillmentPayload,
+  DispatchFulfillmentPayload,
+  CreateFulfillmentResponse,
+  Fulfillment,
   Order,
   OrderFilters,
+  OrderLineItem,
   OrderListItem,
 } from "@/lib/types";
 
+// ============================================================================
+
 /**
  * GET /vendor-portal/orders?page=&limit=&status=
- * Returns a bare array today (no total/totalPages) — pagination UI can
- * only infer "has next page" from whether a full page came back, not show
- * a real page count, until backend adds a wrapper with totals.
  */
 export async function getOrders(filters: OrderFilters = {}): Promise<OrderListItem[]> {
   const { data } = await apiClient.get<ApiEnvelope<OrderListItem[]>>("/vendor-portal/orders", {
@@ -38,9 +41,6 @@ export async function getOrder(purchaseOrderId: string): Promise<Order> {
 
 /**
  * PATCH /vendor-portal/orders/:purchaseOrderId/acknowledge
- *
- * Vendor enters a per-item delivery date before acknowledging.
- * Sends { lineItems: [{ purchaseOrderLineItemId, deliveryDate }] }
  */
 export async function acknowledgeOrder(
   purchaseOrderId: string,
@@ -64,21 +64,29 @@ export async function markReadyForDelivery(purchaseOrderId: string): Promise<Ord
 }
 
 /**
- * UNCONFIRMED ENDPOINT — no delivery-confirmation contract exists yet.
- * Guessed as `PATCH /vendor-portal/orders/:purchaseOrderId/confirm-delivery`
- * taking `{ deliveryType: "full" | "partial", lineItems: [...] }`, where
- * "full" delivers every item at its full ordered quantity and "partial"
- * carries the vendor-entered (capped, never exceeding ordered quantity)
- * quantities. Resulting order.status is expected to become "delivered"
- * for a full delivery or "partially_delivered" for a partial one — verify
- * both the path and the status transition with backend before shipping.
+ * POST /vendor-portal/orders/:purchaseOrderId/fulfillments
  */
-export async function confirmDelivery(
+export async function createFulfillment(
   purchaseOrderId: string,
-  payload: ConfirmDeliveryPayload
-): Promise<Order> {
-  const { data } = await apiClient.patch<ApiEnvelope<Order>>(
-    `/vendor-portal/orders/${purchaseOrderId}/confirm-delivery`,
+  payload: CreateFulfillmentPayload
+): Promise<CreateFulfillmentResponse> {
+  const { data } = await apiClient.post<ApiEnvelope<CreateFulfillmentResponse>>(
+    `/vendor-portal/orders/${purchaseOrderId}/fulfillments`,
+    payload
+  );
+  return data.data;
+}
+
+/**
+ * POST /vendor-portal/orders/:purchaseOrderId/fulfillments/:fulfillmentId/dispatch
+ */
+export async function dispatchFulfillment(
+  purchaseOrderId: string,
+  fulfillmentId: string,
+  payload: DispatchFulfillmentPayload
+): Promise<CreateFulfillmentResponse> {
+  const { data } = await apiClient.post<ApiEnvelope<CreateFulfillmentResponse>>(
+    `/vendor-portal/orders/${purchaseOrderId}/fulfillments/${fulfillmentId}/dispatch`,
     payload
   );
   return data.data;

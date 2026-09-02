@@ -222,6 +222,29 @@ export type OrderStatus =
 
 export type OrderPriority = "low" | "medium" | "urgent";
 
+export type FulfillmentDeclaration = "full" | "partial";
+
+export type FulfillmentMethod = "carrier" | "vendor_truck" | "digital" | "service";
+
+export type RemainingDisposition = "backordered" | "cannot_fulfill";
+
+export type FulfillmentState =
+  | "not_started"
+  | "partially_ready"
+  | "backordered"
+  | "fully_ready"
+  | "cannot_fulfill";
+
+export type FulfillmentDispatchStatus = "ready" | "dispatched" | "not_applicable" | "unknown";
+
+export type FulfillmentDeliveryState =
+  | "not_started"
+  | "ready"
+  | "partially_dispatched"
+  | "dispatched"
+  | "partially_received"
+  | "received";
+
 export interface OrderVendorRef {
   vendorId: string;
   displayName: string;
@@ -246,17 +269,60 @@ export interface OrderLineItem {
   categoryId?: string;
   departmentId?: string;
   accountingResolutionStatus?: string;
-  /**
-   * Per-item fields below (deliveryDate, deliveredQuantity) are NOT in
-   * the confirmed backend line-item schema — no acknowledge/delivery
-   * payload contract has been provided yet. Included here so the
-   * acknowledge and delivery-confirmation UI has somewhere to hold this
-   * data; see lib/api/orders.ts acknowledgeOrder/confirmDelivery for the
-   * best-guess payload shape sent, clearly flagged. Confirm the real
-   * contract with backend before relying on this shape elsewhere.
-   */
   deliveryDate?: string;
+
+  // ── Fulfillment tracking (backend-confirmed) ──
   deliveredQuantity?: number;
+  quantityShipped?: number;
+  quantityReady?: number;
+  quantityRemainingToReady?: number;
+  quantityReceived?: number;
+  quantityDispatched?: number;
+  quantityAwaitingDispatch?: number;
+  quantityAwaitingReceipt?: number;
+  deliveryState?: FulfillmentDeliveryState;
+  quantityOutstanding?: number;
+  remainingDisposition?: RemainingDisposition | null;
+  expectedReadyDate?: string | null;
+  dispositionReason?: string;
+  fulfillmentState?: FulfillmentState;
+}
+
+// ── Delivery Notice / Fulfillment record ──
+
+export interface FulfillmentLineItem {
+  vendorDeliveryNoticeLineItemId: string;
+  purchaseOrderLineItemId: string;
+  name: string;
+  quantityOrdered: number;
+  quantityShipped: number;
+  quantityReady?: number;
+  remainingDisposition?: RemainingDisposition | null;
+  expectedReadyDate?: string | null;
+  dispositionReason?: string;
+  quantityReceived?: number;
+  quantityAwaitingReceipt?: number;
+}
+
+export interface Fulfillment {
+  vendorDeliveryNoticeId: string;
+  shipmentReference: string;
+  fulfillmentReference?: string | null;
+  declaration?: FulfillmentDeclaration | null;
+  fulfillmentMethod?: FulfillmentMethod | null;
+  status: "submitted" | "cancelled";
+  shippedAt: string;
+  readyAt?: string | null;
+  dispatchedAt?: string | null;
+  dispatchReference?: string | null;
+  dispatchStatus?: FulfillmentDispatchStatus;
+  expectedDeliveryDate?: string | null;
+  carrier?: string | null;
+  trackingNumber?: string | null;
+  packingSlipNumber?: string | null;
+  notes?: string | null;
+  isPartial: boolean;
+  lineItems: FulfillmentLineItem[];
 }
 
 /** Row shape from the list endpoint — lighter than the detail shape. */
@@ -264,6 +330,16 @@ export interface OrderListItem {
   purchaseOrderId: string;
   poNumber: string;
   status: OrderStatus;
+  deliveryState?: FulfillmentDeliveryState;
+  fulfillmentState?: FulfillmentState;
+  fulfillmentTransportScope?: "physical" | "non_physical" | "mixed" | "unknown";
+  quantityOrdered?: number;
+  quantityReady?: number;
+  quantityDispatched?: number;
+  quantityReceived?: number;
+  quantityAwaitingDispatch?: number;
+  quantityAwaitingReceipt?: number;
+  quantityRemainingToReady?: number;
   vendor: OrderVendorRef;
   lineItemCount: number;
   sourcePurchaseRequestLineItemIds: string[];
@@ -288,6 +364,8 @@ export interface Order {
   purchaseOrderId: string;
   poNumber: string;
   status: OrderStatus;
+  fulfillmentState?: FulfillmentState;
+  fulfillmentActionRequired?: boolean;
   vendorReadinessStatus?: string;
   issueBlockers?: string[];
   priority: OrderPriority;
@@ -302,6 +380,7 @@ export interface Order {
   deliveredAt?: string;
   closedAt?: string;
   cancelledAt?: string;
+  cancellationReason?: string;
   deliveryDate?: string;
   currency: string;
   subtotal: number;
@@ -314,6 +393,9 @@ export interface Order {
   purchaseRequestId?: string;
   lineItems: OrderLineItem[];
   timeline?: TimelineEvent[];
+  /** Historical fulfillment shipment records */
+  deliveryNotices?: Fulfillment[];
+  fulfillments?: Fulfillment[];
 }
 
 export interface OrderFilters {
@@ -325,7 +407,6 @@ export interface OrderFilters {
 }
 
 /**
-/**
  * Payload shape for acknowledging an order.
  * Vendor enters per-item delivery dates before acknowledging.
  */
@@ -335,9 +416,89 @@ export interface AcknowledgeOrderPayload {
 
 export type DeliveryType = "full" | "partial";
 
+export interface CreateFulfillmentLineItemPayload {
+  purchaseOrderLineItemId: string;
+  quantityReady: number;
+  remainingDisposition?: RemainingDisposition;
+  expectedReadyDate?: string;
+  dispositionReason?: string;
+}
+
+export interface CreateFulfillmentPayload {
+  fulfillmentReference?: string;
+  declaration: FulfillmentDeclaration;
+  fulfillmentMethod: FulfillmentMethod;
+  readyAt?: string;
+  expectedDeliveryDate?: string;
+  carrier?: string;
+  trackingNumber?: string;
+  packingSlipNumber?: string;
+  notes?: string;
+  lineItems: CreateFulfillmentLineItemPayload[];
+}
+
+export interface CreateFulfillmentResponse {
+  purchaseOrderId: string;
+  poNumber: string;
+  status: OrderStatus;
+  fulfillment: Fulfillment;
+}
+
+export interface DispatchFulfillmentPayload {
+  dispatchReference?: string;
+  dispatchedAt?: string;
+}
+
+/**
+ * Payload shape for declaring a fulfillment (readiness/shipment).
+ * Matches the backend POST /vendor-portal/orders/:id/fulfillments contract.
+ */
+export interface FulfillmentPayload {
+  declaration: DeliveryType;
+  fulfillmentMethod: "carrier" | "vendor_truck" | "digital" | "service";
+  expectedDeliveryDate?: string;
+  carrier?: string;
+  trackingNumber?: string;
+  packingSlipNumber?: string;
+  notes?: string;
+  lineItems: {
+    purchaseOrderLineItemId: string;
+    quantityReady: number;
+    remainingDisposition?: "backordered" | "cannot_fulfill";
+    expectedReadyDate?: string;
+    dispositionReason?: string;
+  }[];
+}
+
+/**
+ * Payload shape for dispatching a fulfillment.
+ */
+export interface DispatchPayload {
+  dispatchReference?: string;
+  dispatchedAt?: string;
+}
+
+/**
+ * @deprecated Use FulfillmentPayload instead. Kept for backwards compatibility
+ * with existing hooks until migration is complete.
+ */
 export interface ConfirmDeliveryPayload {
   deliveryType: DeliveryType;
-  lineItems: { purchaseOrderLineItemId: string; deliveredQuantity: number }[];
+  fulfillmentMethod?: string;
+  expectedDeliveryDate?: string;
+  carrier?: string;
+  trackingNumber?: string;
+  packingSlipNumber?: string;
+  notes?: string;
+  lineItems: {
+    purchaseOrderLineItemId: string;
+    quantityReady: number;
+    remainingDisposition?: "backordered" | "cannot_fulfill";
+    expectedReadyDate?: string;
+    dispositionReason?: string;
+    // Legacy compat
+    deliveredQuantity?: number;
+  }[];
 }
 
 /**
