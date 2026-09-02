@@ -6,7 +6,7 @@ import {
   getInvoicePaymentStatusConfig,
   getCompanyStatusConfig,
 } from "@/lib/utils";
-import { OrderStatus, OrderPriority, InvoiceStatus, InvoicePaymentStatus } from "@/lib/types";
+import { FulfillmentDeliveryState, OrderStatus, OrderPriority, InvoiceStatus, InvoicePaymentStatus } from "@/lib/types";
 
 interface BadgeProps {
   className?: string;
@@ -27,6 +27,48 @@ export function OrderStatusBadge({
       )}
     >
       {cfg.label}
+    </span>
+  );
+}
+
+const DELIVERY_STATUS_CONFIG: Record<FulfillmentDeliveryState, { label: string; color: string; bg: string }> = {
+  not_started: { label: "Not started", color: "text-gray-700", bg: "bg-gray-100" },
+  ready: { label: "Ready for dispatch", color: "text-amber-700", bg: "bg-amber-50" },
+  partially_dispatched: { label: "Partially dispatched", color: "text-blue-700", bg: "bg-blue-50" },
+  dispatched: { label: "Dispatched — awaiting confirmation", color: "text-blue-700", bg: "bg-blue-50" },
+  partially_received: { label: "Partially received", color: "text-amber-700", bg: "bg-amber-50" },
+  received: { label: "Delivered", color: "text-emerald-700", bg: "bg-emerald-50" },
+};
+
+export function DeliveryStatusBadge({
+  status,
+  transportScope,
+  className,
+}: BadgeProps & {
+  status: FulfillmentDeliveryState;
+  transportScope?: "physical" | "non_physical" | "mixed" | "unknown";
+}) {
+  const cfg = DELIVERY_STATUS_CONFIG[status];
+  const label =
+    transportScope === "non_physical" && status === "partially_dispatched"
+      ? "Partially fulfilled"
+      : transportScope === "non_physical" && status === "dispatched"
+        ? "Fulfilled — awaiting confirmation"
+        : transportScope === "mixed" && status === "partially_dispatched"
+          ? "Partially sent / fulfilled"
+          : transportScope === "mixed" && status === "dispatched"
+            ? "Sent / fulfilled — awaiting confirmation"
+            : cfg.label;
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium whitespace-nowrap",
+        cfg.color,
+        cfg.bg,
+        className
+      )}
+    >
+      {label}
     </span>
   );
 }

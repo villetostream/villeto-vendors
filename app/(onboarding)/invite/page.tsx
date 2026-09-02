@@ -182,7 +182,7 @@ export default async function InvitePage({ searchParams }: InvitePageProps) {
             </div>
           </div>
 
-          {/* CTA — passes all invite data through to signup */}
+          {/* CTA routes existing accounts to login and new accounts to signup. */}
           <Link
             href={ctaHref}
             className="w-full h-13 flex items-center justify-center gap-2 bg-primary text-white rounded-xl font-medium text-sm hover:bg-primary/90 transition-colors"
