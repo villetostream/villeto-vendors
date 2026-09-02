@@ -142,12 +142,16 @@ export function FulfillmentModal({
         const disp = dispositions[item.purchaseOrderLineItemId];
         const date = expectedDates[item.purchaseOrderLineItemId];
         const reason = dispositionReasons[item.purchaseOrderLineItemId];
+
+        // For items already marked cannot_fulfill (remaining === 0 but quantity > quantityReady),
+        // we must still send the disposition so the backend knows the unit is accounted for.
+        const alreadyCancelled = item.remainingDisposition === "cannot_fulfill";
+
         return {
           purchaseOrderLineItemId: item.purchaseOrderLineItemId,
           quantityReady: qty,
-          ...(qty < remaining && disp ? { remainingDisposition: disp } : {}),
+          ...(alreadyCancelled ? { remainingDisposition: "cannot_fulfill" as const } : (qty < remaining && disp ? { remainingDisposition: disp } : {})),
           ...(qty < remaining && disp === "backordered" && date ? { expectedReadyDate: date } : {}),
-          ...(qty < remaining && disp && reason ? { dispositionReason: reason } : {}),
         };
       }),
     };

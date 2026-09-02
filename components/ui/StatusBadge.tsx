@@ -120,35 +120,23 @@ export function DeliveryStatusBadge({
   transportScope,
   className,
 }: BadgeProps & { status: string; transportScope?: string }) {
-  let label = status.replace(/_/g, " ");
-  label = label.charAt(0).toUpperCase() + label.slice(1);
-  
-  let bg = "bg-gray-50";
-  let color = "text-gray-700";
-  let border = "border-gray-200";
-  
-  if (status === "dispatched") {
-    bg = "bg-blue-50";
-    color = "text-blue-700";
-    border = "border-blue-200";
-  } else if (status === "partially_dispatched") {
-    bg = "bg-sky-50";
-    color = "text-sky-700";
-    border = "border-sky-200";
-  } else if (status === "received") {
-    bg = "bg-green-50";
-    color = "text-green-700";
-    border = "border-green-200";
-  } else if (status === "partially_received") {
-    bg = "bg-emerald-50";
-    color = "text-emerald-700";
-    border = "border-emerald-200";
-  } else if (status === "ready") {
-    bg = "bg-indigo-50";
-    color = "text-indigo-700";
-    border = "border-indigo-200";
-  }
 
+  type StateConfig = { label: string; bg: string; color: string; border: string };
+  const stateMap: Record<string, StateConfig> = {
+    partially_dispatched: { label: "Partially Fulfilled", bg: "bg-blue-50",    color: "text-blue-700",    border: "border-blue-200" },
+    dispatched:           { label: "Fully Fulfilled",     bg: "bg-green-50",   color: "text-green-700",   border: "border-green-200" },
+    partially_received:   { label: "Partially Received",  bg: "bg-emerald-50", color: "text-emerald-700", border: "border-emerald-200" },
+    received:             { label: "Fully Received",       bg: "bg-teal-50",    color: "text-teal-700",    border: "border-teal-200" },
+    ready:                { label: "Fulfilled",            bg: "bg-indigo-50",  color: "text-indigo-700",  border: "border-indigo-200" },
+  };
+
+  const cfg = stateMap[status] ?? {
+    label: status.replace(/_/g, " ").replace(/^\w/, (c) => c.toUpperCase()),
+    bg: "bg-gray-50", color: "text-gray-700", border: "border-gray-200",
+  };
+
+  // Override label for non-physical (digital/service) deliveries
+  let { label } = cfg;
   if (transportScope === "non_physical" && status === "dispatched") {
     label = "Provided";
   }
@@ -157,9 +145,9 @@ export function DeliveryStatusBadge({
     <span
       className={cn(
         "inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border",
-        color,
-        bg,
-        border,
+        cfg.color,
+        cfg.bg,
+        cfg.border,
         className
       )}
     >

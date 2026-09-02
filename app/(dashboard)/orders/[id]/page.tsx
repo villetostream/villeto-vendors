@@ -56,12 +56,12 @@ function OrderDetailSkeleton() {
 function FulfillmentStateBadge({ state }: { state?: string }) {
   if (!state || state === "not_started") return null;
   const map: Record<string, { label: string; cls: string }> = {
-    partial:        { label: "Partial",         cls: "bg-blue-50 text-blue-700 border-blue-200" },
-    ready:          { label: "Ready",           cls: "bg-green-50 text-green-700 border-green-200" },
-    backordered:    { label: "Backordered",     cls: "bg-amber-50 text-amber-700 border-amber-200" },
-    cannot_fulfill: { label: "Cannot Fulfill",  cls: "bg-red-50 text-red-700 border-red-200" },
+    partially_ready: { label: "Partially Fulfilled", cls: "bg-blue-50 text-blue-700 border-blue-200" },
+    fully_ready:     { label: "Fully Fulfilled",     cls: "bg-green-50 text-green-700 border-green-200" },
+    backordered:     { label: "Backordered",         cls: "bg-amber-50 text-amber-700 border-amber-200" },
   };
-  const entry = map[state] || { label: state, cls: "bg-gray-50 text-gray-600 border-gray-200" };
+  const entry = map[state];
+  if (!entry) return null;
   return (
     <span className={cn("text-xs px-1.5 py-0.5 rounded-md font-medium border inline-flex w-fit", entry.cls)}>
       {entry.label}
@@ -209,14 +209,34 @@ function FulfillmentHistorySection({
                       </tr>
                     </thead>
                     <tbody>
-                      {notice.lineItems.map((li) => (
+                      {notice.lineItems.map((li) => {
+                        // Sum of quantityReady shipped in ALL previous notices (before this one)
+                        const previousCumulativeReady = notices
+                          .slice(0, idx)
+                          .reduce((sum, pastNotice) => {
+                            const match = pastNotice.lineItems.find(x => x.purchaseOrderLineItemId === li.purchaseOrderLineItemId);
+                            return sum + (match?.quantityReady || 0);
+                          }, 0);
+
+                        // Sum including this shipment — used for remaining disposition
+                        const cumulativeReady = previousCumulativeReady + (li.quantityReady || 0);
+
+                        // What was remaining BEFORE this shipment (denominator for Included Qty)
+                        const remainingBeforeThisShipment = li.quantityOrdered - previousCumulativeReady;
+
+                        // What is remaining AFTER this shipment (for disposition badge)
+                        const remainingToFulfill = li.quantityOrdered - cumulativeReady;
+
+                        return (
                         <tr key={li.vendorDeliveryNoticeLineItemId} className="border-b border-border/40">
                           <td className="py-2 font-medium">{li.name}</td>
                           <td className="py-2">
-                            {li.quantityReady} <span className="text-muted-foreground">/ {li.quantityOrdered} total</span>
+                            {li.quantityReady} <span className="text-muted-foreground">/ {remainingBeforeThisShipment} remaining</span>
                           </td>
                           <td className="py-2 text-xs">
-                            {li.quantityReady === 0 ? (
+                            {notice.dispatchStatus !== "dispatched" ? (
+                              <span className="text-muted-foreground">—</span>
+                            ) : li.quantityReady === 0 ? (
                               <span className="text-muted-foreground">—</span>
                             ) : li.quantityReceived === li.quantityReady ? (
                               <span className="text-green-600 font-medium">All Received</span>
@@ -228,13 +248,15 @@ function FulfillmentHistorySection({
                           </td>
                           <td className="py-2">
                             <div className="flex flex-col gap-1 items-start">
-                              {li.remainingDisposition === "cannot_fulfill" ? (
+                              {remainingToFulfill <= 0 ? (
+                                <span className="text-xs text-green-700 bg-green-50 border border-green-200 px-1.5 py-0.5 rounded-md font-medium">Fully Fulfilled</span>
+                              ) : li.remainingDisposition === "cannot_fulfill" ? (
                                 <span className="text-xs text-red-700 bg-red-50 border border-red-200 px-1.5 py-0.5 rounded-md font-medium">
-                                  {li.quantityOrdered - (li.quantityReady || 0)} Cannot Fulfill
+                                  {remainingToFulfill} Cannot Fulfill
                                 </span>
                               ) : li.remainingDisposition === "backordered" ? (
                                 <span className="text-xs text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded-md font-medium">
-                                  {li.quantityOrdered - (li.quantityReady || 0)} Backordered{li.expectedReadyDate ? ` (${formatDate(li.expectedReadyDate)})` : ""}
+                                  {remainingToFulfill} Backordered{li.expectedReadyDate ? ` (${formatDate(li.expectedReadyDate)})` : ""}
                                 </span>
                               ) : (li.quantityReady || 0) > 0 ? (
                                 <span className="text-xs text-green-700 bg-green-50 border border-green-200 px-1.5 py-0.5 rounded-md font-medium">Fully Ready</span>
@@ -249,7 +271,8 @@ function FulfillmentHistorySection({
                             </div>
                           </td>
                         </tr>
-                      ))}
+                        );
+                      })}
                     </tbody>
                   </table>
 
@@ -388,6 +411,7 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
       {
         purchaseOrderId: order.purchaseOrderId,
         payload: {
+          fulfillmentReference: `FUL-${crypto.randomUUID().slice(0, 8)}`,
           declaration: data.declaration,
           fulfillmentMethod: data.fulfillmentMethod as any,
           expectedDeliveryDate: data.expectedDeliveryDate,
@@ -400,7 +424,6 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
             quantityReady: li.quantityReady,
             ...(li.remainingDisposition ? { remainingDisposition: li.remainingDisposition as any } : {}),
             ...(li.expectedReadyDate ? { expectedReadyDate: li.expectedReadyDate } : {}),
-            ...(li.dispositionReason ? { dispositionReason: li.dispositionReason } : {}),
           })),
         },
       },
@@ -459,25 +482,28 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
 
   return (
     <div className="space-y-5">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex items-center gap-3">
-          <button onClick={() => router.back()} aria-label="Go back" className="p-1.5 rounded-xl hover:bg-muted transition-colors shrink-0">
-            <ArrowLeft className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
-          </button>
-          <div>
-            <div className="flex items-center gap-2.5">
-              <h1 className="text-xl font-bold">{order.poNumber}</h1>
-              <OrderStatusBadge status={order.status} />
-              {order.fulfillmentState && order.fulfillmentState !== "not_started" && (
-                <FulfillmentStateBadge state={order.fulfillmentState} />
-              )}
+      {/* ── Sticky Header ── */}
+      <div className="sticky top-0 z-20 bg-dashboard-bg/95 backdrop-blur-sm -mx-4 px-4 sm:-mx-6 sm:px-6 -mt-4 pt-4 sm:-mt-6 sm:pt-6 pb-4 border-b border-border mb-2">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-center gap-3">
+            <button onClick={() => router.back()} aria-label="Go back" className="p-1.5 rounded-xl hover:bg-muted transition-colors shrink-0">
+              <ArrowLeft className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
+            </button>
+            <div>
+              <div className="flex items-center gap-2.5">
+                <h1 className="text-xl font-bold">{order.poNumber}</h1>
+                <OrderStatusBadge status={order.status} />
+                {order.fulfillmentState && order.fulfillmentState !== "not_started" && (
+                  <FulfillmentStateBadge state={order.fulfillmentState} />
+                )}
+              </div>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Issued on {formatDate(order.issueDate)}
+              </p>
             </div>
-            <p className="text-xs text-muted-foreground mt-0.5">
-              Issued on {formatDate(order.issueDate)}
-            </p>
           </div>
+          <div className="flex items-center gap-2">{renderCTA()}</div>
         </div>
-        <div className="flex items-center gap-2">{renderCTA()}</div>
       </div>
 
       {isEnteringDates && (
@@ -648,7 +674,10 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
               dispatchFulfillmentMutation.mutate({
                 purchaseOrderId: order.purchaseOrderId,
                 fulfillmentId,
-                payload: { dispatchedAt: new Date().toISOString() },
+                payload: {
+                    dispatchReference: `DSP-${crypto.randomUUID().slice(0, 8)}`,
+                    dispatchedAt: new Date().toISOString(),
+                  },
               });
             }}
             isDispatching={(fulfillmentId) =>
