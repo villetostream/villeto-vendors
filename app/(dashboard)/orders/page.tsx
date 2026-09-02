@@ -7,7 +7,7 @@ import { Search, ChevronLeft, ChevronRight, MoreVertical } from "lucide-react";
 import { useDebounce } from "use-debounce";
 import { useOrders } from "@/lib/hooks/useOrders";
 import { useCompany } from "@/lib/hooks/useCompany";
-import { OrderStatusBadge } from "@/components/ui/StatusBadge";
+import { DeliveryStatusBadge, OrderStatusBadge } from "@/components/ui/StatusBadge";
 import { TableSkeleton } from "@/components/ui/Skeleton";
 import { EmptyState, ErrorState } from "@/components/ui/Spinner";
 import { formatCurrency, cn } from "@/lib/utils";
@@ -148,7 +148,30 @@ export default function OrdersPage() {
                     <td className="px-5 py-3.5 text-sm text-muted-foreground whitespace-nowrap">
                       {formatCurrency(order.totalAmount, order.currency)}
                     </td>
-                    <td className="px-5 py-3.5"><OrderStatusBadge status={order.status} /></td>
+                    <td className="px-5 py-3.5">
+                      {order.deliveryState &&
+                      order.deliveryState !== "not_started" &&
+                      !["cancelled", "closed"].includes(order.status) ? (
+                        <div className="flex flex-col items-start gap-1">
+                          <DeliveryStatusBadge
+                            status={order.deliveryState}
+                            transportScope={order.fulfillmentTransportScope}
+                          />
+                          {order.fulfillmentState === "backordered" && (
+                            <span className="text-[11px] text-amber-700">
+                              {order.quantityRemainingToReady ?? 0} remaining backordered
+                            </span>
+                          )}
+                          {order.fulfillmentState === "cannot_fulfill" && (
+                            <span className="text-[11px] text-red-700">
+                              {order.quantityRemainingToReady ?? 0} remaining cannot be fulfilled
+                            </span>
+                          )}
+                        </div>
+                      ) : (
+                        <OrderStatusBadge status={order.status} />
+                      )}
+                    </td>
                     <td className="px-5 py-3.5" onClick={(e) => e.stopPropagation()}>
                       <Link
                         href={`/orders/${order.purchaseOrderId}`}

@@ -222,6 +222,29 @@ export type OrderStatus =
 
 export type OrderPriority = "low" | "medium" | "urgent";
 
+export type FulfillmentDeclaration = "full" | "partial";
+
+export type FulfillmentMethod = "carrier" | "vendor_truck" | "digital" | "service";
+
+export type RemainingDisposition = "backordered" | "cannot_fulfill";
+
+export type FulfillmentState =
+  | "not_started"
+  | "partially_ready"
+  | "backordered"
+  | "fully_ready"
+  | "cannot_fulfill";
+
+export type FulfillmentDispatchStatus = "ready" | "dispatched" | "not_applicable" | "unknown";
+
+export type FulfillmentDeliveryState =
+  | "not_started"
+  | "ready"
+  | "partially_dispatched"
+  | "dispatched"
+  | "partially_received"
+  | "received";
+
 export interface OrderVendorRef {
   vendorId: string;
   displayName: string;
@@ -246,17 +269,55 @@ export interface OrderLineItem {
   categoryId?: string;
   departmentId?: string;
   accountingResolutionStatus?: string;
-  /**
-   * Per-item fields below (deliveryDate, deliveredQuantity) are NOT in
-   * the confirmed backend line-item schema — no acknowledge/delivery
-   * payload contract has been provided yet. Included here so the
-   * acknowledge and delivery-confirmation UI has somewhere to hold this
-   * data; see lib/api/orders.ts acknowledgeOrder/confirmDelivery for the
-   * best-guess payload shape sent, clearly flagged. Confirm the real
-   * contract with backend before relying on this shape elsewhere.
-   */
+  /** Delivery date is persisted by the acknowledgement endpoint. */
   deliveryDate?: string;
   deliveredQuantity?: number;
+  quantityShipped?: number;
+  quantityReady?: number;
+  quantityRemainingToReady?: number;
+  quantityReceived?: number;
+  quantityDispatched?: number;
+  quantityAwaitingDispatch?: number;
+  quantityAwaitingReceipt?: number;
+  deliveryState?: FulfillmentDeliveryState;
+  quantityOutstanding?: number;
+  remainingDisposition?: RemainingDisposition | null;
+  expectedReadyDate?: string | null;
+  fulfillmentState?: FulfillmentState;
+}
+
+export interface FulfillmentLineItem {
+  vendorDeliveryNoticeLineItemId: string;
+  purchaseOrderLineItemId: string;
+  name: string;
+  quantityOrdered: number;
+  quantityShipped: number;
+  quantityReady?: number;
+  remainingDisposition?: RemainingDisposition | null;
+  expectedReadyDate?: string | null;
+  quantityReceived?: number;
+  quantityAwaitingReceipt?: number;
+}
+
+export interface Fulfillment {
+  vendorDeliveryNoticeId: string;
+  shipmentReference: string;
+  fulfillmentReference?: string | null;
+  declaration?: FulfillmentDeclaration | null;
+  fulfillmentMethod?: FulfillmentMethod | null;
+  status: "submitted" | "cancelled";
+  shippedAt: string;
+  readyAt?: string | null;
+  dispatchedAt?: string | null;
+  dispatchReference?: string | null;
+  dispatchStatus?: FulfillmentDispatchStatus;
+  expectedDeliveryDate?: string | null;
+  carrier?: string | null;
+  trackingNumber?: string | null;
+  packingSlipNumber?: string | null;
+  notes?: string | null;
+  isPartial: boolean;
+  lineItems: FulfillmentLineItem[];
 }
 
 /** Row shape from the list endpoint — lighter than the detail shape. */
@@ -264,6 +325,16 @@ export interface OrderListItem {
   purchaseOrderId: string;
   poNumber: string;
   status: OrderStatus;
+  deliveryState?: FulfillmentDeliveryState;
+  fulfillmentState?: FulfillmentState;
+  fulfillmentTransportScope?: "physical" | "non_physical" | "mixed" | "unknown";
+  quantityOrdered?: number;
+  quantityReady?: number;
+  quantityDispatched?: number;
+  quantityReceived?: number;
+  quantityAwaitingDispatch?: number;
+  quantityAwaitingReceipt?: number;
+  quantityRemainingToReady?: number;
   vendor: OrderVendorRef;
   lineItemCount: number;
   sourcePurchaseRequestLineItemIds: string[];
@@ -288,6 +359,8 @@ export interface Order {
   purchaseOrderId: string;
   poNumber: string;
   status: OrderStatus;
+  fulfillmentState?: FulfillmentState;
+  fulfillmentActionRequired?: boolean;
   vendorReadinessStatus?: string;
   issueBlockers?: string[];
   priority: OrderPriority;
@@ -313,6 +386,8 @@ export interface Order {
   vendor: OrderVendorRef;
   purchaseRequestId?: string;
   lineItems: OrderLineItem[];
+  fulfillments?: Fulfillment[];
+  deliveryNotices?: Fulfillment[];
   timeline?: TimelineEvent[];
 }
 
@@ -331,6 +406,38 @@ export interface OrderFilters {
  */
 export interface AcknowledgeOrderPayload {
   lineItems: { purchaseOrderLineItemId: string; deliveryDate: string }[];
+}
+
+export interface CreateFulfillmentLineItemPayload {
+  purchaseOrderLineItemId: string;
+  quantityReady: number;
+  remainingDisposition?: RemainingDisposition;
+  expectedReadyDate?: string;
+}
+
+export interface CreateFulfillmentPayload {
+  fulfillmentReference: string;
+  declaration: FulfillmentDeclaration;
+  fulfillmentMethod: FulfillmentMethod;
+  readyAt?: string;
+  expectedDeliveryDate?: string;
+  carrier?: string;
+  trackingNumber?: string;
+  packingSlipNumber?: string;
+  notes?: string;
+  lineItems: CreateFulfillmentLineItemPayload[];
+}
+
+export interface CreateFulfillmentResponse {
+  purchaseOrderId: string;
+  poNumber: string;
+  status: OrderStatus;
+  fulfillment: Fulfillment;
+}
+
+export interface DispatchFulfillmentPayload {
+  dispatchReference: string;
+  dispatchedAt?: string;
 }
 
 export type DeliveryType = "full" | "partial";
