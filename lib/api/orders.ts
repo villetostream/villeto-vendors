@@ -7,7 +7,9 @@ import { apiClient } from "./client";
 import {
   AcknowledgeOrderPayload,
   ApiEnvelope,
-  ConfirmDeliveryPayload,
+  CreateFulfillmentPayload,
+  CreateFulfillmentResponse,
+  DispatchFulfillmentPayload,
   Order,
   OrderFilters,
   OrderListItem,
@@ -54,31 +56,30 @@ export async function acknowledgeOrder(
 }
 
 /**
- * PATCH /vendor-portal/orders/:purchaseOrderId/ready-for-delivery
+ * POST /vendor-portal/orders/:purchaseOrderId/fulfillments
+ *
+ * Quantities are deltas for this immutable event. The backend reconciles
+ * them against ordered quantities and all previously accepted events.
  */
-export async function markReadyForDelivery(purchaseOrderId: string): Promise<Order> {
-  const { data } = await apiClient.patch<ApiEnvelope<Order>>(
-    `/vendor-portal/orders/${purchaseOrderId}/ready-for-delivery`
+export async function createFulfillment(
+  purchaseOrderId: string,
+  payload: CreateFulfillmentPayload
+): Promise<CreateFulfillmentResponse> {
+  const { data } = await apiClient.post<ApiEnvelope<CreateFulfillmentResponse>>(
+    `/vendor-portal/orders/${purchaseOrderId}/fulfillments`,
+    payload
   );
   return data.data;
 }
 
-/**
- * UNCONFIRMED ENDPOINT — no delivery-confirmation contract exists yet.
- * Guessed as `PATCH /vendor-portal/orders/:purchaseOrderId/confirm-delivery`
- * taking `{ deliveryType: "full" | "partial", lineItems: [...] }`, where
- * "full" delivers every item at its full ordered quantity and "partial"
- * carries the vendor-entered (capped, never exceeding ordered quantity)
- * quantities. Resulting order.status is expected to become "delivered"
- * for a full delivery or "partially_delivered" for a partial one — verify
- * both the path and the status transition with backend before shipping.
- */
-export async function confirmDelivery(
+/** Mark a physical fulfillment as dispatched. This is a write-once, idempotent transition. */
+export async function dispatchFulfillment(
   purchaseOrderId: string,
-  payload: ConfirmDeliveryPayload
-): Promise<Order> {
-  const { data } = await apiClient.patch<ApiEnvelope<Order>>(
-    `/vendor-portal/orders/${purchaseOrderId}/confirm-delivery`,
+  fulfillmentId: string,
+  payload: DispatchFulfillmentPayload
+): Promise<CreateFulfillmentResponse> {
+  const { data } = await apiClient.post<ApiEnvelope<CreateFulfillmentResponse>>(
+    `/vendor-portal/orders/${purchaseOrderId}/fulfillments/${fulfillmentId}/dispatch`,
     payload
   );
   return data.data;
