@@ -1,16 +1,16 @@
 "use client";
 
-import { FormEvent, useMemo, useState } from "react";
-import { PackageCheck } from "lucide-react";
-import { Button } from "@/components/ui/Button";
-import { Input } from "@/components/ui/Input";
-import { Label } from "@/components/ui/Label";
+import React, { useState, useEffect } from "react";
+import { Package } from "lucide-react";
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogTitle,
+  DialogDescription,
 } from "@/components/ui/Modal";
+import { Label } from "@/components/ui/Label";
+import { Button } from "@/components/ui/Button";
+import { DatePicker } from "@/components/ui/DatePicker";
 import {
   Select,
   SelectContent,
@@ -18,401 +18,381 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/Select";
-import {
-  CreateFulfillmentPayload,
-  FulfillmentDeclaration,
-  FulfillmentMethod,
-  Order,
-  RemainingDisposition,
-} from "@/lib/types";
-import { toast } from "sonner";
+import { formatDate } from "@/lib/utils";
+import { format } from "date-fns";
+import type { OrderLineItem, DeliveryType } from "@/lib/types";
+
+// ── Types ──
 
 interface FulfillmentModalProps {
   open: boolean;
-  order: Order;
-  isPending: boolean;
   onClose: () => void;
-  onSubmit: (payload: CreateFulfillmentPayload) => void;
+  onSubmit: (data: FulfillmentFormData) => void;
+  lineItems: OrderLineItem[];
+  isSubmitting: boolean;
+  /** Pre-selected declaration from the dropdown */
+  initialDeclaration?: DeliveryType;
 }
 
-interface LineDraft {
-  quantityReady: number;
-  remainingDisposition: RemainingDisposition | "";
-  expectedReadyDate: string;
+export interface FulfillmentFormData {
+  declaration: DeliveryType;
+  fulfillmentMethod: string;
+  expectedDeliveryDate?: string;
+  carrier?: string;
+  trackingNumber?: string;
+  packingSlipNumber?: string;
+  notes?: string;
+  lineItems: {
+    purchaseOrderLineItemId: string;
+    quantityReady: number;
+    remainingDisposition?: string;
+    expectedReadyDate?: string;
+    dispositionReason?: string;
+  }[];
 }
 
-const today = new Date().toISOString().slice(0, 10);
+// ── Helpers ──
 
-function newFulfillmentReference() {
-  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
-    return `FUL-${crypto.randomUUID()}`;
-  }
-  return `FUL-${Date.now()}`;
+function getRemainingToReady(item: OrderLineItem): number {
+  if (item.remainingDisposition === "cannot_fulfill") return 0;
+  return item.quantityRemainingToReady ?? (item.quantity - (item.quantityReady || 0));
 }
+
+// ── Component ──
 
 export function FulfillmentModal({
   open,
-  order,
-  isPending,
   onClose,
   onSubmit,
+  lineItems,
+  isSubmitting,
+  initialDeclaration,
 }: FulfillmentModalProps) {
-  const outstandingLines = useMemo(
-    () =>
-      order.lineItems
-        .map((line) => ({
-          ...line,
-          remaining:
-            line.quantityRemainingToReady ??
-            Math.max(
-              line.quantity - (line.quantityReady ?? line.quantityShipped ?? 0),
-              0
-            ),
-        }))
-        .filter((line) => line.remaining > 0),
-    [order.lineItems]
-  );
-  const [fulfillmentReference] = useState(newFulfillmentReference);
-  const [declaration, setDeclaration] = useState<FulfillmentDeclaration | "">("");
-  const [method, setMethod] = useState<FulfillmentMethod | "">("");
+  // Form state
+  const [declaration, setDeclaration] = useState<DeliveryType>(initialDeclaration || "full");
+  const [fulfillmentMethod, setFulfillmentMethod] = useState("");
   const [expectedDeliveryDate, setExpectedDeliveryDate] = useState("");
   const [carrier, setCarrier] = useState("");
   const [trackingNumber, setTrackingNumber] = useState("");
   const [packingSlipNumber, setPackingSlipNumber] = useState("");
   const [notes, setNotes] = useState("");
-  const [lines, setLines] = useState<Record<string, LineDraft>>(() =>
-    Object.fromEntries(
-      outstandingLines.map((line) => [
-        line.purchaseOrderLineItemId,
-        {
-          quantityReady: 0,
-          remainingDisposition: "",
-          expectedReadyDate: "",
-        },
-      ])
-    )
-  );
 
-  const updateDeclaration = (value: FulfillmentDeclaration) => {
-    setDeclaration(value);
-    setLines(
-      Object.fromEntries(
-        outstandingLines.map((line) => [
-          line.purchaseOrderLineItemId,
-          {
-            quantityReady: value === "full" ? line.remaining : 0,
-            remainingDisposition: "",
-            expectedReadyDate: "",
-          },
-        ])
-      )
-    );
-  };
+  const [quantities, setQuantities] = useState<Record<string, number | "">>({});
+  const [dispositions, setDispositions] = useState<Record<string, string>>({});
+  const [expectedDates, setExpectedDates] = useState<Record<string, string>>({});
+  const [dispositionReasons, setDispositionReasons] = useState<Record<string, string>>({});
 
-  const updateLine = (lineId: string, patch: Partial<LineDraft>) => {
-    setLines((current) => ({
-      ...current,
-      [lineId]: { ...current[lineId], ...patch },
-    }));
-  };
+  // Reset form when modal opens
+  useEffect(() => {
+    if (open) {
+      setDeclaration(initialDeclaration || "full");
+      setFulfillmentMethod("");
+      setExpectedDeliveryDate("");
+      setCarrier("");
+      setTrackingNumber("");
+      setPackingSlipNumber("");
+      setNotes("");
+      setDispositions({});
+      setExpectedDates({});
+      setDispositionReasons({});
 
-  const handleSubmit = (event: FormEvent) => {
-    event.preventDefault();
-    if (!declaration || !method) {
-      toast.error("Select a fulfillment declaration and method");
-      return;
-    }
-
-    const hasPositiveQuantity = outstandingLines.some(
-      (line) => (lines[line.purchaseOrderLineItemId]?.quantityReady ?? 0) > 0
-    );
-    if (!hasPositiveQuantity) {
-      toast.error("Enter a ready quantity for at least one item");
-      return;
-    }
-
-    const lineItems = outstandingLines.map((line) => {
-      const draft = lines[line.purchaseOrderLineItemId];
-      const quantityReady = Math.max(
-        0,
-        Math.min(Number(draft?.quantityReady ?? 0), line.remaining)
-      );
-      const remainingAfterEvent = line.remaining - quantityReady;
-
-      if (declaration === "full" && remainingAfterEvent !== 0) {
-        throw new Error(`Enter the complete remaining quantity for ${line.name}`);
+      // Initialize quantities
+      const initQty: Record<string, number> = {};
+      for (const item of lineItems) {
+        const remaining = getRemainingToReady(item);
+        initQty[item.purchaseOrderLineItemId] =
+          (initialDeclaration || "full") === "full" ? remaining : 0;
       }
-      if (remainingAfterEvent > 0 && !draft?.remainingDisposition) {
-        throw new Error(`Select what happens to the remaining ${line.name} quantity`);
-      }
-      if (
-        remainingAfterEvent > 0 &&
-        draft.remainingDisposition === "backordered" &&
-        !draft.expectedReadyDate
-      ) {
-        throw new Error(`Enter an expected ready date for ${line.name}`);
-      }
-
-      return {
-        purchaseOrderLineItemId: line.purchaseOrderLineItemId,
-        quantityReady,
-        ...(remainingAfterEvent > 0 && draft.remainingDisposition
-          ? { remainingDisposition: draft.remainingDisposition }
-          : {}),
-        ...(remainingAfterEvent > 0 &&
-        draft.remainingDisposition === "backordered" &&
-        draft.expectedReadyDate
-          ? { expectedReadyDate: draft.expectedReadyDate }
-          : {}),
-      };
-    });
-
-    if (
-      declaration === "partial" &&
-      outstandingLines.every(
-        (line) =>
-          (lines[line.purchaseOrderLineItemId]?.quantityReady ?? 0) >= line.remaining
-      )
-    ) {
-      toast.error("Choose Full when this event covers every remaining quantity");
-      return;
+      setQuantities(initQty);
     }
-    if (method === "carrier" && (!carrier.trim() || !trackingNumber.trim())) {
-      toast.error("Carrier and tracking number are required");
-      return;
-    }
-    if ((method === "carrier" || method === "vendor_truck") && !expectedDeliveryDate) {
-      toast.error("Expected delivery date is required for physical fulfillment");
-      return;
-    }
+  }, [open, lineItems, initialDeclaration]);
 
-    onSubmit({
-      fulfillmentReference,
+  // When declaration changes, reset quantities accordingly
+  useEffect(() => {
+    const initQty: Record<string, number> = {};
+    for (const item of lineItems) {
+      const remaining = getRemainingToReady(item);
+      initQty[item.purchaseOrderLineItemId] = declaration === "full" ? remaining : 0;
+    }
+    setQuantities(initQty);
+    setDispositions({});
+    setExpectedDates({});
+    setDispositionReasons({});
+  }, [declaration, lineItems]);
+
+  const showShippingFields = fulfillmentMethod === "carrier" || fulfillmentMethod === "vendor_truck";
+  const isFull = declaration === "full";
+
+  const fulfillableItems = lineItems.filter((item) => getRemainingToReady(item) > 0);
+  const cancelledItems = lineItems.filter((item) => item.remainingDisposition === "cannot_fulfill");
+
+  const handleSubmit = () => {
+    const result: FulfillmentFormData = {
       declaration,
-      fulfillmentMethod: method,
-      ...(physical && expectedDeliveryDate ? { expectedDeliveryDate } : {}),
-      ...(method === "carrier" && carrier.trim() ? { carrier: carrier.trim() } : {}),
-      ...(method === "carrier" && trackingNumber.trim()
-        ? { trackingNumber: trackingNumber.trim() }
-        : {}),
-      ...(physical && packingSlipNumber.trim()
-        ? { packingSlipNumber: packingSlipNumber.trim() }
-        : {}),
-      ...(notes.trim() ? { notes: notes.trim() } : {}),
-      lineItems,
-    });
-  };
+      fulfillmentMethod,
+      expectedDeliveryDate: expectedDeliveryDate || undefined,
+      carrier: carrier || undefined,
+      trackingNumber: trackingNumber || undefined,
+      packingSlipNumber: packingSlipNumber || undefined,
+      notes: notes || undefined,
+      lineItems: lineItems.map((item) => {
+        const remaining = getRemainingToReady(item);
+        const rawQty = quantities[item.purchaseOrderLineItemId];
+        const qty = isFull ? remaining : (typeof rawQty === "number" ? rawQty : 0);
+        const disp = dispositions[item.purchaseOrderLineItemId];
+        const date = expectedDates[item.purchaseOrderLineItemId];
+        const reason = dispositionReasons[item.purchaseOrderLineItemId];
 
-  const submitSafely = (event: FormEvent) => {
-    try {
-      handleSubmit(event);
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Check the fulfillment details");
-    }
-  };
+        // For items already marked cannot_fulfill (remaining === 0 but quantity > quantityReady),
+        // we must still send the disposition so the backend knows the unit is accounted for.
+        const alreadyCancelled = item.remainingDisposition === "cannot_fulfill";
 
-  const physical = method === "carrier" || method === "vendor_truck";
+        return {
+          purchaseOrderLineItemId: item.purchaseOrderLineItemId,
+          quantityReady: qty,
+          ...(alreadyCancelled ? { remainingDisposition: "cannot_fulfill" as const } : (qty < remaining && disp ? { remainingDisposition: disp } : {})),
+          ...(qty < remaining && disp === "backordered" && date ? { expectedReadyDate: date } : {}),
+        };
+      }),
+    };
+    onSubmit(result);
+  };
 
   return (
-    <Dialog open={open} onOpenChange={(nextOpen) => !nextOpen && onClose()}>
-      <DialogContent size="lg" className="max-h-[90vh] overflow-y-auto">
-        <form onSubmit={submitSafely} className="space-y-5">
-          <div>
-            <DialogTitle className="flex items-center gap-2">
-              <PackageCheck className="h-5 w-5 text-primary" />
-              Declare fulfillment
-            </DialogTitle>
-            <DialogDescription className="mt-1">
-              Report what is ready now and what will happen to every remaining item.
-            </DialogDescription>
+    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
+      <DialogContent size="lg" className="max-h-[90vh] flex flex-col p-0 overflow-hidden">
+        {/* ── Header ── */}
+        <div className="px-6 pt-6 pb-4 border-b border-border shrink-0">
+          <div className="flex items-center gap-2.5 mb-1">
+            <Package className="h-5 w-5 text-primary" />
+            <DialogTitle>Declare fulfillment</DialogTitle>
           </div>
+          <DialogDescription>
+            Report what is ready now and what will happen to every remaining item.
+          </DialogDescription>
+        </div>
 
-          <div className="grid gap-4 sm:grid-cols-2">
+        {/* ── Scrollable Body ── */}
+        <div className="flex-1 overflow-y-auto p-6 space-y-6">
+          {/* ── Method Row ── */}
+          <div>
+          <div className="grid grid-cols-2 gap-4">
             <div className="space-y-1.5">
-              <Label>Fulfillment declaration</Label>
-              <Select value={declaration} onValueChange={updateDeclaration}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select full or partial" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="full">Full — completes all remaining quantities</SelectItem>
-                  <SelectItem value="partial">Partial — quantities will remain</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1.5">
-              <Label>Fulfillment method</Label>
-              <Select value={method} onValueChange={(value) => setMethod(value as FulfillmentMethod)}>
-                <SelectTrigger>
+              <Label className="text-sm font-semibold">Fulfillment method</Label>
+              <Select value={fulfillmentMethod} onValueChange={setFulfillmentMethod}>
+                <SelectTrigger className="h-10 bg-white">
                   <SelectValue placeholder="Select a method" />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="carrier">Third-party carrier</SelectItem>
-                  <SelectItem value="vendor_truck">Vendor delivery</SelectItem>
-                  <SelectItem value="digital">Digital goods</SelectItem>
-                  <SelectItem value="service">Services</SelectItem>
+                  <SelectItem value="vendor_truck">Vendor truck</SelectItem>
+                  <SelectItem value="digital">Digital (License, Asset)</SelectItem>
+                  <SelectItem value="service">Service (Hours)</SelectItem>
                 </SelectContent>
               </Select>
             </div>
           </div>
 
-          {physical && (
-            <div className="grid gap-4 rounded-xl border border-border bg-muted/20 p-4 sm:grid-cols-2">
-              <div className="space-y-1.5">
-                <Label htmlFor="expected-delivery-date">Expected delivery date</Label>
-                <Input
-                  id="expected-delivery-date"
-                  type="date"
-                  min={today}
-                  value={expectedDeliveryDate}
-                  onChange={(event) => setExpectedDeliveryDate(event.target.value)}
-                />
+          {/* Shipping fields — shown conditionally */}
+          {showShippingFields && (
+            <div className="mt-4 p-4 rounded-xl border border-border bg-muted/20 space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <Label className="text-sm font-semibold">Expected delivery date</Label>
+                  <DatePicker
+                    date={expectedDeliveryDate ? new Date(expectedDeliveryDate) : undefined}
+                    onSelect={(d) => setExpectedDeliveryDate(d ? format(d, "yyyy-MM-dd") : "")}
+                    className="h-10 bg-white w-full"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-sm font-semibold">Carrier</Label>
+                  <input
+                    type="text"
+                    value={carrier}
+                    onChange={(e) => setCarrier(e.target.value)}
+                    placeholder="e.g. FedEx, DHL"
+                    className="h-10 px-3 text-sm border border-border rounded-lg bg-white w-full focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+                  />
+                </div>
               </div>
-              {method === "carrier" && (
-                <>
-                  <div className="space-y-1.5">
-                    <Label htmlFor="carrier">Carrier</Label>
-                    <Input id="carrier" value={carrier} onChange={(event) => setCarrier(event.target.value)} />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label htmlFor="tracking-number">Tracking number</Label>
-                    <Input
-                      id="tracking-number"
-                      value={trackingNumber}
-                      onChange={(event) => setTrackingNumber(event.target.value)}
-                    />
-                  </div>
-                </>
-              )}
-              <div className="space-y-1.5">
-                <Label htmlFor="packing-slip">Packing slip number (optional)</Label>
-                <Input
-                  id="packing-slip"
-                  value={packingSlipNumber}
-                  onChange={(event) => setPackingSlipNumber(event.target.value)}
-                />
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <Label className="text-sm font-semibold">Tracking number</Label>
+                  <input
+                    type="text"
+                    value={trackingNumber}
+                    onChange={(e) => setTrackingNumber(e.target.value)}
+                    placeholder="e.g. 1Z999AA1..."
+                    className="h-10 px-3 text-sm border border-border rounded-lg bg-white w-full focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-sm font-semibold">Packing slip number (optional)</Label>
+                  <input
+                    type="text"
+                    value={packingSlipNumber}
+                    onChange={(e) => setPackingSlipNumber(e.target.value)}
+                    placeholder="Optional"
+                    className="h-10 px-3 text-sm border border-border rounded-lg bg-white w-full focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+                  />
+                </div>
               </div>
             </div>
           )}
+        </div>
 
-          <div className="overflow-hidden rounded-xl border border-border">
-            <div className="border-b border-border bg-muted/30 px-4 py-3">
-              <p className="text-sm font-semibold">Outstanding items</p>
-              <p className="text-xs text-muted-foreground">
-                Quantity ready is the amount included in this event, not a running total.
-              </p>
-            </div>
-            <div className="divide-y divide-border">
-              {outstandingLines.map((line) => {
-                const draft = lines[line.purchaseOrderLineItemId];
-                const remainingAfter = Math.max(
-                  line.remaining - (draft?.quantityReady ?? 0),
-                  0
-                );
-                return (
-                  <div key={line.purchaseOrderLineItemId} className="space-y-3 p-4">
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <p className="text-sm font-medium">{line.name}</p>
-                        <p className="text-xs text-muted-foreground">
-                          {line.remaining} remaining · {line.quantityReady ?? 0} already ready
-                        </p>
-                      </div>
-                      <div className="w-28 space-y-1">
-                        <Label htmlFor={`quantity-${line.purchaseOrderLineItemId}`} className="text-xs">
-                          Ready now
-                        </Label>
-                        <Input
-                          id={`quantity-${line.purchaseOrderLineItemId}`}
-                          type="number"
-                          min={0}
-                          max={line.remaining}
-                          step="0.01"
-                          readOnly={declaration === "full"}
-                          value={draft?.quantityReady ?? 0}
-                          onChange={(event) =>
-                            updateLine(line.purchaseOrderLineItemId, {
-                              quantityReady: Math.max(
-                                0,
-                                Math.min(Number(event.target.value), line.remaining)
-                              ),
-                            })
-                          }
-                        />
-                      </div>
-                    </div>
+          {/* ── Outstanding Items ── */}
+          <div>
+            <div className="rounded-xl border border-border overflow-hidden">
+              <div className="px-4 py-3 bg-muted/30 border-b border-border">
+                <p className="text-sm font-semibold">Outstanding items</p>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Quantity ready is the amount included in this event, not a running total.
+                </p>
+              </div>
+              <div className="divide-y divide-border">
+                {fulfillableItems.map((item) => {
+                  const remaining = getRemainingToReady(item);
+                  const alreadyReady = item.quantityReady || 0;
+                  const rawQty = quantities[item.purchaseOrderLineItemId];
+                  const qty = rawQty !== undefined ? rawQty : 0;
+                  const isPartialLine = !isFull && (qty === "" || qty < remaining) && (qty === "" || qty >= 0);
+                  const disp = dispositions[item.purchaseOrderLineItemId];
+                  const reason = dispositionReasons[item.purchaseOrderLineItemId] || "";
 
-                    {declaration === "partial" && remainingAfter > 0 && (
-                      <div className="grid gap-3 sm:grid-cols-2">
-                        <div className="space-y-1.5">
-                          <Label className="text-xs">Remaining quantity</Label>
-                          <Select
-                            value={draft?.remainingDisposition || ""}
-                            onValueChange={(value) =>
-                              updateLine(line.purchaseOrderLineItemId, {
-                                remainingDisposition: value as RemainingDisposition,
-                                expectedReadyDate:
-                                  value === "cannot_fulfill"
-                                    ? ""
-                                    : draft?.expectedReadyDate || "",
-                              })
-                            }
-                          >
-                            <SelectTrigger className="h-10">
-                              <SelectValue placeholder="Select what happens next" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="backordered">Backordered — expected later</SelectItem>
-                              <SelectItem value="cannot_fulfill">Cannot fulfill remainder</SelectItem>
-                            </SelectContent>
-                          </Select>
+                  return (
+                    <div key={item.purchaseOrderLineItemId} className="px-4 py-4 space-y-3">
+                      <div className="flex items-start justify-between gap-4">
+                        <div>
+                          <p className="text-sm font-semibold">{item.name}</p>
+                          <p className="text-xs text-muted-foreground mt-0.5">
+                            {alreadyReady} already fulfilled
+                          </p>
                         </div>
-                        {draft?.remainingDisposition === "backordered" && (
-                          <div className="space-y-1.5">
-                            <Label htmlFor={`ready-date-${line.purchaseOrderLineItemId}`} className="text-xs">
-                              Expected ready date
-                            </Label>
-                            <Input
-                              id={`ready-date-${line.purchaseOrderLineItemId}`}
-                              type="date"
-                              min={today}
-                              value={draft.expectedReadyDate}
-                              onChange={(event) =>
-                                updateLine(line.purchaseOrderLineItemId, {
-                                  expectedReadyDate: event.target.value,
-                                })
-                              }
-                            />
+                        <div className="text-right shrink-0 self-center">
+                          <div className="flex items-center justify-end gap-1.5">
+                            {isFull ? (
+                              <div className="h-9 w-16 flex items-center justify-center text-sm font-medium bg-muted/30 rounded-lg border border-border">
+                                {remaining}
+                              </div>
+                            ) : (
+                              <input
+                                type="number"
+                                min={0}
+                                max={remaining}
+                                value={qty}
+                                onFocus={(e) => e.target.select()}
+                                onChange={(e) => {
+                                  const valStr = e.target.value;
+                                  if (valStr === '') {
+                                    setQuantities((prev) => ({ ...prev, [item.purchaseOrderLineItemId]: "" }));
+                                    return;
+                                  }
+                                  const parsed = parseInt(valStr);
+                                  if (!isNaN(parsed)) {
+                                    const val = Math.max(0, Math.min(parsed, remaining));
+                                    setQuantities((prev) => ({ ...prev, [item.purchaseOrderLineItemId]: val }));
+                                  }
+                                }}
+                                className="h-9 w-16 text-sm text-center border border-border rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+                              />
+                            )}
+                            <span className="text-sm text-muted-foreground whitespace-nowrap">/ {remaining} remaining</span>
                           </div>
-                        )}
+                        </div>
                       </div>
-                    )}
+
+                      {/* Disposition row — shown when partial and qty < remaining */}
+                      {isPartialLine && (qty === "" || qty < remaining) && (
+                        <div className="pt-2 border-t border-border/40 mt-3 space-y-4">
+                          <div className="flex items-start gap-4">
+                            <div className="space-y-2 flex-1">
+                              <Label className="text-xs font-semibold text-amber-700">Missing {remaining - (typeof qty === "number" ? qty : 0)} Units Disposition</Label>
+                              <Select
+                                value={disp || ""}
+                                onValueChange={(val) => setDispositions((prev) => ({ ...prev, [item.purchaseOrderLineItemId]: val }))}
+                              >
+                                <SelectTrigger className="h-9 text-sm bg-white">
+                                  <SelectValue placeholder="Select what happens next..." />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="backordered">Backordered (Shipping later)</SelectItem>
+                                  <SelectItem value="cannot_fulfill">Cannot Fulfill (Cancel remaining)</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </div>
+
+                            {disp === "backordered" && (
+                              <div className="space-y-2 flex-1">
+                                <Label className="text-xs font-semibold text-blue-700">Expected ready date</Label>
+                                <DatePicker
+                                  date={expectedDates[item.purchaseOrderLineItemId] ? new Date(expectedDates[item.purchaseOrderLineItemId]) : undefined}
+                                  onSelect={(d) => setExpectedDates((prev) => ({ ...prev, [item.purchaseOrderLineItemId]: d ? format(d, "yyyy-MM-dd") : "" }))}
+                                  className="h-9 text-sm w-full bg-white"
+                                />
+                              </div>
+                            )}
+                          </div>
+
+                          {disp && (
+                            <div className="space-y-2">
+                              <Label className="text-xs font-semibold text-amber-700">
+                                Reason for {disp === "backordered" ? "backorder" : "cancellation"} <span className="text-muted-foreground font-normal">(optional)</span>
+                              </Label>
+                              <input
+                                type="text"
+                                value={reason}
+                                onChange={(e) => setDispositionReasons((prev) => ({ ...prev, [item.purchaseOrderLineItemId]: e.target.value }))}
+                                placeholder={disp === "backordered" ? "e.g., Supply chain delay, waiting on materials" : "e.g., Item discontinued, completely out of stock"}
+                                className="h-9 px-3 text-sm border border-border rounded-lg bg-white w-full focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+                              />
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+
+                {/* Cancelled items — non-editable */}
+                {cancelledItems.map((item) => (
+                  <div key={item.purchaseOrderLineItemId} className="px-4 py-4 flex items-center justify-between opacity-60">
+                    <div>
+                      <p className="text-sm font-semibold">{item.name}</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">Cannot fulfill</p>
+                    </div>
+                    <span className="text-xs text-red-600 font-medium bg-red-50 px-2 py-1 rounded-md border border-red-100">
+                      Cancelled
+                    </span>
                   </div>
-                );
-              })}
+                ))}
+              </div>
             </div>
           </div>
 
-          <div className="space-y-1.5">
-            <Label htmlFor="fulfillment-notes">Notes (optional)</Label>
+          {/* ── Notes ── */}
+          <div>
+            <Label className="text-sm font-semibold">Notes (optional)</Label>
             <textarea
-              id="fulfillment-notes"
               value={notes}
-              onChange={(event) => setNotes(event.target.value)}
+              onChange={(e) => setNotes(e.target.value)}
+              placeholder="Any additional notes for this shipment..."
               rows={3}
-              className="w-full rounded-xl border border-border bg-white px-4 py-3 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30"
+              className="mt-1.5 w-full text-sm border border-border rounded-lg px-3 py-2 bg-white resize-y focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
             />
           </div>
+        </div>
 
-          <div className="flex justify-end gap-3 border-t border-border pt-4">
-            <Button type="button" variant="outline" onClick={onClose} disabled={isPending}>
-              Cancel
-            </Button>
-            <Button type="submit" variant="primary" loading={isPending} disabled={!outstandingLines.length}>
-              Submit fulfillment
-            </Button>
-          </div>
-        </form>
+        {/* ── Footer ── */}
+        <div className="px-6 py-4 border-t border-border bg-gray-50/50 flex items-center justify-end gap-3 shrink-0">
+          <Button variant="outline" onClick={onClose} disabled={isSubmitting}>
+            Cancel
+          </Button>
+          <Button variant="primary" onClick={handleSubmit} loading={isSubmitting}>
+            Submit fulfillment
+          </Button>
+        </div>
       </DialogContent>
     </Dialog>
   );

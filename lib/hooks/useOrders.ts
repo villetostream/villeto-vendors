@@ -5,6 +5,7 @@ import {
   getOrders,
   getOrder,
   acknowledgeOrder,
+  markReadyForDelivery,
   createFulfillment,
   dispatchFulfillment,
 } from "@/lib/api/orders";
@@ -63,6 +64,25 @@ export function useAcknowledgeOrder() {
       toast.success("Order acknowledged");
     },
     onError: () => toast.error("Failed to acknowledge order"),
+  });
+}
+
+export function useMarkReadyForDelivery() {
+  const queryClient = useQueryClient();
+  const companyId = useCompanyStore((s) => s.activeCompanyId) ?? "";
+
+  return useMutation({
+    mutationFn: (purchaseOrderId: string) => markReadyForDelivery(purchaseOrderId),
+    onSuccess: (data, purchaseOrderId) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.ordersList(companyId) });
+      if (data?.purchaseOrderId && data?.poNumber && data?.lineItems) {
+        queryClient.setQueryData(queryKeys.order(companyId, data.purchaseOrderId), data);
+      } else {
+        queryClient.invalidateQueries({ queryKey: queryKeys.order(companyId, purchaseOrderId) });
+      }
+      toast.success("Order marked as ready for delivery");
+    },
+    onError: () => toast.error("Failed to update order"),
   });
 }
 

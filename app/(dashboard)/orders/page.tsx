@@ -7,7 +7,7 @@ import { Search, ChevronLeft, ChevronRight, MoreVertical } from "lucide-react";
 import { useDebounce } from "use-debounce";
 import { useOrders } from "@/lib/hooks/useOrders";
 import { useCompany } from "@/lib/hooks/useCompany";
-import { DeliveryStatusBadge, OrderStatusBadge } from "@/components/ui/StatusBadge";
+import { OrderStatusBadge, DeliveryStatusBadge } from "@/components/ui/StatusBadge";
 import { TableSkeleton } from "@/components/ui/Skeleton";
 import { EmptyState, ErrorState } from "@/components/ui/Spinner";
 import { formatCurrency, cn } from "@/lib/utils";
@@ -159,12 +159,12 @@ export default function OrdersPage() {
                           />
                           {order.fulfillmentState === "backordered" && (
                             <span className="text-[11px] text-amber-700">
-                              {order.quantityRemainingToReady ?? 0} remaining backordered
+                              Contains backordered items
                             </span>
                           )}
                           {order.fulfillmentState === "cannot_fulfill" && (
                             <span className="text-[11px] text-red-700">
-                              {order.quantityRemainingToReady ?? 0} remaining cannot be fulfilled
+                              Contains items that have not been fulfilled
                             </span>
                           )}
                         </div>
