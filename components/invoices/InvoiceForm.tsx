@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { ArrowLeft, Plus, Trash2, ShieldCheck, CheckCircle2 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { getOrders } from "@/lib/api/orders";
+import { getOrder, getOrders } from "@/lib/api/orders";
 import { getInvoice } from "@/lib/api/invoices";
 import { queryKeys, useCompanyStore } from "@/lib/stores/companyStore";
 import { Button } from "@/components/ui/Button";
@@ -37,7 +37,7 @@ function generateKey() {
 }
 
 function emptyLineItem(): FormLineItem {
-  return { _key: generateKey(), name: "", description: "", quantity: 1, unitPrice: 0, taxAmount: 0, sku: "", unitOfMeasure: "" };
+  return { _key: generateKey(), purchaseOrderLineItemId: "", name: "", description: "", quantity: 1, unitPrice: 0, taxAmount: 0, sku: "", unitOfMeasure: "" };
 }
 
 function todayISODate() {
@@ -72,6 +72,12 @@ export function InvoiceForm({ mode, invoiceId }: InvoiceFormProps) {
     enabled: !!companyId,
   });
 
+  const { data: selectedOrder } = useQuery({
+    queryKey: ["vendor-portal", "invoiceable-order", companyId, selectedPOId],
+    queryFn: () => getOrder(selectedPOId),
+    enabled: !!companyId && !!selectedPOId,
+  });
+
   const {
     data: existingInvoice,
     isLoading: isLoadingExisting,
@@ -99,6 +105,7 @@ export function InvoiceForm({ mode, invoiceId }: InvoiceFormProps) {
     setItems(
       existingInvoice.lineItems.map((i) => ({
         _key: i.vendorInvoiceLineItemId,
+        purchaseOrderLineItemId: i.purchaseOrderLineItemId ?? "",
         name: i.name,
         description: i.description ?? "",
         quantity: i.quantity,
@@ -109,6 +116,28 @@ export function InvoiceForm({ mode, invoiceId }: InvoiceFormProps) {
       }))
     );
   }, [existingInvoice]);
+
+  useEffect(() => {
+    if (isEditing || !selectedOrder) return;
+    const invoiceableLines = selectedOrder.lineItems.filter(
+      (line) => Number(line.quantityInvoiceable || 0) > 0,
+    );
+    setItems(
+      invoiceableLines.length
+        ? invoiceableLines.map((line) => ({
+            _key: generateKey(),
+            purchaseOrderLineItemId: line.purchaseOrderLineItemId,
+            name: line.name,
+            description: line.description ?? "",
+            quantity: Number(line.quantityInvoiceable),
+            unitPrice: line.unitPrice,
+            taxAmount: 0,
+            sku: line.sku ?? "",
+            unitOfMeasure: line.unitOfMeasure ?? "",
+          }))
+        : [emptyLineItem()],
+    );
+  }, [isEditing, selectedOrder]);
 
   const subtotal = items.reduce((sum, i) => sum + i.quantity * i.unitPrice, 0);
   const taxTotal = items.reduce((sum, i) => sum + (i.taxAmount ?? 0), 0);
@@ -123,7 +152,7 @@ export function InvoiceForm({ mode, invoiceId }: InvoiceFormProps) {
     if (!invoiceNumber.trim()) return "Please enter an invoice number.";
     if (!invoiceDate) return "Please select an invoice date.";
     if (items.length === 0) return "Add at least one line item.";
-    const invalidItem = items.find((i) => !i.name.trim() || i.quantity <= 0 || i.unitPrice <= 0);
+    const invalidItem = items.find((i) => !i.purchaseOrderLineItemId || !i.name.trim() || i.quantity <= 0 || i.unitPrice <= 0);
     if (invalidItem) {
       return "Every line item needs a name, a quantity greater than 0, and a unit price greater than 0.";
     }
@@ -138,6 +167,7 @@ export function InvoiceForm({ mode, invoiceId }: InvoiceFormProps) {
     }
 
     const lineItems: InvoiceLineItemInput[] = items.map((i) => ({
+      purchaseOrderLineItemId: i.purchaseOrderLineItemId,
       name: i.name.trim(),
       description: i.description?.trim() || undefined,
       quantity: i.quantity,
@@ -291,18 +321,25 @@ export function InvoiceForm({ mode, invoiceId }: InvoiceFormProps) {
                     </tr>
                   </thead>
                   <tbody>
-                    {items.map((item) => (
+                    {items.map((item) => {
+                      const selectedLine = selectedOrder?.lineItems.find((line) => line.purchaseOrderLineItemId === item.purchaseOrderLineItemId);
+                      return (
                       <tr key={item._key} className="border-b border-border/60">
                         <td className="px-4 py-2.5">
-                          <label htmlFor={`item-name-${item._key}`} className="sr-only">Item name</label>
-                          <input
+                          <label htmlFor={`item-name-${item._key}`} className="sr-only">Purchase order item</label>
+                          <select
                             id={`item-name-${item._key}`}
-                            type="text"
-                            value={item.name}
-                            onChange={(e) => updateItem(item._key, "name", e.target.value)}
-                            placeholder="Item name"
-                            className="w-full text-sm border border-border rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary min-w-28"
-                          />
+                            value={item.purchaseOrderLineItemId}
+                            onChange={(e) => {
+                              const line = selectedOrder?.lineItems.find((candidate) => candidate.purchaseOrderLineItemId === e.target.value);
+                              if (!line) return updateItem(item._key, "purchaseOrderLineItemId", e.target.value);
+                              setItems((previous) => previous.map((current) => current._key === item._key ? { ...current, purchaseOrderLineItemId: line.purchaseOrderLineItemId, name: line.name, description: line.description ?? "", quantity: Number(line.quantityInvoiceable || 0), unitPrice: line.unitPrice, sku: line.sku ?? "", unitOfMeasure: line.unitOfMeasure ?? "" } : current));
+                            }}
+                            className="w-full text-sm border border-border rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary min-w-36"
+                          >
+                            <option value="">Select fulfilled item</option>
+                            {(selectedOrder?.lineItems || []).filter((line) => Number(line.quantityInvoiceable || 0) > 0 || line.purchaseOrderLineItemId === item.purchaseOrderLineItemId).map((line) => <option key={line.purchaseOrderLineItemId} value={line.purchaseOrderLineItemId}>{line.name} ({line.quantityInvoiceable ?? 0} invoiceable)</option>)}
+                          </select>
                         </td>
                         <td className="px-4 py-2.5">
                           <label htmlFor={`item-desc-${item._key}`} className="sr-only">Description</label>
@@ -324,6 +361,7 @@ export function InvoiceForm({ mode, invoiceId }: InvoiceFormProps) {
                             onChange={(e) => updateItem(item._key, "quantity", parseInt(e.target.value) || 0)}
                             className="w-16 text-sm border border-border rounded-lg px-2 py-1.5 text-center focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
                             min={0}
+                            max={selectedLine?.quantityInvoiceable}
                           />
                         </td>
                         <td className="px-4 py-2.5">
@@ -366,7 +404,8 @@ export function InvoiceForm({ mode, invoiceId }: InvoiceFormProps) {
                           )}
                         </td>
                       </tr>
-                    ))}
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
