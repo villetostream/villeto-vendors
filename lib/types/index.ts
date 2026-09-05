@@ -260,6 +260,10 @@ export interface OrderLineItem {
   name: string;
   description?: string;
   quantity: number;
+  shortClosedQuantity?: number;
+  shortCloseReason?: string | null;
+  shortClosedAt?: string | null;
+  quantityInvoiceable?: number;
   unitPrice: number;
   subtotal: number;
   taxAmount: number;
@@ -493,6 +497,7 @@ export interface InvoiceVendorRef {
  * removing this restriction.
  */
 export interface InvoiceLineItemInput {
+  purchaseOrderLineItemId: string;
   name: string;
   description?: string;
   quantity: number;
@@ -504,6 +509,7 @@ export interface InvoiceLineItemInput {
 
 export interface InvoiceLineItem {
   vendorInvoiceLineItemId: string;
+  purchaseOrderLineItemId?: string | null;
   name: string;
   description?: string;
   quantity: number;
