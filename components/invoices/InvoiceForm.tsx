@@ -169,27 +169,7 @@ export function InvoiceForm({ mode, invoiceId }: InvoiceFormProps) {
     );
   }, [existingInvoice]);
 
-  useEffect(() => {
-    if (isEditing || !selectedOrder) return;
-    const invoiceableLines = selectedOrder.lineItems.filter(
-      (line) => Number(line.quantityInvoiceable || 0) > 0,
-    );
-    setItems(
-      invoiceableLines.length
-        ? invoiceableLines.map((line) => ({
-            _key: generateKey(),
-            purchaseOrderLineItemId: line.purchaseOrderLineItemId,
-            name: line.name,
-            description: line.description ?? "",
-            quantity: Number(line.quantityInvoiceable),
-            unitPrice: line.unitPrice,
-            taxAmount: 0,
-            sku: line.sku ?? "",
-            unitOfMeasure: line.unitOfMeasure ?? "",
-          }))
-        : [emptyLineItem()],
-    );
-  }, [isEditing, selectedOrder]);
+
 
   const subtotal = items.reduce((sum, i) => sum + i.quantity * i.unitPrice, 0);
   const taxTotal = items.reduce((sum, i) => sum + (i.taxAmount ?? 0), 0);
