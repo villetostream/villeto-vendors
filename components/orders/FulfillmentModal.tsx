@@ -10,6 +10,7 @@ import {
 } from "@/components/ui/Modal";
 import { Label } from "@/components/ui/Label";
 import { Button } from "@/components/ui/Button";
+import { Input } from "@/components/ui/Input";
 import { DatePicker } from "@/components/ui/DatePicker";
 import {
   Select,
@@ -38,6 +39,7 @@ export interface FulfillmentFormData {
   declaration: DeliveryType;
   fulfillmentMethod: string;
   expectedDeliveryDate?: string;
+  fulfillmentReference?: string;
   carrier?: string;
   trackingNumber?: string;
   packingSlipNumber?: string;
@@ -71,6 +73,7 @@ export function FulfillmentModal({
   // Form state
   const [declaration, setDeclaration] = useState<DeliveryType>(initialDeclaration || "full");
   const [fulfillmentMethod, setFulfillmentMethod] = useState("");
+  const [fulfillmentReference, setFulfillmentReference] = useState("");
   const [expectedDeliveryDate, setExpectedDeliveryDate] = useState("");
   const [carrier, setCarrier] = useState("");
   const [trackingNumber, setTrackingNumber] = useState("");
@@ -87,6 +90,7 @@ export function FulfillmentModal({
     if (open) {
       setDeclaration(initialDeclaration || "full");
       setFulfillmentMethod("");
+      setFulfillmentReference("");
       setExpectedDeliveryDate("");
       setCarrier("");
       setTrackingNumber("");
@@ -121,43 +125,103 @@ export function FulfillmentModal({
   }, [declaration, lineItems]);
 
   const showShippingFields = fulfillmentMethod === "carrier" || fulfillmentMethod === "vendor_truck";
+  const isPhysical = fulfillmentMethod === "carrier" || fulfillmentMethod === "vendor_truck";
   const isFull = declaration === "full";
 
   const fulfillableItems = lineItems.filter((item) => getRemainingToReady(item) > 0);
   const cancelledItems = lineItems.filter((item) => item.remainingDisposition === "cannot_fulfill");
 
-  const handleSubmit = () => {
-    const result: FulfillmentFormData = {
-      declaration,
-      fulfillmentMethod,
-      expectedDeliveryDate: expectedDeliveryDate || undefined,
-      carrier: carrier || undefined,
-      trackingNumber: trackingNumber || undefined,
-      packingSlipNumber: packingSlipNumber || undefined,
-      notes: notes || undefined,
-      lineItems: lineItems.map((item) => {
+  const isValid = () => {
+    if (!fulfillmentMethod) return false;
+    
+    if (fulfillmentMethod === "carrier") {
+      if (!expectedDeliveryDate || !carrier) return false;
+    }
+    if (fulfillmentMethod === "vendor_truck") {
+      if (!expectedDeliveryDate) return false;
+    }
+    
+    if (!isFull) {
+      for (const item of fulfillableItems) {
         const remaining = getRemainingToReady(item);
         const rawQty = quantities[item.purchaseOrderLineItemId];
-        const qty = isFull ? remaining : (typeof rawQty === "number" ? rawQty : 0);
-        const disp = dispositions[item.purchaseOrderLineItemId];
-        const date = expectedDates[item.purchaseOrderLineItemId];
-        const reason = dispositionReasons[item.purchaseOrderLineItemId];
+        const qty = rawQty !== undefined ? rawQty : 0;
+        if (typeof qty === "number" && qty >= 0 && qty < remaining) {
+           const disp = dispositions[item.purchaseOrderLineItemId];
+           if (!disp) return false;
+           if (disp === "backordered" && !expectedDates[item.purchaseOrderLineItemId]) {
+             return false;
+           }
+        }
+      }
+    }
+    
+    return true;
+  };
 
-        // For items already marked cannot_fulfill (remaining === 0 but quantity > quantityReady),
-        // we must still send the disposition so the backend knows the unit is accounted for.
-        const alreadyCancelled = item.remainingDisposition === "cannot_fulfill";
+  const handleSubmit = () => {
+    let finalExpectedDeliveryDate = expectedDeliveryDate || undefined;
+    let finalCarrier = carrier || undefined;
+    let finalTrackingNumber = trackingNumber || undefined;
+    let finalPackingSlipNumber = packingSlipNumber || undefined;
+
+    if (fulfillmentMethod === "vendor_truck") {
+      finalCarrier = undefined;
+      finalTrackingNumber = undefined;
+    } else if (fulfillmentMethod === "digital" || fulfillmentMethod === "service") {
+      finalExpectedDeliveryDate = undefined;
+      finalCarrier = undefined;
+      finalTrackingNumber = undefined;
+      finalPackingSlipNumber = undefined;
+    }
+
+    const itemsToSubmit = lineItems
+      .filter((item) => {
+        const remaining = getRemainingToReady(item);
+        if (remaining <= 0) return false;
+        
+        const rawQty = quantities[item.purchaseOrderLineItemId];
+        const qty = typeof rawQty === "number" ? rawQty : (declaration === "full" ? remaining : 0);
+        return qty > 0 || (qty === 0 && dispositions[item.purchaseOrderLineItemId] !== undefined);
+      })
+      .map((item) => {
+        const remaining = getRemainingToReady(item);
+        const rawQty = quantities[item.purchaseOrderLineItemId];
+        const qtyReady = typeof rawQty === "number" ? rawQty : (declaration === "full" ? remaining : 0);
+        
+        let remainingDisposition: string | undefined;
+        let expectedReadyDate: string | undefined;
+        let dispositionReason: string | undefined;
+        
+        if (declaration !== "full" && qtyReady < remaining) {
+          remainingDisposition = dispositions[item.purchaseOrderLineItemId] || undefined;
+          if (remainingDisposition === "backordered") {
+            expectedReadyDate = expectedDates[item.purchaseOrderLineItemId] || undefined;
+          }
+          dispositionReason = dispositionReasons[item.purchaseOrderLineItemId] || undefined;
+        }
 
         return {
           purchaseOrderLineItemId: item.purchaseOrderLineItemId,
-          quantityReady: qty,
-          ...(alreadyCancelled ? { remainingDisposition: "cannot_fulfill" as const } : (qty < remaining && disp ? { remainingDisposition: disp } : {})),
-          ...(qty < remaining && disp === "backordered" && date ? { expectedReadyDate: date } : {}),
+          quantityReady: qtyReady,
+          remainingDisposition,
+          expectedReadyDate,
+          dispositionReason,
         };
-      }),
-    };
-    onSubmit(result);
-  };
+      });
 
+    onSubmit({
+      declaration,
+      fulfillmentMethod,
+      fulfillmentReference: fulfillmentReference.trim() || undefined,
+      expectedDeliveryDate: finalExpectedDeliveryDate,
+      carrier: finalCarrier?.trim() || undefined,
+      trackingNumber: finalTrackingNumber?.trim() || undefined,
+      packingSlipNumber: finalPackingSlipNumber?.trim() || undefined,
+      notes: notes.trim() || undefined,
+      lineItems: itemsToSubmit,
+    });
+  };
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
       <DialogContent size="lg" className="max-h-[90vh] flex flex-col p-0 overflow-hidden">
@@ -179,7 +243,7 @@ export function FulfillmentModal({
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-1.5">
               <Label className="text-sm font-semibold">Fulfillment method</Label>
-              <Select value={fulfillmentMethod} onValueChange={setFulfillmentMethod}>
+              <Select value={fulfillmentMethod || undefined} onValueChange={setFulfillmentMethod}>
                 <SelectTrigger className="h-10 bg-white">
                   <SelectValue placeholder="Select a method" />
                 </SelectTrigger>
@@ -196,37 +260,55 @@ export function FulfillmentModal({
           {/* Shipping fields — shown conditionally */}
           {showShippingFields && (
             <div className="mt-4 p-4 rounded-xl border border-border bg-muted/20 space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-1.5">
-                  <Label className="text-sm font-semibold">Expected delivery date</Label>
-                  <DatePicker
-                    date={expectedDeliveryDate ? new Date(expectedDeliveryDate) : undefined}
-                    onSelect={(d) => setExpectedDeliveryDate(d ? format(d, "yyyy-MM-dd") : "")}
-                    className="h-10 bg-white w-full"
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label className="text-sm font-semibold">Carrier</Label>
-                  <input
-                    type="text"
-                    value={carrier}
-                    onChange={(e) => setCarrier(e.target.value)}
-                    placeholder="e.g. FedEx, DHL"
-                    className="h-10 px-3 text-sm border border-border rounded-lg bg-white w-full focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
-                  />
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-1.5">
-                  <Label className="text-sm font-semibold">Tracking number</Label>
-                  <input
-                    type="text"
-                    value={trackingNumber}
-                    onChange={(e) => setTrackingNumber(e.target.value)}
-                    placeholder="e.g. 1Z999AA1..."
-                    className="h-10 px-3 text-sm border border-border rounded-lg bg-white w-full focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
-                  />
-                </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {isPhysical && (
+                  <>
+                    <div className="space-y-1.5">
+                      <Label className="text-sm font-semibold">Your Reference # <span className="text-muted-foreground font-normal">(Optional)</span></Label>
+                      <Input
+                        value={fulfillmentReference}
+                        onChange={(e) => setFulfillmentReference(e.target.value)}
+                        placeholder="Waybill, Bill of Lading, etc."
+                        className="h-10 bg-white"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-sm font-semibold">Expected delivery date</Label>
+                      <DatePicker
+                        date={expectedDeliveryDate ? new Date(expectedDeliveryDate) : undefined}
+                        onSelect={(d) => setExpectedDeliveryDate(d ? format(d, "yyyy-MM-dd") : "")}
+                        className="h-10 bg-white w-full"
+                      />
+                    </div>
+                  </>
+                )}
+                
+                {fulfillmentMethod === "carrier" && (
+                  <div className="space-y-1.5">
+                    <Label className="text-sm font-semibold">Carrier</Label>
+                    <input
+                      type="text"
+                      value={carrier}
+                      onChange={(e) => setCarrier(e.target.value)}
+                      placeholder="e.g. FedEx, DHL"
+                      className="h-10 px-3 text-sm border border-border rounded-lg bg-white w-full focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+                    />
+                  </div>
+                )}
+
+                {fulfillmentMethod === "carrier" && (
+                  <div className="space-y-1.5">
+                    <Label className="text-sm font-semibold">Tracking number</Label>
+                    <input
+                      type="text"
+                      value={trackingNumber}
+                      onChange={(e) => setTrackingNumber(e.target.value)}
+                      placeholder="e.g. 1Z999AA1..."
+                      className="h-10 px-3 text-sm border border-border rounded-lg bg-white w-full focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+                    />
+                  </div>
+                )}
+                
                 <div className="space-y-1.5">
                   <Label className="text-sm font-semibold">Packing slip number (optional)</Label>
                   <input
@@ -310,7 +392,7 @@ export function FulfillmentModal({
                             <div className="space-y-2 flex-1">
                               <Label className="text-xs font-semibold text-amber-700">Missing {remaining - (typeof qty === "number" ? qty : 0)} Units Disposition</Label>
                               <Select
-                                value={disp || ""}
+                                value={disp || undefined}
                                 onValueChange={(val) => setDispositions((prev) => ({ ...prev, [item.purchaseOrderLineItemId]: val }))}
                               >
                                 <SelectTrigger className="h-9 text-sm bg-white">
@@ -389,7 +471,7 @@ export function FulfillmentModal({
           <Button variant="outline" onClick={onClose} disabled={isSubmitting}>
             Cancel
           </Button>
-          <Button variant="primary" onClick={handleSubmit} loading={isSubmitting}>
+          <Button variant="primary" onClick={handleSubmit} loading={isSubmitting} disabled={!isValid() || isSubmitting}>
             Submit fulfillment
           </Button>
         </div>

@@ -7,9 +7,10 @@ import { Search, FilePlus2, ChevronLeft, ChevronRight } from "lucide-react";
 import { useDebounce } from "use-debounce";
 import { useInvoices } from "@/lib/hooks/useInvoices";
 import { useCompany } from "@/lib/hooks/useCompany";
-import { InvoiceStatusBadge, InvoicePaymentStatusBadge } from "@/components/ui/StatusBadge";
+import { UnifiedInvoiceStatusBadge } from "@/components/ui/StatusBadge";
 import { Button } from "@/components/ui/Button";
 import { EmptyState, ErrorState } from "@/components/ui/Spinner";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/Select";
 import { TableSkeleton } from "@/components/ui/Skeleton";
 import { InvoiceActionMenu } from "@/components/invoices/InvoiceActionMenu";
 import { formatDate, formatCurrency, cn } from "@/lib/utils";
@@ -24,9 +25,9 @@ const STATUS_TABS: { label: string; value: InvoiceStatus | "all" }[] = [
   { label: "Paid", value: "paid" },
 ];
 
-const INVOICES_COLUMNS = ["Invoice Number", "Related PO", "Amount", "Invoice Date", "Status", "Payment", "Action"];
+const INVOICES_COLUMNS = ["Invoice Number", "Related PO", "Amount", "Invoice Date", "Status", "Action"];
 
-const LIMIT = 10;
+const LIMIT_OPTIONS = [10, 25, 50];
 
 export default function InvoicesPage() {
   const router = useRouter();
@@ -35,6 +36,7 @@ export default function InvoicesPage() {
   const [search, setSearch] = useState("");
   const [debouncedSearch] = useDebounce(search, 400);
   const [page, setPage] = useState(1);
+  const [limit, setLimit] = useState(10);
 
   useEffect(() => {
     setPage(1);
@@ -43,14 +45,14 @@ export default function InvoicesPage() {
   const filters = {
     status: activeTab === "all" ? undefined : activeTab,
     page,
-    limit: LIMIT,
+    limit,
   };
 
   const { data, isLoading, isError, refetch, isFetching } = useInvoices(filters);
 
   const invoices = data ?? [];
   // No total count from the list endpoint yet — see orders/page.tsx note.
-  const hasNextPage = invoices.length === LIMIT;
+  const hasNextPage = invoices.length === limit;
 
   const visibleInvoices = debouncedSearch
     ? invoices.filter((inv) => inv.invoiceNumber.toLowerCase().includes(debouncedSearch.toLowerCase()))
@@ -110,7 +112,7 @@ export default function InvoicesPage() {
         </div>
 
         {isLoading ? (
-          <TableSkeleton rows={LIMIT} columns={INVOICES_COLUMNS.length} />
+          <TableSkeleton rows={limit} columns={INVOICES_COLUMNS.length} />
         ) : isError ? (
           <ErrorState message="Couldn't load invoices. Please check your connection and try again." onRetry={() => refetch()} />
         ) : visibleInvoices.length === 0 ? (
@@ -154,8 +156,7 @@ export default function InvoicesPage() {
                       {formatCurrency(invoice.totalAmount, invoice.currency)}
                     </td>
                     <td className="px-5 py-3.5 text-sm text-muted-foreground whitespace-nowrap">{formatDate(invoice.invoiceDate)}</td>
-                    <td className="px-5 py-3.5"><InvoiceStatusBadge status={invoice.status} /></td>
-                    <td className="px-5 py-3.5"><InvoicePaymentStatusBadge status={invoice.paymentStatus} /></td>
+                    <td className="px-5 py-3.5"><UnifiedInvoiceStatusBadge invoice={invoice} /></td>
                     <td className="px-5 py-3.5" onClick={(e) => e.stopPropagation()}>
                       <InvoiceActionMenu
                         invoiceId={invoice.vendorInvoiceId}
@@ -171,8 +172,31 @@ export default function InvoicesPage() {
         )}
 
         {!isLoading && !isError && invoices.length > 0 && (
-          <div className="flex items-center justify-between px-5 py-3.5 border-t border-dashboard-border">
-            <span className="text-sm text-muted-foreground">Page {page}</span>
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between px-5 py-3.5 border-t border-dashboard-border gap-4">
+            <div className="flex items-center gap-3">
+              <span className="text-sm text-muted-foreground">Page {page}</span>
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-muted-foreground">Show:</span>
+                <Select
+                  value={limit.toString()}
+                  onValueChange={(val) => {
+                    setLimit(Number(val));
+                    setPage(1);
+                  }}
+                >
+                  <SelectTrigger className="h-8 w-[70px] text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {LIMIT_OPTIONS.map((opt) => (
+                      <SelectItem key={opt} value={opt.toString()}>
+                        {opt}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
             <nav className="flex items-center gap-1" aria-label="Pagination">
               <button
                 onClick={() => setPage((p) => Math.max(1, p - 1))}

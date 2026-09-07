@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { FilePlus2, ClipboardList, Clock, CheckCircle2, MoreVertical } from "lucide-react";
+import { useState, useEffect } from "react";
 import { getVendorSummary } from "@/lib/api/vendor";
 import { useCompanyStore, queryKeys } from "@/lib/stores/companyStore";
 import { useCompany } from "@/lib/hooks/useCompany";
@@ -11,6 +12,7 @@ import { Button } from "@/components/ui/Button";
 import { OrderStatusBadge } from "@/components/ui/StatusBadge";
 import { StatCardSkeleton, TableSkeleton } from "@/components/ui/Skeleton";
 import { EmptyState, ErrorState } from "@/components/ui/Spinner";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/Select";
 import { formatCurrency } from "@/lib/utils";
 import { SummaryFilters } from "@/lib/types";
 
@@ -51,8 +53,10 @@ export default function DashboardPage() {
   const { activeCompany } = useCompany();
 
   // const dateRange = useCompanyStore((s) => s.dateRange);
+  const [currency, setCurrency] = useState("NGN");
 
   const summaryFilters: SummaryFilters = {
+    currency,
     // TODO: Uncomment when backend supports date filtering (currently causes 400 Bad Request)
     // ...(dateRange?.from && { startDate: format(dateRange.from, "yyyy-MM-dd") }),
     // ...(dateRange?.to && { endDate: format(dateRange.to, "yyyy-MM-dd") }),
@@ -71,6 +75,14 @@ export default function DashboardPage() {
 
   const orders = summary?.recentOrders ?? [];
 
+  // Fallback to update currency to the first order's currency if NGN is just a default
+  // This is a UX fallback since vendor's preferred currency isn't saved yet
+  useEffect(() => {
+    if (orders.length > 0 && currency === "NGN" && orders[0].currency !== "NGN") {
+      setCurrency(orders[0].currency);
+    }
+  }, [orders, currency]);
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -85,12 +97,25 @@ export default function DashboardPage() {
             .
           </p>
         </div>
-        <Button asChild variant="primary" className="self-start sm:self-auto">
-          <Link href="/invoices/create">
-            <FilePlus2 className="h-4 w-4" aria-hidden="true" />
-            Create new Invoice
-          </Link>
-        </Button>
+        <div className="flex items-center gap-3 self-start sm:self-auto">
+          <Select value={currency} onValueChange={setCurrency}>
+            <SelectTrigger className="h-9 w-[115px] bg-white whitespace-nowrap">
+              <SelectValue placeholder="Currency" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="NGN">NGN (₦)</SelectItem>
+              <SelectItem value="USD">USD ($)</SelectItem>
+              <SelectItem value="EUR">EUR (€)</SelectItem>
+              <SelectItem value="GBP">GBP (£)</SelectItem>
+            </SelectContent>
+          </Select>
+          <Button asChild variant="primary">
+            <Link href="/invoices/create">
+              <FilePlus2 className="h-4 w-4" aria-hidden="true" />
+              Create new Invoice
+            </Link>
+          </Button>
+        </div>
       </div>
 
       {/* Stats grid */}
@@ -130,7 +155,7 @@ export default function DashboardPage() {
           />
           <StatCard
             label="Total Paid"
-            value={formatCurrency(summary?.totalPaid ?? 0)}
+            value={formatCurrency(summary?.totalPaid ?? 0, currency)}
             icon={CheckCircle2}
             iconBg="bg-primary/10 text-primary"
             linkHref="/invoices?paymentStatus=paid"
