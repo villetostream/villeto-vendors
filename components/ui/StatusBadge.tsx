@@ -89,6 +89,58 @@ export function InvoicePaymentStatusBadge({
 }
 
 /**
+ * A unified badge that combines the approval status and payment status into a single,
+ * vendor-friendly state, removing the clunky two-badge UI.
+ */
+export function UnifiedInvoiceStatusBadge({
+  invoice,
+  className,
+}: BadgeProps & { invoice: { status: InvoiceStatus; paymentStatus: InvoicePaymentStatus } }) {
+  let label = "";
+  let color = "";
+  let bg = "";
+
+  if (invoice.status === "rejected") {
+    label = "Rejected";
+    color = "text-red-700";
+    bg = "bg-red-50 border-red-200";
+  } else if (invoice.status === "paid" || invoice.paymentStatus === "paid") {
+    label = "Paid";
+    color = "text-green-700";
+    bg = "bg-green-50 border-green-200";
+  } else if (invoice.paymentStatus === "in_progress") {
+    label = "Payment Processing";
+    color = "text-blue-700";
+    bg = "bg-blue-50 border-blue-200";
+  } else if (invoice.status === "approved") {
+    label = "Approved (Awaiting Payment)";
+    color = "text-emerald-700";
+    bg = "bg-emerald-50 border-emerald-200";
+  } else if (invoice.status === "under_review") {
+    label = "Under Review";
+    color = "text-amber-700";
+    bg = "bg-amber-50 border-amber-200";
+  } else {
+    label = "Submitted";
+    color = "text-slate-700";
+    bg = "bg-slate-50 border-slate-200";
+  }
+
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border",
+        color,
+        bg,
+        className
+      )}
+    >
+      {label}
+    </span>
+  );
+}
+
+/**
  * Company-relationship status — raw `status` string (backend casing is
  * inconsistent, normalized inside getCompanyStatusConfig) plus
  * approvalStatus, since the two together determine the copy shown (e.g.

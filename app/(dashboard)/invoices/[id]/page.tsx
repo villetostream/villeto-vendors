@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, Edit, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
-import { InvoiceStatusBadge, InvoicePaymentStatusBadge } from "@/components/ui/StatusBadge";
+import { UnifiedInvoiceStatusBadge } from "@/components/ui/StatusBadge";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { ErrorState, EmptyState } from "@/components/ui/Spinner";
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/Modal";
@@ -107,35 +107,44 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
   return (
     <>
       <div className="space-y-5">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex items-center gap-3">
-            <button onClick={() => router.back()} aria-label="Go back" className="p-1.5 rounded-xl hover:bg-muted transition-colors shrink-0">
-              <ArrowLeft className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
-            </button>
-            <div>
-              <div className="flex items-center gap-2.5">
-                <h1 className="text-xl font-bold">{invoice.invoiceNumber}</h1>
-                <InvoiceStatusBadge status={invoice.status} />
-                <InvoicePaymentStatusBadge status={invoice.paymentStatus} />
+        <div className="sticky top-0 z-20 bg-dashboard-bg/95 backdrop-blur-sm -mx-4 px-4 sm:-mx-6 sm:px-6 -mt-4 pt-4 sm:-mt-6 sm:pt-6 pb-4 border-b border-dashboard-border mb-2">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-center gap-3">
+              <button onClick={() => router.back()} aria-label="Go back" className="p-1.5 rounded-xl hover:bg-muted transition-colors shrink-0">
+                <ArrowLeft className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
+              </button>
+              <div>
+                <div className="flex flex-wrap items-center gap-2.5">
+                  <h1 className="text-xl font-bold">{invoice.invoiceNumber}</h1>
+                  <UnifiedInvoiceStatusBadge invoice={invoice} />
+                </div>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  {invoice.submittedAt ? `Sent on ${formatDate(invoice.submittedAt)}` : `Invoice date ${formatDate(invoice.invoiceDate)}`}
+                </p>
               </div>
-              <p className="text-xs text-muted-foreground mt-0.5">
-                {invoice.submittedAt ? `Sent on ${formatDate(invoice.submittedAt)}` : `Invoice date ${formatDate(invoice.invoiceDate)}`}
-              </p>
+            </div>
+
+            <div className="flex items-center gap-2">
+              {canEditOrDelete && (
+                <>
+                  <Button variant="outline" onClick={() => router.push(`/invoices/${invoice.vendorInvoiceId}/edit`)}>
+                    <Edit className="h-4 w-4" aria-hidden="true" />
+                    Edit Invoice
+                  </Button>
+                  <Button variant="destructive" onClick={() => setShowDeleteConfirm(true)}>
+                    <Trash2 className="h-4 w-4" aria-hidden="true" />
+                    Delete
+                  </Button>
+                </>
+              )}
+              {invoice.status === "rejected" && (
+                <Button variant="primary" onClick={() => router.push(`/invoices/${invoice.vendorInvoiceId}/edit`)}>
+                  <Edit className="h-4 w-4" aria-hidden="true" />
+                  Revise & Resubmit
+                </Button>
+              )}
             </div>
           </div>
-
-          {canEditOrDelete && (
-            <div className="flex items-center gap-2">
-              <Button variant="outline" onClick={() => router.push(`/invoices/${invoice.vendorInvoiceId}/edit`)}>
-                <Edit className="h-4 w-4" aria-hidden="true" />
-                Edit Invoice
-              </Button>
-              <Button variant="destructive" onClick={() => setShowDeleteConfirm(true)}>
-                <Trash2 className="h-4 w-4" aria-hidden="true" />
-                Delete
-              </Button>
-            </div>
-          )}
         </div>
 
         {invoice.status === "rejected" && (

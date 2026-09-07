@@ -65,6 +65,7 @@ export function InvoiceForm({ mode, invoiceId }: InvoiceFormProps) {
   const [notes, setNotes] = useState("");
   const [items, setItems] = useState<FormLineItem[]>([emptyLineItem()]);
   const [showSuccess, setShowSuccess] = useState(false);
+  const [prefilledPOId, setPrefilledPOId] = useState("");
 
   const { data: orders = [], isError: ordersError } = useQuery({
     queryKey: queryKeys.orders(companyId, { limit: 100 }),
@@ -72,10 +73,10 @@ export function InvoiceForm({ mode, invoiceId }: InvoiceFormProps) {
     enabled: !!companyId,
   });
 
-  const { data: selectedOrder } = useQuery({
-    queryKey: ["vendor-portal", "invoiceable-order", companyId, selectedPOId],
+  const { data: selectedOrderDetails } = useQuery({
+    queryKey: queryKeys.order(companyId, selectedPOId),
     queryFn: () => getOrder(selectedPOId),
-    enabled: !!companyId && !!selectedPOId,
+    enabled: !!selectedPOId && !!companyId,
   });
 
   const {
@@ -87,6 +88,57 @@ export function InvoiceForm({ mode, invoiceId }: InvoiceFormProps) {
     queryFn: () => getInvoice(invoiceId!),
     enabled: isEditing && !!companyId,
   });
+
+  useEffect(() => {
+    if (mode === "create" && selectedPOId && selectedOrderDetails && prefilledPOId !== selectedPOId) {
+      const po = selectedOrderDetails;
+      
+      const isTerminal = po.lineItems.every((item) => {
+        const remaining = item.quantity - (item.quantityReady || 0);
+        return remaining <= 0 || item.remainingDisposition === "cannot_fulfill";
+      });
+
+      if (!isTerminal) {
+        toast.error("This order is not ready for invoicing. All deliveries must be fully fulfilled or cancelled.");
+        setItems([emptyLineItem()]);
+        setPrefilledPOId(selectedPOId);
+        return;
+      }
+
+      setCurrency(po.currency || "USD");
+      if (po.lineItems && po.lineItems.length > 0) {
+        const invoiceableLines = po.lineItems.filter(
+          (line) => (line.quantityReady || 0) > 0
+        );
+
+        if (invoiceableLines.length > 0) {
+          setItems(
+            invoiceableLines.map((line) => {
+              const qty = line.quantityReady || 0;
+              // Scale tax proportionally to the fulfilled quantity to handle partial fulfillments
+              const scaledTax = line.quantity > 0 ? (line.taxAmount / line.quantity) * qty : 0;
+              const roundedTax = Math.round(scaledTax * 100) / 100;
+
+              return {
+                _key: generateKey(),
+                purchaseOrderLineItemId: line.purchaseOrderLineItemId,
+                name: line.name,
+                description: line.description || "",
+                quantity: qty,
+                unitPrice: line.unitPrice,
+                taxAmount: roundedTax,
+                sku: line.sku || "",
+                unitOfMeasure: line.unitOfMeasure || "",
+              };
+            })
+          );
+        } else {
+          setItems([emptyLineItem()]);
+        }
+      }
+      setPrefilledPOId(selectedPOId);
+    }
+  }, [selectedPOId, mode, selectedOrderDetails, prefilledPOId]);
 
   useEffect(() => {
     if (isEditing && existingInvoiceError) {
@@ -117,27 +169,7 @@ export function InvoiceForm({ mode, invoiceId }: InvoiceFormProps) {
     );
   }, [existingInvoice]);
 
-  useEffect(() => {
-    if (isEditing || !selectedOrder) return;
-    const invoiceableLines = selectedOrder.lineItems.filter(
-      (line) => Number(line.quantityInvoiceable || 0) > 0,
-    );
-    setItems(
-      invoiceableLines.length
-        ? invoiceableLines.map((line) => ({
-            _key: generateKey(),
-            purchaseOrderLineItemId: line.purchaseOrderLineItemId,
-            name: line.name,
-            description: line.description ?? "",
-            quantity: Number(line.quantityInvoiceable),
-            unitPrice: line.unitPrice,
-            taxAmount: 0,
-            sku: line.sku ?? "",
-            unitOfMeasure: line.unitOfMeasure ?? "",
-          }))
-        : [emptyLineItem()],
-    );
-  }, [isEditing, selectedOrder]);
+
 
   const subtotal = items.reduce((sum, i) => sum + i.quantity * i.unitPrice, 0);
   const taxTotal = items.reduce((sum, i) => sum + (i.taxAmount ?? 0), 0);
@@ -149,6 +181,17 @@ export function InvoiceForm({ mode, invoiceId }: InvoiceFormProps) {
 
   const validate = (): string | null => {
     if (!selectedPOId) return "Please select a purchase order to invoice against.";
+    
+    if (selectedOrderDetails) {
+      const isTerminal = selectedOrderDetails.lineItems.every((item) => {
+        const remaining = item.quantity - (item.quantityReady || 0);
+        return remaining <= 0 || item.remainingDisposition === "cannot_fulfill";
+      });
+      if (!isTerminal) {
+        return "This order is not ready for invoicing. All deliveries must be fully fulfilled or cancelled.";
+      }
+    }
+
     if (!invoiceNumber.trim()) return "Please enter an invoice number.";
     if (!invoiceDate) return "Please select an invoice date.";
     if (items.length === 0) return "Add at least one line item.";
@@ -220,13 +263,18 @@ export function InvoiceForm({ mode, invoiceId }: InvoiceFormProps) {
   return (
     <>
       <div className="space-y-5">
-        <div className="flex items-center gap-3">
-          <button type="button" onClick={() => router.back()} aria-label="Go back" className="p-1.5 rounded-xl hover:bg-muted transition-colors">
-            <ArrowLeft className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
-          </button>
-          <div>
-            <h1 className="text-xl font-bold">{isEditing ? "Edit Invoice" : "Create New Invoice"}</h1>
-            <p className="text-xs text-muted-foreground mt-0.5">Submit an invoice against a purchase order</p>
+        <div className="sticky top-0 z-20 bg-dashboard-bg/95 backdrop-blur-sm -mx-4 px-4 sm:-mx-6 sm:px-6 -mt-4 pt-4 sm:-mt-6 sm:pt-6 pb-4 border-b border-border mb-2">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-center gap-3">
+              <button type="button" onClick={() => router.back()} aria-label="Go back" className="p-1.5 rounded-xl hover:bg-muted transition-colors shrink-0">
+                <ArrowLeft className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
+              </button>
+              <div>
+                <h1 className="text-xl font-bold">{isEditing ? "Edit Invoice" : "Create New Invoice"}</h1>
+                <p className="text-xs text-muted-foreground mt-0.5">Submit an invoice against a purchase order</p>
+              </div>
+            </div>
+            {/* Action buttons could go here if we wanted them top-aligned on desktop, but they are in the sidebar for InvoiceForm */}
           </div>
         </div>
 
@@ -281,7 +329,7 @@ export function InvoiceForm({ mode, invoiceId }: InvoiceFormProps) {
                 </FormField>
 
                 <FormField label="Currency">
-                  <Input type="text" value={currency} onChange={(e) => setCurrency(e.target.value.toUpperCase())} maxLength={3} />
+                  <Input type="text" value={currency} disabled title="Currency is determined by the purchase order" />
                 </FormField>
               </div>
 
@@ -303,17 +351,13 @@ export function InvoiceForm({ mode, invoiceId }: InvoiceFormProps) {
                 <h2 className="text-base font-semibold">
                   Invoice Items <span className="text-muted-foreground font-normal ml-1">{items.length}</span>
                 </h2>
-                <button type="button" onClick={addItem} className="flex items-center gap-1.5 text-sm text-primary hover:underline font-medium">
-                  <Plus className="h-4 w-4" aria-hidden="true" />
-                  Add Item
-                </button>
               </div>
 
               <div className="overflow-x-auto">
-                <table className="w-full">
+                <table className="w-full min-w-[700px]">
                   <thead>
                     <tr className="border-b border-border">
-                      {["Name", "Description", "Qty", "Unit Price", "Tax", "Total", ""].map((col, i) => (
+                      {["Name", "Description", "Qty", "Unit Price", "Tax", "Total"].map((col, i) => (
                         <th key={i} className="px-4 py-3 text-left text-xs font-medium text-muted-foreground whitespace-nowrap">
                           {col}
                         </th>
@@ -322,24 +366,18 @@ export function InvoiceForm({ mode, invoiceId }: InvoiceFormProps) {
                   </thead>
                   <tbody>
                     {items.map((item) => {
-                      const selectedLine = selectedOrder?.lineItems.find((line) => line.purchaseOrderLineItemId === item.purchaseOrderLineItemId);
+
                       return (
                       <tr key={item._key} className="border-b border-border/60">
                         <td className="px-4 py-2.5">
                           <label htmlFor={`item-name-${item._key}`} className="sr-only">Purchase order item</label>
-                          <select
+                          <input
                             id={`item-name-${item._key}`}
-                            value={item.purchaseOrderLineItemId}
-                            onChange={(e) => {
-                              const line = selectedOrder?.lineItems.find((candidate) => candidate.purchaseOrderLineItemId === e.target.value);
-                              if (!line) return updateItem(item._key, "purchaseOrderLineItemId", e.target.value);
-                              setItems((previous) => previous.map((current) => current._key === item._key ? { ...current, purchaseOrderLineItemId: line.purchaseOrderLineItemId, name: line.name, description: line.description ?? "", quantity: Number(line.quantityInvoiceable || 0), unitPrice: line.unitPrice, sku: line.sku ?? "", unitOfMeasure: line.unitOfMeasure ?? "" } : current));
-                            }}
-                            className="w-full text-sm border border-border rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary min-w-36"
-                          >
-                            <option value="">Select fulfilled item</option>
-                            {(selectedOrder?.lineItems || []).filter((line) => Number(line.quantityInvoiceable || 0) > 0 || line.purchaseOrderLineItemId === item.purchaseOrderLineItemId).map((line) => <option key={line.purchaseOrderLineItemId} value={line.purchaseOrderLineItemId}>{line.name} ({line.quantityInvoiceable ?? 0} invoiceable)</option>)}
-                          </select>
+                            type="text"
+                            value={item.name}
+                            disabled
+                            className="w-full text-sm border border-border rounded-lg px-2.5 py-1.5 bg-muted/50 cursor-not-allowed min-w-36"
+                          />
                         </td>
                         <td className="px-4 py-2.5">
                           <label htmlFor={`item-desc-${item._key}`} className="sr-only">Description</label>
@@ -347,9 +385,8 @@ export function InvoiceForm({ mode, invoiceId }: InvoiceFormProps) {
                             id={`item-desc-${item._key}`}
                             type="text"
                             value={item.description}
-                            onChange={(e) => updateItem(item._key, "description", e.target.value)}
-                            placeholder="Optional"
-                            className="w-full text-sm border border-border rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary min-w-28"
+                            disabled
+                            className="w-full text-sm border border-border rounded-lg px-2.5 py-1.5 bg-muted/50 cursor-not-allowed min-w-28"
                           />
                         </td>
                         <td className="px-4 py-2.5">
@@ -358,10 +395,8 @@ export function InvoiceForm({ mode, invoiceId }: InvoiceFormProps) {
                             id={`item-qty-${item._key}`}
                             type="number"
                             value={item.quantity}
-                            onChange={(e) => updateItem(item._key, "quantity", parseInt(e.target.value) || 0)}
-                            className="w-16 text-sm border border-border rounded-lg px-2 py-1.5 text-center focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
-                            min={0}
-                            max={selectedLine?.quantityInvoiceable}
+                            disabled
+                            className="w-16 text-sm border border-border rounded-lg px-2 py-1.5 text-center bg-muted/50 cursor-not-allowed"
                           />
                         </td>
                         <td className="px-4 py-2.5">
@@ -370,10 +405,8 @@ export function InvoiceForm({ mode, invoiceId }: InvoiceFormProps) {
                             id={`item-price-${item._key}`}
                             type="number"
                             value={item.unitPrice || ""}
-                            onChange={(e) => updateItem(item._key, "unitPrice", parseFloat(e.target.value) || 0)}
-                            placeholder="0.00"
-                            className="w-24 text-sm border border-border rounded-lg px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
-                            min={0}
+                            disabled
+                            className="w-24 text-sm border border-border rounded-lg px-2 py-1.5 bg-muted/50 cursor-not-allowed"
                           />
                         </td>
                         <td className="px-4 py-2.5">
@@ -382,39 +415,18 @@ export function InvoiceForm({ mode, invoiceId }: InvoiceFormProps) {
                             id={`item-tax-${item._key}`}
                             type="number"
                             value={item.taxAmount || ""}
-                            onChange={(e) => updateItem(item._key, "taxAmount", parseFloat(e.target.value) || 0)}
-                            placeholder="0.00"
-                            className="w-20 text-sm border border-border rounded-lg px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
-                            min={0}
+                            disabled
+                            className="w-20 text-sm border border-border rounded-lg px-2 py-1.5 bg-muted/50 cursor-not-allowed"
                           />
                         </td>
                         <td className="px-4 py-2.5 text-sm font-medium whitespace-nowrap">
                           {formatCurrency(item.quantity * item.unitPrice + (item.taxAmount ?? 0), currency)}
-                        </td>
-                        <td className="px-4 py-2.5">
-                          {items.length > 1 && (
-                            <button
-                              type="button"
-                              onClick={() => removeItem(item._key)}
-                              aria-label={`Remove ${item.name || "this item"}`}
-                              className="p-1 text-red-400 hover:text-red-600 transition-colors"
-                            >
-                              <Trash2 className="h-4 w-4" aria-hidden="true" />
-                            </button>
-                          )}
                         </td>
                       </tr>
                       );
                     })}
                   </tbody>
                 </table>
-              </div>
-
-              <div className="px-5 py-3 border-t border-border">
-                <button type="button" onClick={addItem} className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-primary transition-colors">
-                  <Plus className="h-3.5 w-3.5" aria-hidden="true" />
-                  Add Item
-                </button>
               </div>
             </div>
           </div>

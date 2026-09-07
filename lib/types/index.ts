@@ -640,6 +640,7 @@ export interface DashboardSummary {
 export interface SummaryFilters {
   startDate?: string;
   endDate?: string;
+  currency?: string;
 }
 
 // ─────────────────────────────────────────────

@@ -11,16 +11,19 @@ import {
   useCreateFulfillment,
   useDispatchFulfillment,
 } from "@/lib/hooks/useOrders";
+import { useInvoices } from "@/lib/hooks/useInvoices";
 import { Button } from "@/components/ui/Button";
 import { OrderStatusBadge } from "@/components/ui/StatusBadge";
 import { Skeleton } from "@/components/ui/Skeleton";
-import { ErrorState, EmptyState } from "@/components/ui/Spinner";
 import { DeliveryTypeMenu } from "@/components/orders/DeliveryTypeMenu";
 import { FulfillmentModal, FulfillmentFormData } from "@/components/orders/FulfillmentModal";
+import { ItemFulfillmentDrawer } from "@/components/orders/ItemFulfillmentDrawer";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/Modal";
 import { DatePicker } from "@/components/ui/DatePicker";
+import { ErrorState, EmptyState } from "@/components/ui/Spinner";
 import { formatCurrency, formatDate, formatDateTime, cn } from "@/lib/utils";
 import { format } from "date-fns";
-import { Fulfillment, DeliveryType, TimelineEvent } from "@/lib/types";
+import { Fulfillment, DeliveryType, TimelineEvent, OrderLineItem } from "@/lib/types";
 import { toast } from "sonner";
 
 function OrderDetailSkeleton() {
@@ -80,6 +83,8 @@ function FulfillmentHistorySection({
   isDispatching: (fulfillmentId: string) => boolean;
 }) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [confirmDispatchId, setConfirmDispatchId] = useState<string | null>(null);
+
   if (!notices || notices.length === 0) return null;
 
   const methodLabel: Record<string, string> = {
@@ -288,7 +293,7 @@ function FulfillmentHistorySection({
                         loading={isDispatching(notice.vendorDeliveryNoticeId)}
                         onClick={(e) => {
                           e.stopPropagation();
-                          onDispatch(notice.vendorDeliveryNoticeId);
+                          setConfirmDispatchId(notice.vendorDeliveryNoticeId);
                         }}
                       >
                         <Send className="h-4 w-4 mr-2" />
@@ -302,6 +307,32 @@ function FulfillmentHistorySection({
           );
         })}
       </div>
+
+      <Dialog open={!!confirmDispatchId} onOpenChange={(o) => !o && setConfirmDispatchId(null)}>
+        <DialogContent size="sm">
+          <DialogTitle>Confirm Dispatch</DialogTitle>
+          <div className="mt-2 text-sm text-muted-foreground">
+            <p>Are you sure you want to dispatch this shipment?</p>
+            <p className="mt-1">This will notify the buyer that the items are on the way.</p>
+          </div>
+          <div className="mt-6 flex items-center justify-end gap-3">
+            <Button variant="outline" onClick={() => setConfirmDispatchId(null)}>
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              onClick={() => {
+                if (confirmDispatchId) {
+                  onDispatch(confirmDispatchId);
+                  setConfirmDispatchId(null);
+                }
+              }}
+            >
+              Confirm Dispatch
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -320,9 +351,11 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
   // Per-item delivery dates entered before acknowledging
   const [draftDates, setDraftDates] = useState<Record<string, string>>({});
 
-  // Fulfillment modal state
   const [fulfillmentModalOpen, setFulfillmentModalOpen] = useState(false);
   const [modalDeclaration, setModalDeclaration] = useState<DeliveryType>("full");
+
+  // Item fulfillment drawer state
+  const [selectedItemForDrawer, setSelectedItemForDrawer] = useState<OrderLineItem | null>(null);
 
   useEffect(() => {
     if (!order) return;
@@ -357,8 +390,9 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
     );
   }
 
-  const canCreateInvoice = ["partially_delivered", "delivered", "closed"].includes(order.status);
-  const allDatesEntered = order.lineItems.every((item) => !!draftDates[item.purchaseOrderLineItemId]);
+  const { data: invoicesData } = useInvoices({ purchaseOrderId: id });
+  const invoices = invoicesData || [];
+  const existingInvoice = invoices[0];
 
   // Helper: how many units are still fulfillable for an item
   const getRemainingToReady = (item: typeof order.lineItems[0]) => {
@@ -367,6 +401,14 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
   };
 
   const hasItemsToFulfill = order.lineItems.some(item => getRemainingToReady(item) > 0);
+
+  const isTerminal = order.lineItems.every((item) => {
+    const remaining = item.quantity - (item.quantityReady || 0);
+    return remaining <= 0 || item.remainingDisposition === "cannot_fulfill";
+  });
+
+  const canCreateInvoice = isTerminal && !existingInvoice && ["acknowledged", "ready_for_delivery", "partially_delivered", "delivered", "closed"].includes(order.status);
+  const allDatesEntered = order.lineItems.every((item) => !!draftDates[item.purchaseOrderLineItemId]);
 
   const handleAcknowledge = () => {
     if (!allDatesEntered) {
@@ -467,14 +509,27 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
         ) : null;
       }
       default:
-        return canCreateInvoice ? (
-          <Button asChild variant="primary">
-            <Link href={`/invoices/create?purchaseOrderId=${order.purchaseOrderId}`}>
-              <FilePlus2 className="h-4 w-4" aria-hidden="true" />
-              Create an Invoice
-            </Link>
-          </Button>
-        ) : null;
+        if (existingInvoice) {
+          return (
+            <Button asChild variant="outline">
+              <Link href={`/invoices/${existingInvoice.vendorInvoiceId}`}>
+                <FilePlus2 className="h-4 w-4 mr-2" aria-hidden="true" />
+                View Invoice
+              </Link>
+            </Button>
+          );
+        }
+        if (canCreateInvoice) {
+          return (
+            <Button asChild variant="primary">
+              <Link href={`/invoices/create?purchaseOrderId=${order.purchaseOrderId}`}>
+                <FilePlus2 className="h-4 w-4 mr-2" aria-hidden="true" />
+                Create an Invoice
+              </Link>
+            </Button>
+          );
+        }
+        return null;
     }
   };
 
@@ -570,7 +625,7 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
               </h2>
             </div>
             <div className="overflow-x-auto">
-              <table className="w-full">
+              <table className="w-full min-w-[700px]">
                 <thead>
                   <tr className="border-b border-border">
                     <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground whitespace-nowrap">Name</th>
@@ -596,8 +651,10 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
                     return (
                       <tr
                         key={item.purchaseOrderLineItemId}
+                        onClick={() => !isEnteringDates && setSelectedItemForDrawer(item)}
                         className={cn(
-                          "border-b border-border/60",
+                          "border-b border-border/60 hover:bg-muted/30 transition-colors",
+                          !isEnteringDates && "cursor-pointer",
                           isCancelled ? "bg-red-50/30" : ""
                         )}
                       >
@@ -642,7 +699,7 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
                                 )}
                                 {isCancelled && (
                                   <span className="text-xs text-red-700 bg-red-50 border border-red-200 px-1.5 py-0.5 rounded-md w-fit font-medium">
-                                    Cannot Fulfill
+                                    {item.quantity - qtyReady} Cannot Fulfill
                                   </span>
                                 )}
                                 {item.dispositionReason && (
@@ -774,7 +831,6 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
         </div>
       </div>
 
-      {/* ── Fulfillment Modal ── */}
       <FulfillmentModal
         open={fulfillmentModalOpen}
         onClose={() => setFulfillmentModalOpen(false)}
@@ -782,6 +838,13 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
         lineItems={order.lineItems}
         isSubmitting={createFulfillment.isPending}
         initialDeclaration={modalDeclaration}
+      />
+      {/* ── Item Fulfillment Drawer ── */}
+      <ItemFulfillmentDrawer
+        open={!!selectedItemForDrawer}
+        onClose={() => setSelectedItemForDrawer(null)}
+        item={selectedItemForDrawer}
+        fulfillments={order.fulfillments || order.deliveryNotices || []}
       />
     </div>
   );

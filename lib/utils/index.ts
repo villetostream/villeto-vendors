@@ -126,7 +126,7 @@ export function getCompanyStatusConfig(rawStatus: string, approvalStatus?: strin
 // CURRENCY FORMATTING
 // ─────────────────────────────────────────────
 
-export function formatCurrency(amount: number, currency: string = "NGN"): string {
+export function formatCurrency(amount: number, currency: string): string {
   if (currency === "NGN") {
     return `₦${amount.toLocaleString("en-NG", {
       minimumFractionDigits: 2,
