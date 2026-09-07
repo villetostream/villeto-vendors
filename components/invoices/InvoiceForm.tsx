@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { ArrowLeft, Plus, Trash2, ShieldCheck, CheckCircle2 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { getOrders, getOrder } from "@/lib/api/orders";
+import { getOrder, getOrders } from "@/lib/api/orders";
 import { getInvoice } from "@/lib/api/invoices";
 import { queryKeys, useCompanyStore } from "@/lib/stores/companyStore";
 import { Button } from "@/components/ui/Button";
@@ -168,6 +168,28 @@ export function InvoiceForm({ mode, invoiceId }: InvoiceFormProps) {
       }))
     );
   }, [existingInvoice]);
+
+  useEffect(() => {
+    if (isEditing || !selectedOrder) return;
+    const invoiceableLines = selectedOrder.lineItems.filter(
+      (line) => Number(line.quantityInvoiceable || 0) > 0,
+    );
+    setItems(
+      invoiceableLines.length
+        ? invoiceableLines.map((line) => ({
+            _key: generateKey(),
+            purchaseOrderLineItemId: line.purchaseOrderLineItemId,
+            name: line.name,
+            description: line.description ?? "",
+            quantity: Number(line.quantityInvoiceable),
+            unitPrice: line.unitPrice,
+            taxAmount: 0,
+            sku: line.sku ?? "",
+            unitOfMeasure: line.unitOfMeasure ?? "",
+          }))
+        : [emptyLineItem()],
+    );
+  }, [isEditing, selectedOrder]);
 
   const subtotal = items.reduce((sum, i) => sum + i.quantity * i.unitPrice, 0);
   const taxTotal = items.reduce((sum, i) => sum + (i.taxAmount ?? 0), 0);
@@ -364,6 +386,7 @@ export function InvoiceForm({ mode, invoiceId }: InvoiceFormProps) {
                   </thead>
                   <tbody>
                     {items.map((item) => {
+
                       return (
                       <tr key={item._key} className="border-b border-border/60">
                         <td className="px-4 py-2.5">
