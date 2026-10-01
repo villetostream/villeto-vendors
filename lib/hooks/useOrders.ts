@@ -29,6 +29,7 @@ export function useOrders(filters: OrderFilters = {}) {
     queryKey: queryKeys.orders(companyId, mergedFilters),
     queryFn: () => getOrders(mergedFilters),
     enabled: !!companyId,
+    refetchInterval: 15000,
   });
 }
 
@@ -39,6 +40,7 @@ export function useOrder(purchaseOrderId: string) {
     queryKey: queryKeys.order(companyId, purchaseOrderId),
     queryFn: () => getOrder(purchaseOrderId),
     enabled: !!companyId && !!purchaseOrderId,
+    refetchInterval: 15000, // Poll every 15s for buyer actions (e.g. receipt confirmation)
   });
 }
 

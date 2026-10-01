@@ -3,7 +3,7 @@
 import React, { use, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, CheckCircle2, ChevronDown, ChevronRight, FilePlus2, Package, Truck, Send, Monitor, Wrench } from "lucide-react";
+import { ArrowLeft, CheckCircle2, ChevronDown, ChevronRight, ClipboardCheck, FilePlus2, Package, Truck, Send, Monitor, Wrench } from "lucide-react";
 import {
   useOrder,
   useAcknowledgeOrder,
@@ -338,6 +338,132 @@ function FulfillmentHistorySection({
 }
 
 
+// ── Receipt Confirmation Section ──
+// Shows vendors what the buyer has confirmed receiving vs what was dispatched.
+function ReceiptConfirmationSection({ lineItems }: { lineItems: OrderLineItem[] }) {
+  // Only show once at least one item has dispatched or received quantities
+  const hasAnyActivity = lineItems.some(
+    (item) => (item.quantityDispatched || 0) > 0 || (item.quantityReceived || 0) > 0
+  );
+  if (!hasAnyActivity) return null;
+
+  const totalDispatched = lineItems.reduce((sum, item) => sum + (item.quantityDispatched || 0), 0);
+  const totalReceived = lineItems.reduce((sum, item) => sum + (item.quantityReceived || 0), 0);
+  const totalAwaiting = lineItems.reduce((sum, item) => sum + (item.quantityAwaitingReceipt || 0), 0);
+
+  return (
+    <div className="bg-white rounded-2xl border border-dashboard-border overflow-hidden">
+      <div className="px-6 py-4 border-b border-border flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <ClipboardCheck className="h-4 w-4 text-muted-foreground" />
+          <h2 className="text-base font-semibold">Receipt Confirmation</h2>
+        </div>
+        {totalAwaiting > 0 ? (
+          <span className="text-xs px-2 py-0.5 rounded-full font-medium border bg-amber-50 text-amber-700 border-amber-200">
+            {totalAwaiting} awaiting confirmation
+          </span>
+        ) : totalReceived > 0 ? (
+          <span className="text-xs px-2 py-0.5 rounded-full font-medium border bg-green-50 text-green-700 border-green-200">
+            All confirmed
+          </span>
+        ) : null}
+      </div>
+
+      {/* Summary stats */}
+      <div className="grid grid-cols-3 gap-4 px-6 py-4 bg-muted/20 border-b border-border/60">
+        <div className="text-center">
+          <p className="text-lg font-bold text-foreground">{totalDispatched}</p>
+          <p className="text-xs text-muted-foreground mt-0.5">Dispatched</p>
+        </div>
+        <div className="text-center">
+          <p className="text-lg font-bold text-green-700">{totalReceived}</p>
+          <p className="text-xs text-muted-foreground mt-0.5">Buyer Confirmed</p>
+        </div>
+        <div className="text-center">
+          <p className={cn("text-lg font-bold", totalAwaiting > 0 ? "text-amber-600" : "text-muted-foreground")}>{totalAwaiting}</p>
+          <p className="text-xs text-muted-foreground mt-0.5">Awaiting</p>
+        </div>
+      </div>
+
+      {/* Progress bar */}
+      {totalDispatched > 0 && (
+        <div className="px-6 py-3 border-b border-border/60">
+          <div className="flex items-center justify-between text-xs text-muted-foreground mb-1.5">
+            <span>Buyer confirmation progress</span>
+            <span className="font-medium text-foreground">{totalDispatched > 0 ? Math.round((totalReceived / totalDispatched) * 100) : 0}%</span>
+          </div>
+          <div className="h-2 bg-muted rounded-full overflow-hidden">
+            <div
+              className="h-full bg-green-500 rounded-full transition-all duration-500"
+              style={{ width: `${totalDispatched > 0 ? (totalReceived / totalDispatched) * 100 : 0}%` }}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Per-item breakdown */}
+      <div className="overflow-x-auto">
+        <table className="w-full">
+          <thead>
+            <tr className="border-b border-border">
+              <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground">Item</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground">You Dispatched</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground">Buyer Confirmed</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground">Awaiting</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground">Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {lineItems.map((item) => {
+              const dispatched = item.quantityDispatched || 0;
+              const received = item.quantityReceived || 0;
+              const awaiting = item.quantityAwaitingReceipt || 0;
+
+              // Skip items with no dispatch/receipt activity at all
+              if (dispatched === 0 && received === 0) return null;
+
+              return (
+                <tr key={item.purchaseOrderLineItemId} className="border-b border-border/40">
+                  <td className="px-6 py-3 text-sm font-medium">{item.name}</td>
+                  <td className="px-6 py-3 text-sm">{dispatched}</td>
+                  <td className="px-6 py-3 text-sm">
+                    <span className={cn("font-medium", received > 0 ? "text-green-700" : "text-muted-foreground")}>
+                      {received}
+                    </span>
+                  </td>
+                  <td className="px-6 py-3 text-sm">
+                    <span className={cn("font-medium", awaiting > 0 ? "text-amber-600" : "text-muted-foreground")}>
+                      {awaiting}
+                    </span>
+                  </td>
+                  <td className="px-6 py-3">
+                    {dispatched === 0 ? (
+                      <span className="text-xs text-muted-foreground">Not dispatched</span>
+                    ) : received >= dispatched ? (
+                      <span className="text-xs text-green-700 bg-green-50 border border-green-200 px-1.5 py-0.5 rounded-md font-medium">
+                        All Received
+                      </span>
+                    ) : received > 0 ? (
+                      <span className="text-xs text-blue-700 bg-blue-50 border border-blue-200 px-1.5 py-0.5 rounded-md font-medium">
+                        Partially Received
+                      </span>
+                    ) : (
+                      <span className="text-xs text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded-md font-medium">
+                        Awaiting Confirmation
+                      </span>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+
 export default function OrderDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const router = useRouter();
@@ -356,6 +482,8 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
 
   // Item fulfillment drawer state
   const [selectedItemForDrawer, setSelectedItemForDrawer] = useState<OrderLineItem | null>(null);
+
+  const { data: invoicesData } = useInvoices({ purchaseOrderId: id });
 
   useEffect(() => {
     if (!order) return;
@@ -390,7 +518,6 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
     );
   }
 
-  const { data: invoicesData } = useInvoices({ purchaseOrderId: id });
   const invoices = invoicesData || [];
   const existingInvoice = invoices[0];
 
@@ -402,12 +529,10 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
 
   const hasItemsToFulfill = order.lineItems.some(item => getRemainingToReady(item) > 0);
 
-  const isTerminal = order.lineItems.every((item) => {
-    const remaining = item.quantity - (item.quantityReady || 0);
-    return remaining <= 0 || item.remainingDisposition === "cannot_fulfill";
-  });
-
-  const canCreateInvoice = isTerminal && !existingInvoice && ["acknowledged", "ready_for_delivery", "partially_delivered", "delivered", "closed"].includes(order.status);
+  // Allow invoicing once any buyer-confirmed quantity exists — the invoice form
+  // itself handles computing invoiceable amounts and excludes already-invoiced lines.
+  const hasAnyConfirmedReceipt = order.lineItems.some((item) => (item.quantityReceived || 0) > 0);
+  const canCreateInvoice = hasAnyConfirmedReceipt && ["acknowledged", "ready_for_delivery", "partially_delivered", "delivered", "closed"].includes(order.status);
   const allDatesEntered = order.lineItems.every((item) => !!draftDates[item.purchaseOrderLineItemId]);
 
   const handleAcknowledge = () => {
@@ -478,25 +603,31 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
   };
 
   const renderCTA = () => {
-    switch (order.status) {
-      case "issued":
-        return (
-          <Button
-            variant="primary"
-            loading={acknowledge.isPending}
-            disabled={!allDatesEntered}
-            onClick={handleAcknowledge}
-          >
-            <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
-            Acknowledge Order
-          </Button>
-        );
-      case "acknowledged":
-      case "ready_for_delivery":
-      case "partially_delivered": {
+    const buttons = [];
+
+    // 1. Acknowledge Action
+    if (order.status === "issued") {
+      buttons.push(
+        <Button
+          key="acknowledge"
+          variant="primary"
+          loading={acknowledge.isPending}
+          disabled={!allDatesEntered}
+          onClick={handleAcknowledge}
+        >
+          <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
+          Acknowledge Order
+        </Button>
+      );
+    }
+
+    // 2. Fulfill Action
+    if (["acknowledged", "ready_for_delivery", "partially_delivered"].includes(order.status)) {
+      if (hasItemsToFulfill) {
         const isSubsequent = (order.fulfillments?.length || order.deliveryNotices?.length || 0) > 0;
-        return hasItemsToFulfill ? (
+        buttons.push(
           <DeliveryTypeMenu
+            key="fulfill"
             isConfirmingFull={createFulfillment.isPending}
             onSelect={handleDeliveryTypeSelect}
             trigger={
@@ -506,31 +637,32 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
               </Button>
             }
           />
-        ) : null;
+        );
       }
-      default:
-        if (existingInvoice) {
-          return (
-            <Button asChild variant="outline">
-              <Link href={`/invoices/${existingInvoice.vendorInvoiceId}`}>
-                <FilePlus2 className="h-4 w-4 mr-2" aria-hidden="true" />
-                View Invoice
-              </Link>
-            </Button>
-          );
-        }
-        if (canCreateInvoice) {
-          return (
-            <Button asChild variant="primary">
-              <Link href={`/invoices/create?purchaseOrderId=${order.purchaseOrderId}`}>
-                <FilePlus2 className="h-4 w-4 mr-2" aria-hidden="true" />
-                Create an Invoice
-              </Link>
-            </Button>
-          );
-        }
-        return null;
     }
+
+    // 3. Invoice Actions
+    if (canCreateInvoice) {
+      buttons.push(
+        <Button key="create-invoice" asChild variant={buttons.length > 0 ? "outline" : "primary"}>
+          <Link href={`/invoices/create?purchaseOrderId=${order.purchaseOrderId}`}>
+            <FilePlus2 className="h-4 w-4 mr-2" aria-hidden="true" />
+            Create Invoice
+          </Link>
+        </Button>
+      );
+    } else if (invoices.length > 0) {
+      buttons.push(
+        <Button key="view-invoices" asChild variant="outline">
+          <Link href={`/invoices?purchaseOrderId=${order.purchaseOrderId}`}>
+            <FilePlus2 className="h-4 w-4 mr-2" aria-hidden="true" />
+            View Invoices
+          </Link>
+        </Button>
+      );
+    }
+
+    return <>{buttons}</>;
   };
 
   const isEnteringDates = order.status === "issued";
@@ -723,6 +855,9 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
               </table>
             </div>
           </div>
+
+          {/* ── Receipt Confirmation (dispatched vs buyer-confirmed) ── */}
+          <ReceiptConfirmationSection lineItems={order.lineItems} />
 
           {/* ── Fulfillment History ── */}
           <FulfillmentHistorySection

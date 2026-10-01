@@ -29,6 +29,7 @@ export function useInvoices(filters: InvoiceFilters = {}) {
     queryKey: queryKeys.invoices(companyId, mergedFilters),
     queryFn: () => getInvoices(mergedFilters),
     enabled: !!companyId,
+    refetchInterval: 15000,
   });
 }
 
@@ -39,6 +40,7 @@ export function useInvoice(invoiceId: string) {
     queryKey: queryKeys.invoice(companyId, invoiceId),
     queryFn: () => getInvoice(invoiceId),
     enabled: !!companyId && !!invoiceId,
+    refetchInterval: 15000,
   });
 }
 
