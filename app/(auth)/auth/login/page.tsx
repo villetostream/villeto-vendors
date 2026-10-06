@@ -143,7 +143,7 @@ function LoginContent() {
       }
 
       // 3. Alternatively, if the backend marked their active context as needing acceptance
-      if (currentVendor.nextAction === "accept_invitation") {
+      if (currentVendor.nextAction === "accept_invitation" || currentVendor.onboardingStatus?.toLowerCase() === "invited") {
         hardNavigate(`/invitation/${currentVendor.companyId}`);
         return;
       }

@@ -67,6 +67,8 @@ export interface V2OnboardingStatus {
   verificationAvailable: boolean;
   supportedVerificationMethods: string[];
   verificationMessage?: string;
+  nextAction?: string;
+  accessState?: string;
   businessIdentity: V2BusinessIdentity;
 }
 
