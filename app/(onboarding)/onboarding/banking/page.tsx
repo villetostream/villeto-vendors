@@ -14,19 +14,18 @@ import {
   Select, SelectTrigger, SelectValue, SelectContent, SelectItem,
 } from "@/components/ui/Select";
 import { useOnboardingStore } from "@/lib/stores/onboardingStore";
-import { resolveAccountName, saveBankingDetails } from "@/lib/api/onboarding";
+import { saveBankingDetails } from "@/lib/api/onboarding";
 import { COUNTRIES } from "@/lib/constants/countries";
 import { getBanksForCountry } from "@/lib/constants/banks";
-import { fuzzyMatchScore } from "@/lib/utils";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
 const schema = z.object({
   bank_code: z.string().min(1, "Select a bank"),
   bank_name: z.string().min(1, "Select a bank"),
+  account_name: z.string().min(2, "Account name is required"),
   routing_number: z.string().optional(),
   account_number: z.string().min(10, "Account number must be at least 10 digits"),
-  flag_note: z.string().optional(),
 });
 
 type FormData = z.infer<typeof schema>;
@@ -38,11 +37,7 @@ export default function BankingPage() {
   const store = useOnboardingStore();
 
   const [banks, setBanks] = useState<Bank[]>([]);
-  const [resolvedName, setResolvedName] = useState<string>("");
-  const [resolving, setResolving] = useState(false);
-  const [matchScore, setMatchScore] = useState<number | null>(null);
   const [isNavigating, setIsNavigating] = useState(false);
-  const isFlagged = matchScore !== null && matchScore < 90;
 
   const {
     register,
@@ -55,9 +50,9 @@ export default function BankingPage() {
     defaultValues: {
       bank_code: store.banking.bank_code ?? "",
       bank_name: store.banking.bank_name ?? "",
+      account_name: store.banking.account_name ?? "",
       routing_number: store.banking.routing_number ?? "",
       account_number: store.banking.account_number ?? "",
-      flag_note: store.banking.flag_note ?? "",
     },
   });
 
@@ -93,66 +88,15 @@ export default function BankingPage() {
     setBanks(list);
   }, [store.businessIdentity.country]);
 
-  /**
-   * ACCOUNT RESOLVE
-   * Fires when bank + 5+ digit account number are both present.
-   * Resolves account holder name, then fuzzy-matches against business name.
-   * Submission is blocked below a 90-point match score unless a note is added.
-   *
-   * INTEGRATION POINT: real call in resolveAccountName()
-   */
-  useEffect(() => {
-    if (!bankCode || debouncedAccount.length < 10) {
-      setResolvedName("");
-      setMatchScore(null);
-      return;
-    }
-
-    // Guards against a slow/late response overwriting state set by a more
-    // recent request (e.g. the vendor kept typing while the first request
-    // was still in flight).
-    let isStale = false;
-
-    setResolving(true);
-    resolveAccountName({ bank_code: bankCode, account_number: debouncedAccount })
-      .then((res) => {
-        if (isStale) return;
-        setResolvedName(res.account_name);
-        const businessName = store.businessIdentity.business_name ?? "";
-        const score = fuzzyMatchScore(businessName, res.account_name);
-        setMatchScore(score);
-      })
-      .catch(() => {
-        if (isStale) return;
-        // As requested: the backend name resolution is not fully functional yet.
-        // Instead of hard-blocking the user with an error toast and disabled button,
-        // we provide a fallback dummy name so they can continue to the next step.
-        setResolvedName("Account Details Pending Verification");
-        setMatchScore(100); // 100 prevents the "flagged" note requirement from appearing
-      })
-      .finally(() => {
-        if (!isStale) setResolving(false);
-      });
-
-    return () => {
-      isStale = true;
-    };
-  }, [bankCode, debouncedAccount, store.businessIdentity.business_name]);
 
   const onSubmit = async (data: FormData) => {
-    // Block submission if the resolved account name doesn't reasonably
-    // match the business name (score < 90) unless the vendor adds a note.
-    if (isFlagged && !data.flag_note?.trim()) {
-      toast.error("Please add a note explaining the name mismatch before continuing.");
-      return;
-    }
 
     try {
       await saveBankingDetails(data);
       store.saveBanking(
         data,
-        resolvedName,
-        matchScore ?? 100
+        data.account_name,
+        100
       );
       setIsNavigating(true);
       router.push("/onboarding/documents");
@@ -239,58 +183,28 @@ export default function BankingPage() {
             )}
           </FormField>
 
-          {/* Account number */}
           <FormField
             label="Account Number"
             error={errors.account_number?.message}
           >
-            <div className="relative">
-              <Input
-                placeholder="0000000000"
-                error={!!errors.account_number}
-                {...register("account_number")}
-              />
-              {resolving && (
-                <div className="absolute right-3 top-1/2 -translate-y-1/2">
-                  <Loader2 className="h-4 w-4 animate-spin text-primary" aria-hidden="true" />
-                  <span className="sr-only" role="status">Resolving account name…</span>
-                </div>
-              )}
-            </div>
-
-            {/* Resolved name pill */}
-            {resolvedName && !resolving && (
-              <p className={cn(
-                "text-sm font-medium mt-2",
-                isFlagged ? "text-amber-600" : "text-primary"
-              )}>
-                {resolvedName}
-              </p>
-            )}
+            <Input
+              placeholder="0000000000"
+              error={!!errors.account_number}
+              {...register("account_number")}
+            />
           </FormField>
 
-          {/* Flag warning + note input */}
-          {isFlagged && resolvedName && (
-            <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 space-y-3">
-              <div className="flex items-start gap-2">
-                <AlertCircle className="h-4 w-4 text-amber-600 mt-0.5 shrink-0" aria-hidden="true" />
-                <div>
-                  <p className="text-sm font-semibold text-amber-800">Flagged</p>
-                  <p className="text-xs text-amber-700 mt-0.5">
-                    Your account name is not matching your business name.
-                    Confirm the account details or add a note to explain.
-                  </p>
-                </div>
-              </div>
-              <FormField label="Add Note" error={errors.flag_note?.message}>
-                <Input
-                  placeholder="Enter note..."
-                  className="bg-white border-amber-200 focus:border-amber-400 focus:ring-amber-100"
-                  {...register("flag_note")}
-                />
-              </FormField>
-            </div>
-          )}
+          <FormField
+            label="Account Name"
+            error={errors.account_name?.message}
+          >
+            <Input
+              placeholder="e.g. John Doe"
+              error={!!errors.account_name}
+              {...register("account_name")}
+            />
+          </FormField>
+
 
           {/* Actions */}
           <div className="flex gap-3 pt-2">
@@ -308,7 +222,6 @@ export default function BankingPage() {
               variant="primary"
               size="lg"
               loading={isSubmitting || isNavigating}
-              disabled={resolving || !resolvedName}
               className="flex-1"
             >
               Continue

@@ -6,7 +6,7 @@ import { Toaster } from "sonner";
 import { useEffect, useRef } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { useAuthStore } from "@/lib/stores/authStore";
-import { useCompanyStore } from "@/lib/stores/companyStore";
+import { useCompanyStore, queryKeys } from "@/lib/stores/companyStore";
 import { getVendorCompanies, getVendorProfile } from "@/lib/api/vendor";
 import Cookies from "js-cookie";
 import { AUTH_COOKIE_NAMES } from "@/lib/constants/auth";
@@ -54,6 +54,7 @@ function AuthInitializer({ children }: { children: React.ReactNode }) {
         const user = profileToAuthUser(profile);
         setUser(user);
         setCompanies(companies);
+        getQueryClient().setQueryData(queryKeys.companies(), companies);
         const activeCompanyId = Cookies.get(AUTH_COOKIE_NAMES.activeCompanyId);
         const match = companies.find((c) => c.companyId === activeCompanyId) ?? companies[0];
         if (match) setActive(match.companyId, match.vendorId);
@@ -86,8 +87,8 @@ function getQueryClient() {
       defaultOptions: {
         queries: {
           retry: 1,
-          staleTime: 0,
-          refetchOnWindowFocus: false,
+          staleTime: 1000 * 5, // 5 seconds stale time to prevent extreme spam, but still feel instant
+          refetchOnWindowFocus: true, // Crucial: refresh data instantly when user tabs back
           refetchOnMount: true,
         },
       },

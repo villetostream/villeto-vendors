@@ -11,16 +11,10 @@ import { logout } from "@/lib/api/auth";
 import { useAuthStore } from "@/lib/stores/authStore";
 import { useCompanyStore, queryKeys } from "@/lib/stores/companyStore";
 import { useOnboardingStore } from "@/lib/stores/onboardingStore";
-import { cn, getCompanyStatusConfig, getInitials, isStatusActive } from "@/lib/utils";
+import { cn, getCompanyStatusConfig, getInitials, isStatusActive, hasSubmittedOnboarding } from "@/lib/utils";
 import { AUTH_COOKIE_NAMES, AUTH_COOKIE_OPTIONS } from "@/lib/constants/auth";
 import { toast } from "sonner";
 
-const ONBOARDING_STEP_ROUTES: Record<string, string> = {
-  business_identity: "business-identity",
-  banking_details: "banking",
-  documents: "documents",
-  review: "review",
-};
 
 /**
  * Company switcher for the onboarding/pending shell.
@@ -60,7 +54,7 @@ export function OnboardingCompanySwitcher() {
 
   const activeCompany = companies.find((c) => c.companyId === activeCompanyId) ?? null;
   const activeStatusConfig = activeCompany
-    ? getCompanyStatusConfig(activeCompany.status, activeCompany.approvalStatus)
+    ? getCompanyStatusConfig(activeCompany.status, activeCompany.approvalStatus, (activeCompany as any).nextAction, activeCompany.onboardingStatus)
     : null;
 
   const handleSwitch = async (vendorId: string, companyId: string) => {
@@ -86,7 +80,7 @@ export function OnboardingCompanySwitcher() {
       }
 
       // Submitted (approvalStatus is set) → pending page
-      if (vendor.approvalStatus !== null) {
+      if (hasSubmittedOnboarding(vendor)) {
         router.replace("/pending");
         return;
       }
@@ -100,9 +94,7 @@ export function OnboardingCompanySwitcher() {
         businessIdentity: vendor.businessIdentity,
       });
 
-      const step = vendor.currentStep || "business_identity";
-      const route = ONBOARDING_STEP_ROUTES[step] || "business-identity";
-      router.replace(`/onboarding/${route}`);
+      router.replace(`/onboarding/${vendor.companyId}`);
     } catch {
       toast.error("Couldn't switch company. Please try again.");
     } finally {
@@ -164,9 +156,9 @@ export function OnboardingCompanySwitcher() {
             </div>
           )}
 
-          {companies.length > 1 && companies.map((company) => {
+          {companies.length > 1 && companies.filter(c => c.status.toLowerCase() !== "invited" && c.onboardingStatus !== "invited" && (c as any).nextAction !== "accept_invitation").map((company) => {
             const isActive = company.companyId === activeCompanyId;
-            const statusConfig = getCompanyStatusConfig(company.status, company.approvalStatus);
+            const statusConfig = getCompanyStatusConfig(company.status, company.approvalStatus, (company as any).nextAction, company.onboardingStatus);
             const isSwitching = switchingTo === company.vendorId;
 
             return (

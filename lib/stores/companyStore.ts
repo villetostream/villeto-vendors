@@ -92,4 +92,8 @@ export const queryKeys = {
   notifications: (companyId: string, filters = {}) =>
     ["vendor-portal", "notifications", companyId, filters] as const,
   unreadCount: (companyId: string) => ["vendor-portal", "notifications", "unread-count", companyId] as const,
+  v2Companies: (filters: Record<string, string | number> = {}) => ["vendor-network", "me", "companies", filters] as const,
+  v2Company: (companyId: string) => ["vendor-network", "me", "companies", companyId] as const,
+  v2Onboarding: (companyId: string) => ["vendor-network", "me", "companies", companyId, "onboarding"] as const,
+  v2BankAccounts: () => ["vendor-network", "me", "bank-accounts"] as const,
 };

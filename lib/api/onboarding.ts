@@ -67,32 +67,6 @@ export async function saveBusinessIdentity(
 }
 
 // ─────────────────────────────────────────────
-// ACCOUNT RESOLVE (Banking Details)
-// ─────────────────────────────────────────────
-
-/**
- * Resolve bank account holder name.
- * POST /onboarding/banking/resolve
- *
- * Calls Paystack/Flutterwave internally.
- * Returns resolved account name.
- * Frontend then runs fuzzy match against business name.
- */
-export async function resolveAccountName(payload: {
-  bank_code: string;
-  account_number: string;
-}): Promise<{
-  account_name: string;
-  account_number: string;
-  bank_name: string;
-}> {
-  // INTEGRATION POINT ↓
-  const { data } = await apiClient.post(
-    "/onboarding/banking/resolve",
-    payload
-  );
-  return data.data;
-}
 
 /**
  * Get list of supported banks.
@@ -117,12 +91,13 @@ export async function getBankList(country: string = "NG"): Promise<
  * PATCH /vendors/onboarding/banking-details
  */
 export async function saveBankingDetails(
-  payload: BankingDetailsForm & { bank_code: string; routing_number?: string }
+  payload: BankingDetailsForm & { bank_code: string; account_name?: string; routing_number?: string }
 ): Promise<{ success: boolean }> {
   // INTEGRATION POINT ↓
   const { data } = await apiClient.patch("/vendors/onboarding/banking-details", {
     bankName: payload.bank_name,
     accountNumber: payload.account_number,
+    accountName: payload.account_name,
     routingNumber: payload.routing_number, // Optional
   });
   return data;

@@ -7,6 +7,7 @@ import { AUTH_COOKIE_OPTIONS, AUTH_COOKIE_NAMES } from "@/lib/constants/auth";
 import { ApiEnvelope, CompanyRelationship, CurrentVendor } from "@/lib/types";
 import { useAuthStore } from "@/lib/stores/authStore";
 import { useCompanyStore } from "@/lib/stores/companyStore";
+import { forgotPassword, resetPassword } from "@/lib/api/auth";
 
 interface LoginPayload {
   email: string;
@@ -58,5 +59,23 @@ export const useLogin = (): UseMutationResult<LoginResponse, Error, LoginPayload
 
       return loginData;
     },
+  });
+};
+
+export const useForgotPassword = () => {
+  return useMutation({
+    mutationFn: (email: string) => forgotPassword(email),
+  });
+};
+
+export const useResetPassword = () => {
+  return useMutation({
+    mutationFn: (payload: { email: string; code: string; newPassword: string }) =>
+      resetPassword({
+        email: payload.email,
+        token: payload.code,
+        newPassword: payload.newPassword,
+        confirmPassword: payload.newPassword,
+      }),
   });
 };

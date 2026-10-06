@@ -12,7 +12,7 @@ import { sendMessage } from "@/lib/api/vendor";
 import { getVendorProfile } from "@/lib/api/vendor";
 import { useAuthStore } from "@/lib/stores/authStore";
 import { toast } from "sonner";
-import { cn, isStatusActive } from "@/lib/utils";
+import { cn, isStatusActive, hasSubmittedOnboarding } from "@/lib/utils";
 import Cookies from "js-cookie";
 import { AUTH_COOKIE_NAMES, AUTH_COOKIE_OPTIONS } from "@/lib/constants/auth";
 
@@ -128,6 +128,17 @@ export default function PendingPage() {
 
   const [sent, setSent] = useState(false);
 
+  // Guard: a vendor who hasn't submitted onboarding for this company (e.g.
+  // just accepted an invitation) must not see "Pending Approval" — send them
+  // into the V2 onboarding wizard instead.
+  useEffect(() => {
+    if (!user) return;
+    if (isStatusActive(user.status)) return;
+    if (hasSubmittedOnboarding(user)) return;
+    const companyId = user.companyId || Cookies.get(AUTH_COOKIE_NAMES.activeCompanyId);
+    if (companyId) router.replace(`/onboarding/${companyId}`);
+  }, [user, router]);
+
   useEffect(() => {
     const poll = async () => {
       try {
@@ -147,11 +158,13 @@ export default function PendingPage() {
 
         const meaningfullyChanged =
           freshUser.approvalStatus !== current?.approvalStatus ||
+          freshUser.onboardingStatus !== current?.onboardingStatus ||
           freshUser.status !== current?.status ||
           freshUser.decisionNote !== current?.decisionNote;
 
         if (meaningfullyChanged) {
-          setUser(freshUser);
+          // Preserve company context fields the profile endpoint doesn't return.
+          setUser({ ...current, ...freshUser });
         }
 
         if (freshUser.approvalStatus) {

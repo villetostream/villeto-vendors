@@ -11,7 +11,7 @@ import { useOnboardingStore } from "@/lib/stores/onboardingStore";
 import { switchCompany as switchCompanyApi } from "@/lib/api/vendor";
 import { AUTH_COOKIE_NAMES, AUTH_COOKIE_OPTIONS } from "@/lib/constants/auth";
 import { broadcastAuthEvent, subscribeToAuthBroadcast } from "@/lib/utils/authBroadcast";
-import { isStatusActive } from "@/lib/utils";
+import { isStatusActive, hasSubmittedOnboarding } from "@/lib/utils";
 import type { OnboardingMode } from "@/lib/types";
 
 /**
@@ -54,7 +54,7 @@ export function useCompany() {
   }, [store.activeCompanyId]);
 
   const switchCompany = useCallback(
-    async (vendorId: string) => {
+    async (vendorId: string, options?: { preventRedirect?: boolean }) => {
       const prevCompanyId = store.activeCompanyId;
 
       try {
@@ -89,28 +89,20 @@ export function useCompany() {
 
         // Active (payment-enabled) → dashboard
         if (isStatusActive(vendor.status)) {
-          router.replace("/dashboard");
+          if (!options?.preventRedirect) router.replace("/dashboard");
           toast.success(`Now working with ${vendor.companyName}`);
           return;
         }
 
         // Vendor has submitted (approvalStatus is set) → /pending to show status
-        if (vendor.approvalStatus !== null) {
-          router.replace("/pending");
+        if (hasSubmittedOnboarding(vendor)) {
+          if (!options?.preventRedirect) router.replace("/pending");
           toast.success(`Switched to ${vendor.companyName}`);
           return;
         }
 
-        // Vendor is still filling in the onboarding wizard → go to their current step
-        const STEP_ROUTES: Record<string, string> = {
-          business_identity: "business-identity",
-          banking_details: "banking",
-          documents: "documents",
-          review: "review",
-        };
-        const step = vendor.currentStep || "business_identity";
-        const route = STEP_ROUTES[step] || "business-identity";
-        router.replace(`/onboarding/${route}`);
+        // Vendor hasn't submitted for this company yet → V2 onboarding wizard
+        if (!options?.preventRedirect) router.replace(`/onboarding/${vendor.companyId}`);
         toast.success(`Switched to ${vendor.companyName}`);
       } catch {
         toast.error("Couldn't switch company. Please try again.");

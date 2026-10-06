@@ -36,10 +36,8 @@ import { AUTH_COOKIE_NAMES } from "@/lib/constants/auth";
  */
 
 const ONBOARDING_ROUTES = [
-  "/onboarding/business-identity",
-  "/onboarding/banking",
-  "/onboarding/documents",
-  "/onboarding/review",
+  "/onboarding",
+  "/invitation",
 ];
 
 const PROTECTED_ROUTES = [
@@ -128,9 +126,9 @@ export async function proxy(request: NextRequest) {
     const approvalStatus = request.cookies.get(AUTH_COOKIE_NAMES.approvalStatus)?.value;
 
     if (authToken) {
-      // If they are navigating to login with an invitationToken, we must
-      // allow them to render the page to accept the invite.
-      if (request.nextUrl.searchParams.has("invitationToken")) {
+      // If they are navigating to login with an invitation token or company ID, we must
+      // allow them to render the page to accept the invite via the client-side router.
+      if (request.nextUrl.searchParams.has("invitationToken") || request.nextUrl.searchParams.has("companyId")) {
         return NextResponse.next();
       }
 
@@ -140,7 +138,13 @@ export async function proxy(request: NextRequest) {
       }
       // Vendor has submitted (approvalStatus is set) → /pending to show review state.
       // Vendor is still onboarding (approvalStatus not yet set) → onboarding wizard.
-      const destination = approvalStatus ? "/pending" : "/onboarding/business-identity";
+      const activeCompanyId = request.cookies.get(AUTH_COOKIE_NAMES.activeCompanyId)?.value;
+      const destination = approvalStatus 
+        ? "/pending" 
+        : activeCompanyId 
+          ? `/onboarding/${activeCompanyId}`
+          : "/companies";
+      
       return NextResponse.redirect(new URL(destination, request.url));
     }
     return NextResponse.next();

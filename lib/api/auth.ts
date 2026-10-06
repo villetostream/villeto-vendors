@@ -51,7 +51,7 @@ export async function signUp(payload: {
   token: string;
   password: string;
   confirmPassword: string;
-}): Promise<void> {
+}): Promise<{ companyId?: string }> {
   // INTEGRATION POINT ↓
   const { data: json } = await apiClient.post<Record<string, unknown>>(
     "/vendors/invitations/accept",
@@ -65,9 +65,11 @@ export async function signUp(payload: {
   // Persist auth token (try common casing variants)
   const authToken =
     (inner?.token as string) ??
+    (inner?.accessToken as string) ??
     (inner?.authToken as string) ??
     (inner?.auth_token as string) ??
     (outer?.token as string) ??
+    (outer?.accessToken as string) ??
     (outer?.authToken as string) ??
     (outer?.auth_token as string);
 
@@ -87,6 +89,19 @@ export async function signUp(payload: {
     "onboarding";
 
   Cookies.set(AUTH_COOKIE_NAMES.onboardingSession, session, AUTH_COOKIE_OPTIONS);
+
+  // Persist company ID for immediate switching
+  const companyId =
+    ((inner?.currentVendor as any)?.companyId as string) ??
+    ((outer?.currentVendor as any)?.companyId as string) ??
+    (inner?.companyId as string) ??
+    (outer?.companyId as string);
+
+  if (companyId) {
+    Cookies.set(AUTH_COOKIE_NAMES.activeCompanyId, companyId, AUTH_COOKIE_OPTIONS);
+  }
+
+  return { companyId };
 }
 
 // ─────────────────────────────────────────────
@@ -144,3 +159,20 @@ export async function logout(): Promise<void> {
 // getVendorCompanies() from lib/api/vendor.ts instead — see
 // components/shared/Providers.tsx. getMe() was removed rather than left
 // as dead code pointing at a 404.
+
+// ─────────────────────────────────────────────
+// PASSWORD RECOVERY
+// ─────────────────────────────────────────────
+
+export async function forgotPassword(email: string): Promise<void> {
+  await apiClient.post("/vendors/auth/forgot-password", { email });
+}
+
+export async function resetPassword(payload: {
+  email: string;
+  token: string;
+  newPassword: string;
+  confirmPassword: string;
+}): Promise<void> {
+  await apiClient.post("/vendors/auth/reset-password", payload);
+}

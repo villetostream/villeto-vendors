@@ -36,6 +36,7 @@ function currentVendorToAuthUser(v: CurrentVendor): AuthUser {
     onboardingStatus: v.onboardingStatus,
     decisionNote: v.decisionNote,
     isPaymentEnabled: v.isPaymentEnabled,
+    currentStep: v.currentStep,
   };
 }
 
