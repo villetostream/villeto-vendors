@@ -41,7 +41,7 @@ export function CompanySwitcher() {
   };
 
   const activeStatusConfig = activeCompany
-    ? getCompanyStatusConfig(activeCompany.status, activeCompany.approvalStatus)
+    ? getCompanyStatusConfig(activeCompany.status, activeCompany.approvalStatus, (activeCompany as any).nextAction, activeCompany.onboardingStatus)
     : null;
 
   // Single-company vendors don't need a dropdown affordance at all — just
@@ -89,9 +89,9 @@ export function CompanySwitcher() {
           <div className="px-3 py-2 text-xs font-medium text-muted-foreground">
             Currently working with
           </div>
-          {companies.map((company) => {
+          {companies.filter(c => c.status.toLowerCase() !== "invited" && c.onboardingStatus !== "invited" && (c as any).nextAction !== "accept_invitation").map((company) => {
             const isActive = company.companyId === activeCompanyId;
-            const statusConfig = getCompanyStatusConfig(company.status, company.approvalStatus);
+            const statusConfig = getCompanyStatusConfig(company.status, company.approvalStatus, (company as any).nextAction, company.onboardingStatus);
             const isSwitching = switchingTo === company.vendorId;
 
             return (

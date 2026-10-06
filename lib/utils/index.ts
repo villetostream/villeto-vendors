@@ -97,7 +97,28 @@ export function getInvoicePaymentStatusConfig(status: InvoicePaymentStatus) {
 // A tenant-removed relationship reads as "Access removed", never "Banned".
 // ─────────────────────────────────────────────
 
-export function getCompanyStatusConfig(rawStatus: string, approvalStatus?: string | null) {
+/**
+ * True once the vendor has actually submitted onboarding for the active
+ * company. A just-accepted invitation (approvalStatus null, onboardingStatus
+ * "invited" / "profile_review" / "in_progress") is NOT submitted — the vendor
+ * must go through the wizard instead of landing on /pending.
+ */
+export function hasSubmittedOnboarding(user?: {
+  approvalStatus?: string | null;
+  onboardingStatus?: string | null;
+} | null): boolean {
+  if (!user) return false;
+  if (user.approvalStatus) return true;
+  const s = (user.onboardingStatus ?? "").toLowerCase();
+  return ["submitted", "under_review", "pending_approval", "completed"].includes(s);
+}
+
+export function getCompanyStatusConfig(
+  rawStatus: string, 
+  approvalStatus?: string | null, 
+  nextAction?: string | null,
+  onboardingStatus?: string | null
+) {
   const status = normalizeStatus(rawStatus);
   const approval = normalizeStatus(approvalStatus);
 
@@ -118,6 +139,14 @@ export function getCompanyStatusConfig(rawStatus: string, approvalStatus?: strin
   }
   if (approval === "pending") {
     return { label: "Under review", color: "text-amber-700", bg: "bg-amber-50" };
+  }
+  if (
+    status === "invited" || 
+    rawStatus.toLowerCase() === "invited" || 
+    nextAction === "accept_invitation" ||
+    onboardingStatus === "invited"
+  ) {
+    return { label: "Invitation Pending", color: "text-orange-700", bg: "bg-orange-50" };
   }
   return { label: "Action required", color: "text-blue-700", bg: "bg-blue-50" };
 }

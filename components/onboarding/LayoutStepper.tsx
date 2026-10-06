@@ -2,6 +2,7 @@
 
 import { usePathname } from "next/navigation";
 import { OnboardingStepper } from "./OnboardingStepper";
+import { useV2OnboardingStore } from "@/lib/stores/v2OnboardingStore";
 
 const PATHNAME_TO_STEP: Record<string, string> = {
   "/onboarding/business-identity": "business-identity",
@@ -10,26 +11,47 @@ const PATHNAME_TO_STEP: Record<string, string> = {
   "/onboarding/review": "review",
 };
 
-const ONBOARDING_PATHS = new Set(Object.keys(PATHNAME_TO_STEP));
-
-/**
- * Renders the OnboardingStepper only on pages that are part of the onboarding
- * wizard. Returns null on /invite, /signup, and other pages that share the
- * same layout but don't need the progress bar.
- */
 export function LayoutStepper() {
-  const pathname = usePathname();
-  const step = PATHNAME_TO_STEP[pathname ?? ""];
+  const pathname = usePathname() ?? "";
+  const v2Store = useV2OnboardingStore();
+  
+  let step = PATHNAME_TO_STEP[pathname];
+  let companyId: string | undefined;
+  
+  if (!step) {
+    const match = pathname.match(/\/onboarding\/([^\/]+)\/(.+)/);
+    if (match && match[1] && match[2]) {
+      companyId = match[1];
+      step = match[2];
+    }
+  }
 
-  if (!step || !ONBOARDING_PATHS.has(pathname ?? "")) return null;
+  const validSteps = ["business-identity", "verification", "banking", "documents", "review"];
+  
+  if (!step || !validSteps.includes(step)) return null;
 
-  const isPending = pathname === "/pending";
+  const isPending = pathname === "/pending" || pathname.endsWith("/pending");
+
+  let customSteps = undefined;
+  if (companyId && v2Store.onboardingStatus) {
+    customSteps = [{ key: "business-identity", label: "Business Identity" }];
+    if (v2Store.onboardingStatus.verificationRequested) {
+      customSteps.push({ key: "verification", label: "Verification" });
+    }
+    customSteps.push({ key: "banking", label: "Banking Details" });
+    if (v2Store.onboardingStatus.documentsRequired) {
+      customSteps.push({ key: "documents", label: "Document Upload" });
+    }
+    customSteps.push({ key: "review", label: "Review & Submit" });
+  }
 
   return (
     <div className="shrink-0 border-b border-border/20 px-6 py-4 bg-transparent">
       <OnboardingStepper
         currentStep={step}
         pendingStep={isPending}
+        companyId={companyId}
+        customSteps={customSteps}
       />
     </div>
   );

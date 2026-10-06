@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import { useAuthStore } from "@/lib/stores/authStore";
 import { PageSpinner } from "@/components/ui/Spinner";
-import { isStatusActive } from "@/lib/utils";
+import { isStatusActive, hasSubmittedOnboarding } from "@/lib/utils";
 
 /**
  * ApprovalGuard
@@ -28,11 +28,19 @@ export function ApprovalGuard({ children }: { children: React.ReactNode }) {
     if (isLoading) return;
     if (!isAuthenticated) return;
 
-    const shouldBlock = user && !isStatusActive(user.status) && pathname !== "/pending";
+    const shouldBlock = user && !isStatusActive(user.status) && pathname !== "/pending" && !pathname.startsWith("/companies");
 
     if (shouldBlock) {
       setIsRedirecting(true);
-      router.replace("/pending");
+      // approvalStatus is only set once the vendor has submitted onboarding
+      // for this company. Without it (e.g. a just-accepted invitation), the
+      // vendor still has to go through the onboarding wizard — /pending
+      // would wrongly tell them they're "under review".
+      if (!hasSubmittedOnboarding(user) && user.companyId) {
+        router.replace(`/onboarding/${user.companyId}`);
+      } else {
+        router.replace("/pending");
+      }
     } else {
       setIsRedirecting(false);
     }

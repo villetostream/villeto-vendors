@@ -2,6 +2,7 @@
 
 import { useState, useEffect, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import Link from "next/link";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -12,6 +13,7 @@ import { Button } from "@/components/ui/Button";
 import { FormField } from "@/components/ui/Label";
 import { useLogin } from "@/lib/hooks/useAuth";
 import { useAuthStore } from "@/lib/stores/authStore";
+import { useCompanyStore } from "@/lib/stores/companyStore";
 import { useOnboardingStore } from "@/lib/stores/onboardingStore";
 import { isStatusActive, cn } from "@/lib/utils";
 import { toast } from "sonner";
@@ -34,10 +36,10 @@ function LoginContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const next = searchParams.get("next") ?? "/dashboard";
-  const invitationToken = searchParams.get("invitationToken");
   const inviteEmail = searchParams.get("email");
   const inviteCompany = searchParams.get("company");
-  const isInvited = !!invitationToken && !!inviteCompany;
+  const inviteCompanyId = searchParams.get("companyId");
+  const isInvited = !!inviteCompanyId && !!inviteCompany;
 
   const { hydrateFromSession } = useOnboardingStore();
   const [showPassword, setShowPassword] = useState(false);
@@ -61,6 +63,18 @@ function LoginContent() {
     // let the onSubmit handler manage the navigation. This useEffect is 
     // only for catching users who load the page while already authenticated.
     if (isLoading || !isAuthenticated || !user || isNavigating || loginMutation.status !== 'idle') return;
+
+    if (inviteCompanyId) {
+      // If they are already an active user (used to the dashboard), route them
+      // to the organic dashboard flow so they see the sidebar.
+      // If they are not active yet, keep them in the clean standalone flow.
+      if (isStatusActive(user.status)) {
+        router.replace(`/companies/${inviteCompanyId}`);
+      } else {
+        router.replace(`/invitation/${inviteCompanyId}`);
+      }
+      return;
+    }
 
     if (isStatusActive(user.status)) {
       router.replace(next);
@@ -87,8 +101,7 @@ function LoginContent() {
       // useLogin's mutationFn already persists the token cookie and
       // populates authStore + companyStore from the response — no need
       // to duplicate that here.
-      const payload = invitationToken ? { ...data, invitationToken } : data;
-      const res = await loginMutation.mutateAsync(payload);
+      const res = await loginMutation.mutateAsync(data);
       const { currentVendor, onboardingMode } = res.data;
 
       hydrateFromSession({
@@ -104,32 +117,40 @@ function LoginContent() {
 
       setIsNavigating(true);
 
+      // 1. If the user logged in from an email invite link, route them directly
+      // to that company's detail page so they can explicitly accept or decline.
+      // This MUST happen before any active status checks.
+      if (inviteCompanyId) {
+        if (isStatusActive(currentVendor.status)) {
+          hardNavigate(`/companies/${inviteCompanyId}`);
+        } else {
+          hardNavigate(`/invitation/${inviteCompanyId}`);
+        }
+        return;
+      }
+
       if (isStatusActive(currentVendor.status)) {
         hardNavigate(next);
         return;
       }
 
-      // 1. If the vendor has already submitted their profile (regardless of the
+      // 2. If the vendor has already submitted their profile (regardless of the
       // onboarding mode they were originally in), route directly to the 
       // status page to prevent them from bouncing through the wizard.
-      if (currentVendor.approvalStatus !== null) {
+      if (currentVendor.approvalStatus !== null || currentVendor.onboardingStatus === "submitted") {
         hardNavigate("/pending");
         return;
       }
 
-      // 2. If they haven't submitted yet and are in profile reuse mode, start
-      // them at the beginning of the review wizard with their locked fields.
-      if (onboardingMode === "profile_reuse_review") {
-        hardNavigate("/onboarding/business-identity");
+      // 3. Alternatively, if the backend marked their active context as needing acceptance
+      if (currentVendor.nextAction === "accept_invitation") {
+        hardNavigate(`/invitation/${currentVendor.companyId}`);
         return;
       }
 
-      // 3. Otherwise, they are a standard new vendor — drop them exactly on
-      // the step they left off at.
-
-      const currentStep = currentVendor.currentStep || "business_identity";
-      const routeStep = ONBOARDING_STEP_ROUTES[currentStep] || "business-identity";
-      hardNavigate(`/onboarding/${routeStep}`);
+      // 3. Otherwise, they are a standard new or continuing vendor — route them
+      // to the new V2 multi-company onboarding layout which handles its own step routing.
+      hardNavigate(`/onboarding/${currentVendor.companyId}`);
     } catch (err: unknown) {
       setIsNavigating(false);
       toast.error((err as { message?: string })?.message ?? "Invalid email or password");
@@ -188,6 +209,11 @@ function LoginContent() {
                 >
                   {showPassword ? <Eye className="h-4 w-4" aria-hidden="true" /> : <EyeOff className="h-4 w-4" aria-hidden="true" />}
                 </button>
+              </div>
+              <div className="flex justify-end mt-1.5">
+                <Link href="/auth/forgot-password" className="text-xs text-primary hover:underline">
+                  Forgot password?
+                </Link>
               </div>
             </FormField>
 

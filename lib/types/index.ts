@@ -87,6 +87,7 @@ export interface CurrentVendor {
   isPaymentEnabled: boolean;
   onboardingMode: OnboardingMode;
   currentStep: string;
+  nextAction?: string;
   businessIdentity: VendorBusinessIdentity;
   bankingDetails: VendorBankingDetails;
   documents: VendorDocumentsState;
@@ -117,6 +118,7 @@ export interface AuthUser {
   onboardingStatus?: OnboardingStatus;
   decisionNote?: string | null;
   isPaymentEnabled?: boolean;
+  currentStep?: string;
 }
 
 export interface InviteTokenPayload {
@@ -781,3 +783,5 @@ export interface ApiError {
   code?: string;
   field?: string;
 }
+
+export * from "./vendor-network";

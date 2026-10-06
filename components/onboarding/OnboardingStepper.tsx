@@ -16,21 +16,26 @@ interface OnboardingStepperProps {
   /** extra step shown after submit */
   pendingStep?: boolean;
   isRejected?: boolean;
+  companyId?: string;
+  customSteps?: { key: string; label: string }[];
 }
 
 export function OnboardingStepper({
   currentStep,
   pendingStep = false,
   isRejected = false,
+  companyId,
+  customSteps,
 }: OnboardingStepperProps) {
   const router = useRouter();
 
+  const baseSteps = customSteps || STEPS;
   const steps = pendingStep
     ? [
-        ...STEPS.map((s) => ({ ...s, completed: true })),
+        ...baseSteps.map((s) => ({ ...s, completed: true })),
         { key: "pending", label: isRejected ? "Rejected" : "Under Review", completed: false },
       ]
-    : STEPS;
+    : baseSteps;
 
   const currentIdx = steps.findIndex((s) => s.key === currentStep);
 
@@ -52,7 +57,11 @@ export function OnboardingStepper({
               )}
               onClick={() => {
                 if (isCompleted && (!pendingStep || isRejected)) {
-                  router.push(`/onboarding/${step.key}`);
+                  if (companyId) {
+                    router.push(`/onboarding/${companyId}/${step.key}`);
+                  } else {
+                    router.push(`/onboarding/${step.key}`);
+                  }
                 }
               }}
             >

@@ -5,7 +5,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
-  LayoutDashboard, ShoppingCart, FileText, User, LogOut,
+  LayoutDashboard, ShoppingCart, FileText, User, LogOut, Building2,
 } from "lucide-react";
 import { VilletoLogo } from "@/components/shared/VilletoLogo";
 import { useAuthStore } from "@/lib/stores/authStore";
@@ -21,12 +21,13 @@ import {
 import { Button } from "@/components/ui/Button";
 
 import Image from "next/image";
+import { useMyCompanies } from "@/lib/hooks/useVendorNetwork";
 
 const NAV_ITEMS = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/orders", label: "Orders", icon: ShoppingCart },
   { href: "/invoices", label: "Invoices", icon: FileText },
-
+  { href: "/companies", label: "Organizations", icon: Building2 },
   { href: "/profile", label: "Profile", icon: User },
 ];
 
@@ -44,6 +45,12 @@ export function Sidebar({ isMobileOpen = false, onMobileClose }: SidebarProps) {
   const queryClient = useQueryClient();
   const [logoutModalOpen, setLogoutModalOpen] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
+
+  const { data: companiesData } = useMyCompanies({});
+  const companies = companiesData?.data || [];
+  const pendingInvitationsCount = companies.filter(
+    (c: any) => c.nextAction === "accept_invitation"
+  ).length;
 
   // Close the mobile drawer on Escape for keyboard users.
   useEffect(() => {
@@ -137,7 +144,12 @@ export function Sidebar({ isMobileOpen = false, onMobileClose }: SidebarProps) {
                 )}
               >
                 <Icon className={cn("h-4.5 w-4.5", isActive ? "text-primary" : "")} size={18} aria-hidden="true" />
-                {label}
+                <span className="flex-1 text-left">{label}</span>
+                {href === "/companies" && pendingInvitationsCount > 0 && (
+                  <span className="ml-auto flex items-center justify-center rounded-full bg-red-500 h-5 min-w-[20px] px-1 text-[10px] font-bold text-white">
+                    {pendingInvitationsCount}
+                  </span>
+                )}
               </Link>
             );
           })}
