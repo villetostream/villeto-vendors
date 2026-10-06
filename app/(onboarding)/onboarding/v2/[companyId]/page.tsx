@@ -74,6 +74,17 @@ export default function V2OnboardingRouter({
         onboardingStatusStr === "profile_review" ||
         (company.nextAction as string | null | undefined) === "review_and_submit";
 
+      // If they haven't accepted the invite yet, bounce them to the invite page
+      if (
+        company.nextAction === "accept_invitation" || 
+        company.onboardingStatus?.toLowerCase() === "invited" ||
+        status.nextAction === "accept_invitation" ||
+        status.accessState === "invitation_pending"
+      ) {
+        router.replace(`/invitation/${companyId}`);
+        return;
+      }
+
       // Determine the correct step based on backend progress
       const target = (company.currentStep || company.onboardingStatus || "").toLowerCase();
       
