@@ -5,10 +5,17 @@ import { useRouter } from "next/navigation";
 import { useV2OnboardingStore } from "@/lib/stores/v2OnboardingStore";
 import { useSubmitV2Onboarding } from "@/lib/hooks/useVendorNetwork";
 import { Button } from "@/components/ui/Button";
-import { ArrowLeft, CheckCircle, Store, CreditCard, FileText, Eye } from "lucide-react";
+import { CheckCircle2, Check, ArrowRight } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/lib/stores/authStore";
+
+const DOC_LABELS: Record<string, string> = {
+  "certificate_of_incorporation": "Certificate of Incorporation",
+  "tax_certificate": "Tax Certificate",
+  "government_id": "Government ID",
+  "bank_document": "Bank Document",
+};
 
 export default function V2ReviewPage({ params }: { params: Promise<{ companyId: string }> }) {
   const resolvedParams = use(params);
@@ -19,6 +26,7 @@ export default function V2ReviewPage({ params }: { params: Promise<{ companyId: 
   const authUser = useAuthStore((s) => s.user);
   const setUser = useAuthStore((s) => s.setUser);
   const [mounted, setMounted] = useState(false);
+  const [confirmed, setConfirmed] = useState(false);
 
   useEffect(() => { setMounted(true); }, []);
 
@@ -27,11 +35,10 @@ export default function V2ReviewPage({ params }: { params: Promise<{ companyId: 
   const identity = store.businessIdentity;
 
   const handleSubmit = async () => {
+    if (!confirmed) return;
     try {
       await submitMutation.mutateAsync(companyId);
       toast.success("Profile submitted successfully!");
-      // Mark as submitted locally so guards route to /pending (not back into
-      // the wizard) until the next profile refresh brings the real status.
       if (authUser) {
         setUser({
           ...authUser,
@@ -51,124 +58,95 @@ export default function V2ReviewPage({ params }: { params: Promise<{ companyId: 
         <div className="shrink-0 p-8 pb-4 border-b border-border/30 bg-white relative z-10">
           <h2 className="text-2xl font-bold text-foreground mb-1">Review & Submit</h2>
           <p className="text-sm text-muted-foreground">
-            Please review your information before submitting to the company.
+            Please confirm your details are correct.
           </p>
         </div>
 
         <div className="flex-1 overflow-y-auto p-8 pt-6">
-          <div className="space-y-6">
+          <div className="space-y-5">
             
-            <ReviewSection title="Business Identity" icon={Store} onEdit={() => router.push(`/onboarding/v2/${companyId}/business-identity`)}>
-              <div className="grid grid-cols-2 gap-4">
+            <div className="border border-border/60 rounded-xl p-6">
+              <div className="grid grid-cols-2 gap-y-6">
                 <div>
                   <p className="text-xs text-muted-foreground mb-1">Business Name</p>
-                  <p className="font-medium text-sm">{identity.businessName || "Not provided"}</p>
+                  <p className="font-medium text-foreground">{identity.businessName || "Not provided"}</p>
                 </div>
                 <div>
-                  <p className="text-xs text-muted-foreground mb-1">Registration No.</p>
-                  <p className="font-medium text-sm">{identity.registrationNumber || "Not provided"}</p>
+                  <p className="text-xs text-muted-foreground mb-1">Registration Number</p>
+                  <p className="font-medium text-foreground">{identity.registrationNumber || "Not provided"}</p>
                 </div>
                 <div>
-                  <p className="text-xs text-muted-foreground mb-1">Country</p>
-                  <p className="font-medium text-sm">{identity.country || "Not provided"}</p>
+                  <p className="text-xs text-muted-foreground mb-1">Bank</p>
+                  <p className="font-medium text-foreground">{store.bankingDetails?.bankName || "Not provided"}</p>
                 </div>
-                <div className="col-span-2">
-                  <p className="text-xs text-muted-foreground mb-1">Address</p>
-                  <p className="font-medium text-sm">{identity.businessAddress || "Not provided"}</p>
+                <div>
+                  <p className="text-xs text-muted-foreground mb-1">Account</p>
+                  <p className="font-medium text-foreground">{store.bankingDetails?.accountNumber || "Not provided"}</p>
                 </div>
               </div>
-            </ReviewSection>
+            </div>
 
-            <ReviewSection title="Banking Details" icon={CreditCard} onEdit={() => router.push(`/onboarding/v2/${companyId}/banking`)}>
-              {store.bankingDetails ? (
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <p className="text-xs text-muted-foreground mb-1">Bank Name</p>
-                    <p className="font-medium text-sm">{store.bankingDetails.bankName}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-muted-foreground mb-1">Account Number</p>
-                    <p className="font-medium text-sm">{store.bankingDetails.accountNumber}</p>
-                  </div>
-                  <div className="col-span-2">
-                    <p className="text-xs text-muted-foreground mb-1">Account Name</p>
-                    <p className="font-medium text-sm">{store.bankingDetails.accountName}</p>
-                  </div>
-                </div>
-              ) : (
-                <div className="flex items-center gap-2 text-muted-foreground">
-                  <p className="text-sm font-medium">Banking details not provided</p>
-                </div>
-              )}
-            </ReviewSection>
-
-            {store.onboardingStatus?.documentsRequired && (
-              <ReviewSection title="Documents" icon={FileText} onEdit={() => router.push(`/onboarding/v2/${companyId}/documents`)}>
-                {store.uploadedDocuments && store.uploadedDocuments.length > 0 ? (
-                  <div className="flex flex-col gap-3">
-                    {store.uploadedDocuments.map((doc) => (
-                      <div key={doc.id} className="flex items-center justify-between border-b border-border/30 pb-2 last:border-0 last:pb-0">
-                        <div className="flex items-center gap-2">
-                          <CheckCircle className="h-4 w-4 text-green-500 shrink-0" />
-                          <p className="text-sm font-medium truncate">{doc.name}</p>
+            {store.onboardingStatus?.documentsRequired && store.uploadedDocuments && store.uploadedDocuments.length > 0 && (
+              <div className="border border-border/60 rounded-xl p-6">
+                <h4 className="text-muted-foreground font-medium mb-4">Documents</h4>
+                <div className="h-px w-full bg-border/40 mb-4" />
+                <div className="flex flex-col gap-4">
+                  {store.uploadedDocuments.map((doc) => {
+                    const label = DOC_LABELS[doc.id] || "Document";
+                    return (
+                      <div key={doc.id} className="flex items-center gap-3">
+                        <CheckCircle2 className="h-5 w-5 text-primary shrink-0" />
+                        <div className="min-w-0">
+                          <p className="text-sm font-semibold text-foreground truncate">{doc.name}</p>
+                          <p className="text-xs text-muted-foreground">{label}</p>
                         </div>
-                        {doc.url && (
-                          <a 
-                            href={doc.url}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="p-1.5 text-muted-foreground hover:text-primary rounded-lg hover:bg-primary/5 transition-colors"
-                            title="View Document"
-                          >
-                            <Eye className="h-4 w-4" />
-                          </a>
-                        )}
                       </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="flex items-center gap-2 text-muted-foreground">
-                    <p className="text-sm font-medium">No documents uploaded</p>
-                  </div>
-                )}
-              </ReviewSection>
+                    );
+                  })}
+                </div>
+              </div>
             )}
 
-            <div className="bg-blue-50 border border-blue-200 rounded-xl p-5 mt-8">
-              <p className="text-sm text-blue-800 font-medium">
-                By submitting, you confirm that all provided information is accurate and you agree to the company's vendor terms.
+            <div 
+              className={cn(
+                "p-4 rounded-xl border flex gap-3 cursor-pointer transition-colors mt-8 select-none",
+                confirmed ? "bg-[#e6f7f5] border-primary" : "bg-slate-50 border-border/60 hover:bg-slate-100"
+              )} 
+              onClick={() => setConfirmed(!confirmed)}
+            >
+              <div className="pt-0.5 shrink-0">
+                <div className={cn(
+                  "w-5 h-5 rounded flex items-center justify-center border transition-colors",
+                  confirmed ? "bg-primary border-primary" : "border-border/80 bg-white"
+                )}>
+                  {confirmed && <Check className="h-3.5 w-3.5 text-white stroke-[3]" />}
+                </div>
+              </div>
+              <p className="text-sm text-foreground">
+                I confirm that the information provided is accurate and legally valid. I understand that Villeto will verify these details before payments can be processed.
               </p>
             </div>
 
-            <div className="flex gap-3 pt-6 border-t border-border/50 mt-8">
+            <div className="flex gap-3 pt-6 mt-8">
               <Button type="button" variant="outline" size="lg" className="px-8" onClick={() => router.back()}>
-                <ArrowLeft className="h-4 w-4 mr-2" /> Back
+                Back
               </Button>
-              <Button type="button" variant="primary" size="lg" className="flex-1" onClick={handleSubmit} loading={submitMutation.isPending}>
-                Submit Application
+              <Button 
+                type="button" 
+                variant="primary" 
+                size="lg" 
+                className="flex-1" 
+                onClick={handleSubmit} 
+                loading={submitMutation.isPending} 
+                disabled={!confirmed}
+              >
+                Submit for Verification <ArrowRight className="h-4 w-4 ml-2" />
               </Button>
             </div>
 
           </div>
         </div>
       </div>
-    </div>
-  );
-}
-
-function ReviewSection({ title, icon: Icon, children, onEdit }: any) {
-  return (
-    <div className="border border-border/60 rounded-xl p-5">
-      <div className="flex items-center justify-between mb-4 pb-4 border-b border-border/40">
-        <div className="flex items-center gap-2">
-          <Icon className="h-5 w-5 text-muted-foreground" />
-          <h3 className="font-semibold text-foreground">{title}</h3>
-        </div>
-        <button onClick={onEdit} className="text-sm text-primary font-medium hover:underline">
-          Edit
-        </button>
-      </div>
-      {children}
     </div>
   );
 }
