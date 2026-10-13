@@ -2,7 +2,7 @@
 
 import { use, useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { useV2OnboardingStore } from "@/lib/stores/v2OnboardingStore";
+import { useCompanyOnboardingStore } from "@/lib/stores/companyOnboardingStore";
 import { useMyCompany } from "@/lib/hooks/useVendorNetwork";
 import { uploadV2Document, viewV2Document } from "@/lib/api/vendor-network";
 import { Button } from "@/components/ui/Button";
@@ -23,7 +23,7 @@ export default function V2DocumentsPage({ params }: { params: Promise<{ companyI
   const resolvedParams = use(params);
   const companyId = resolvedParams.companyId;
   const router = useRouter();
-  const store = useV2OnboardingStore();
+  const store = useCompanyOnboardingStore();
   const [mounted, setMounted] = useState(false);
   const [isNavigating, setIsNavigating] = useState(false);
   const [uploads, setUploads] = useState<Record<string, { status: "uploading" | "done" | "error"; url?: string; progress?: number; filename?: string }>>(() => {

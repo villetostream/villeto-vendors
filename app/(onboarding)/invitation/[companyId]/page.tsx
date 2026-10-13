@@ -16,10 +16,11 @@ import { Button } from "@/components/ui/Button";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
-function getInitials(name: string) {
-  const words = name.split(/\s+/);
+function getInitials(name?: string | null) {
+  const safe = (name ?? "").trim();
+  const words = safe.split(/\s+/).filter(Boolean);
   if (words.length >= 2) return (words[0][0] + words[1][0]).toUpperCase();
-  return name.substring(0, 2).toUpperCase();
+  return safe.substring(0, 2).toUpperCase();
 }
 
 function InfoRow({

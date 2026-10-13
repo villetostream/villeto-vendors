@@ -10,7 +10,7 @@ import { Input } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
 import { FormField } from "@/components/ui/Label";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/Select";
-import { useV2OnboardingStore, fingerprint } from "@/lib/stores/v2OnboardingStore";
+import { useCompanyOnboardingStore, fingerprint } from "@/lib/stores/companyOnboardingStore";
 import { useOnboardingStore } from "@/lib/stores/onboardingStore";
 import { useSavedBankAccounts, useSaveV2BankingDetails } from "@/lib/hooks/useVendorNetwork";
 import { getBanksForCountry } from "@/lib/constants/banks";
@@ -22,8 +22,8 @@ import { cn } from "@/lib/utils";
 const schema = z.object({
   bankCode: z.string().min(1, "Select a bank"),
   bankName: z.string().min(1, "Select a bank"),
-  accountName: z.string().min(2, "Account name is required"),
-  accountNumber: z.string().min(10, "Account number must be at least 10 digits"),
+  accountName: z.string().trim().min(2, "Account name is required"),
+  accountNumber: z.string().trim().min(10, "Account number must be at least 10 digits"),
 });
 type FormData = z.infer<typeof schema>;
 
@@ -31,7 +31,7 @@ export default function V2BankingPage({ params }: { params: Promise<{ companyId:
   const resolvedParams = use(params);
   const companyId = resolvedParams.companyId;
   const router = useRouter();
-  const store = useV2OnboardingStore();
+  const store = useCompanyOnboardingStore();
   
   const { data: savedAccounts = [], isLoading: loadingAccounts } = useSavedBankAccounts();
   const sessionBanking = useOnboardingStore((s) => s.banking);
@@ -113,11 +113,7 @@ export default function V2BankingPage({ params }: { params: Promise<{ companyId:
 
 
   const onNextStep = () => {
-    if (store.onboardingStatus?.documentsRequired) {
-      router.push(`/onboarding/${companyId}/documents`);
-    } else {
-      router.push(`/onboarding/${companyId}/review`);
-    }
+    router.push(`/onboarding/${companyId}/payment-terms`);
   };
 
   const handleReuse = async () => {
@@ -209,9 +205,10 @@ export default function V2BankingPage({ params }: { params: Promise<{ companyId:
       }
       store.setBankingMode("reuse");
       store.saveBankingDetailsLocally({
-        bankName: "",
-        accountNumber: "",
-        accountName: "",
+        bankName: data.bankName,
+        accountNumber: data.accountNumber,
+        accountName: data.accountName,
+        bankCode: data.bankCode,
       });
       setIsNavigating(true);
       onNextStep();
@@ -300,7 +297,7 @@ export default function V2BankingPage({ params }: { params: Promise<{ companyId:
             </div>
           ) : (
             <form onSubmit={handleSubmit(handleNew)} className="space-y-5">
-              <FormField label="Bank Name" error={errors.bankName?.message}>
+              <FormField label="Bank Name" required error={errors.bankName?.message}>
                 {banks.length > 0 ? (
                   <Select
                     onValueChange={(v) => {
@@ -330,7 +327,7 @@ export default function V2BankingPage({ params }: { params: Promise<{ companyId:
                 )}
               </FormField>
 
-              <FormField label="Account Number" error={errors.accountNumber?.message}>
+              <FormField label="Account Number" required error={errors.accountNumber?.message}>
                 <Input
                   placeholder="0000000000"
                   error={!!errors.accountNumber}
@@ -338,7 +335,7 @@ export default function V2BankingPage({ params }: { params: Promise<{ companyId:
                 />
               </FormField>
 
-              <FormField label="Account Name" error={errors.accountName?.message}>
+              <FormField label="Account Name" required error={errors.accountName?.message}>
                 <Input
                   placeholder="e.g. John Doe"
                   error={!!errors.accountName}

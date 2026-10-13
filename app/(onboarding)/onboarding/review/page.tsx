@@ -118,11 +118,56 @@ export default function ReviewPage() {
                 </p>
               </div>
               <div>
-                <p className="text-xs text-muted-foreground">Account</p>
+                <p className="text-xs text-muted-foreground">Account Number</p>
                 <p className="text-sm font-medium mt-0.5">
                   {store.banking.account_number ?? "—"}
                 </p>
               </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Account Name</p>
+                <p className="text-sm font-medium mt-0.5">
+                  {store.banking.account_name ?? "—"}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Payment Terms */}
+          <div className="rounded-xl border border-border p-5 space-y-4 mb-5">
+            <p className="text-sm font-semibold">Payment Terms</p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <p className="text-xs text-muted-foreground">Preferred Arrangement</p>
+                <p className="text-sm font-medium mt-0.5">
+                  {store.paymentTerms?.arrangement || "—"}
+                </p>
+              </div>
+              {store.paymentTerms?.period && (
+                <div>
+                  <p className="text-xs text-muted-foreground">Payment Period</p>
+                  <p className="text-sm font-medium mt-0.5">
+                    {store.paymentTerms.period === "Other" && store.paymentTerms.customPeriod
+                      ? store.paymentTerms.customPeriod
+                      : store.paymentTerms.period}
+                  </p>
+                </div>
+              )}
+              {store.paymentTerms?.advancePercentage !== undefined && (
+                <div>
+                  <p className="text-xs text-muted-foreground">Advance Payment</p>
+                  <p className="text-sm font-medium mt-0.5">
+                    {store.paymentTerms.advancePercentage}%
+                  </p>
+                </div>
+              )}
+              {store.paymentTerms?.notes && (
+                <div className="sm:col-span-2">
+                  <p className="text-xs text-muted-foreground">Additional Terms or Notes</p>
+                  <p className="text-sm font-medium mt-0.5 whitespace-pre-wrap">
+                    {store.paymentTerms.notes}
+                  </p>
+                </div>
+              )}
             </div>
           </div>
 

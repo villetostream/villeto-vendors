@@ -1,6 +1,6 @@
 /**
- * V2 ONBOARDING STORE
- * State for the per-company V2 onboarding flow.
+ * COMPANY ONBOARDING STORE
+ * State for the per-company onboarding flow (/onboarding/[companyId]/...).
  */
 
 import { create } from "zustand";
@@ -11,16 +11,31 @@ import {
   BankAccountOption,
 } from "@/lib/types";
 
-interface V2OnboardingState {
+export interface PaymentTermsData {
+  arrangement: string;
+  period?: string;
+  customPeriod?: string;
+  advancePercentage?: number;
+  notes?: string;
+}
+
+export type CompanyOnboardingStep =
+  | "businessIdentity"
+  | "banking"
+  | "paymentTerms"
+  | "documents";
+
+interface CompanyOnboardingState {
   activeCompanyId: string | null;
   onboardingStatus: V2OnboardingStatus | null;
-  
+
   // Local form state so data survives step navigation
   businessIdentity: V2BusinessIdentity;
   bankingMode: "new" | "reuse" | null;
   selectedBankOptionId: string | null;
   savedBankAccounts: BankAccountOption[];
   bankingDetails: { bankName: string; accountNumber: string; accountName: string; bankCode?: string; } | null;
+  paymentTerms: PaymentTermsData | null;
   uploadedDocuments: { id: string; name: string; url?: string }[];
 
   /**
@@ -28,7 +43,7 @@ interface V2OnboardingState {
    * active company. If the user goes back and continues without changing
    * anything, the step can skip the network call entirely.
    */
-  savedFingerprints: Partial<Record<V2Step, string>>;
+  savedFingerprints: Partial<Record<CompanyOnboardingStep, string>>;
   // Actions
   setActiveCompanyId: (companyId: string) => void;
   setOnboardingStatus: (status: V2OnboardingStatus) => void;
@@ -37,12 +52,11 @@ interface V2OnboardingState {
   setSelectedBankOptionId: (id: string) => void;
   setSavedBankAccounts: (accounts: BankAccountOption[]) => void;
   saveBankingDetailsLocally: (details: { bankName: string; accountNumber: string; accountName: string; bankCode?: string; }) => void;
+  savePaymentTermsLocally: (terms: PaymentTermsData) => void;
   setUploadedDocumentsLocally: (docs: { id: string; name: string; url?: string }[]) => void;
-  markStepSaved: (step: V2Step, fingerprint: string) => void;
+  markStepSaved: (step: CompanyOnboardingStep, fingerprint: string) => void;
   reset: () => void;
 }
-
-export type V2Step = "businessIdentity" | "banking" | "documents";
 
 /** Stable, order-independent fingerprint of a flat payload (trims strings). */
 export function fingerprint(data: Record<string, unknown>): string {
@@ -57,7 +71,7 @@ export function fingerprint(data: Record<string, unknown>): string {
   return JSON.stringify(normalized);
 }
 
-export const useV2OnboardingStore = create<V2OnboardingState>()(
+export const useCompanyOnboardingStore = create<CompanyOnboardingState>()(
   persist(
     (set) => ({
       activeCompanyId: null,
@@ -68,10 +82,11 @@ export const useV2OnboardingStore = create<V2OnboardingState>()(
       savedBankAccounts: [],
 
       bankingDetails: null,
+      paymentTerms: null,
       uploadedDocuments: [],
       savedFingerprints: {},
 
-      setActiveCompanyId: (companyId) => 
+      setActiveCompanyId: (companyId) =>
         set((state) => {
           if (state.activeCompanyId === companyId) return state;
           // Clear form state when switching companies
@@ -83,6 +98,7 @@ export const useV2OnboardingStore = create<V2OnboardingState>()(
             selectedBankOptionId: null,
             savedBankAccounts: [],
             bankingDetails: null,
+            paymentTerms: null,
             uploadedDocuments: [],
             savedFingerprints: {},
           };
@@ -94,10 +110,11 @@ export const useV2OnboardingStore = create<V2OnboardingState>()(
       setSelectedBankOptionId: (id) => set({ selectedBankOptionId: id }),
       setSavedBankAccounts: (accounts) => set({ savedBankAccounts: accounts }),
       saveBankingDetailsLocally: (details) => set({ bankingDetails: details }),
+      savePaymentTermsLocally: (terms) => set({ paymentTerms: terms }),
       setUploadedDocumentsLocally: (docs) => set({ uploadedDocuments: docs }),
       markStepSaved: (step, fp) =>
         set((state) => ({ savedFingerprints: { ...state.savedFingerprints, [step]: fp } })),
-      
+
       reset: () =>
         set({
           activeCompanyId: null,
@@ -107,12 +124,13 @@ export const useV2OnboardingStore = create<V2OnboardingState>()(
           selectedBankOptionId: null,
           savedBankAccounts: [],
           bankingDetails: null,
+          paymentTerms: null,
           uploadedDocuments: [],
           savedFingerprints: {},
         }),
     }),
     {
-      name: "villeto-v2-onboarding",
+      name: "villeto-company-onboarding",
       storage: createJSONStorage(() =>
         typeof window !== "undefined" ? sessionStorage : localStorage
       ),
@@ -123,6 +141,7 @@ export const useV2OnboardingStore = create<V2OnboardingState>()(
         bankingMode: state.bankingMode,
         selectedBankOptionId: state.selectedBankOptionId,
         bankingDetails: state.bankingDetails,
+        paymentTerms: state.paymentTerms,
         uploadedDocuments: state.uploadedDocuments,
         savedFingerprints: state.savedFingerprints,
       }),

@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils";
 const STEPS = [
   { key: "business-identity", label: "Business Identity" },
   { key: "banking", label: "Banking Details" },
+  { key: "payment-terms", label: "Payment term" },
   { key: "documents", label: "Document Upload" },
   { key: "review", label: "Review & Submit" },
 ];

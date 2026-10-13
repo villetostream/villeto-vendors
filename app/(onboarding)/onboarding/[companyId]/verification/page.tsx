@@ -2,7 +2,7 @@
 
 import { use, useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { useV2OnboardingStore } from "@/lib/stores/v2OnboardingStore";
+import { useCompanyOnboardingStore } from "@/lib/stores/companyOnboardingStore";
 import { useVerifyVendor } from "@/lib/hooks/useVendorNetwork";
 import { PageSpinner } from "@/components/ui/Spinner";
 import { Button } from "@/components/ui/Button";
@@ -17,7 +17,7 @@ export default function V2VerificationPage({
   const resolvedParams = use(params);
   const companyId = resolvedParams.companyId;
   const router = useRouter();
-  const store = useV2OnboardingStore();
+  const store = useCompanyOnboardingStore();
   const verifyMutation = useVerifyVendor();
   const [isNavigating, setIsNavigating] = useState(false);
   const [mounted, setMounted] = useState(false);

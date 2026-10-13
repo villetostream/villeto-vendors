@@ -63,6 +63,7 @@ export interface VendorBusinessIdentity {
 export interface VendorBankingDetails {
   bankName: string;
   accountNumber: string;
+  accountName?: string;
   routingNumber?: string;
   isComplete: boolean;
 }
@@ -726,7 +727,7 @@ export interface BankingDetailsForm {
   bank_name: string;
   account_number: string;
   routing_number?: string;
-  account_name?: string;
+  account_name: string;
   flag_note?: string;
 }
 

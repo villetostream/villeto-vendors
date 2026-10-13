@@ -2,31 +2,38 @@
 
 import { usePathname } from "next/navigation";
 import { OnboardingStepper } from "./OnboardingStepper";
-import { useV2OnboardingStore } from "@/lib/stores/v2OnboardingStore";
+import { useCompanyOnboardingStore } from "@/lib/stores/companyOnboardingStore";
 
 const PATHNAME_TO_STEP: Record<string, string> = {
   "/onboarding/business-identity": "business-identity",
   "/onboarding/banking": "banking",
+  "/onboarding/payment-terms": "payment-terms",
   "/onboarding/documents": "documents",
   "/onboarding/review": "review",
 };
 
 export function LayoutStepper() {
   const pathname = usePathname() ?? "";
-  const v2Store = useV2OnboardingStore();
+  const v2Store = useCompanyOnboardingStore();
   
   let step = PATHNAME_TO_STEP[pathname];
   let companyId: string | undefined;
   
   if (!step) {
-    const match = pathname.match(/\/onboarding\/([^\/]+)\/(.+)/);
-    if (match && match[1] && match[2]) {
-      companyId = match[1];
-      step = match[2];
+    const v2Match = pathname.match(/\/onboarding\/v2\/([^\/]+)\/([^\/]+)/);
+    if (v2Match) {
+      companyId = v2Match[1];
+      step = v2Match[2];
+    } else {
+      const match = pathname.match(/\/onboarding\/([^\/]+)\/([^\/]+)/);
+      if (match && match[1] && match[2]) {
+        companyId = match[1];
+        step = match[2];
+      }
     }
   }
 
-  const validSteps = ["business-identity", "verification", "banking", "documents", "review"];
+  const validSteps = ["business-identity", "verification", "banking", "payment-terms", "documents", "review"];
   
   if (!step || !validSteps.includes(step)) return null;
 
@@ -39,6 +46,7 @@ export function LayoutStepper() {
       customSteps.push({ key: "verification", label: "Verification" });
     }
     customSteps.push({ key: "banking", label: "Banking Details" });
+    customSteps.push({ key: "payment-terms", label: "Payment term" });
     if (v2Store.onboardingStatus.documentsRequired) {
       customSteps.push({ key: "documents", label: "Document Upload" });
     }
