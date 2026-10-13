@@ -23,9 +23,9 @@ import { cn } from "@/lib/utils";
 const schema = z.object({
   bank_code: z.string().min(1, "Select a bank"),
   bank_name: z.string().min(1, "Select a bank"),
-  account_name: z.string().min(2, "Account name is required"),
+  account_name: z.string().trim().min(2, "Account name is required"),
   routing_number: z.string().optional(),
-  account_number: z.string().min(10, "Account number must be at least 10 digits"),
+  account_number: z.string().trim().min(10, "Account number must be at least 10 digits"),
 });
 
 type FormData = z.infer<typeof schema>;
@@ -99,7 +99,7 @@ export default function BankingPage() {
         100
       );
       setIsNavigating(true);
-      router.push("/onboarding/documents");
+      router.push("/onboarding/payment-terms");
     } catch (err: unknown) {
       setIsNavigating(false);
       toast.error((err as { message?: string })?.message ?? "Failed to save banking details.");
@@ -131,7 +131,7 @@ export default function BankingPage() {
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
 
           {/* Bank selector — dropdown if country banks are known, text input fallback otherwise */}
-          <FormField label="Bank Name" error={errors.bank_name?.message}>
+          <FormField label="Bank Name" required error={errors.bank_name?.message}>
             {!store.businessIdentity.country ? (
               <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
                 No country selected. Please{" "}
@@ -185,6 +185,7 @@ export default function BankingPage() {
 
           <FormField
             label="Account Number"
+            required
             error={errors.account_number?.message}
           >
             <Input
@@ -196,6 +197,7 @@ export default function BankingPage() {
 
           <FormField
             label="Account Name"
+            required
             error={errors.account_name?.message}
           >
             <Input

@@ -255,8 +255,8 @@ function levenshtein(a: string, b: string): number {
 // MISC
 // ─────────────────────────────────────────────
 
-export function getInitials(name: string): string {
-  return name
+export function getInitials(name?: string | null): string {
+  return (name ?? "")
     .split(" ")
     .filter(Boolean)
     .map((w) => w[0])

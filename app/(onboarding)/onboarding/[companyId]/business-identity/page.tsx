@@ -10,7 +10,7 @@ import { Input } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
 import { FormField } from "@/components/ui/Label";
 import { CountrySelect } from "@/components/ui/CountrySelect";
-import { useV2OnboardingStore, fingerprint } from "@/lib/stores/v2OnboardingStore";
+import { useCompanyOnboardingStore, fingerprint } from "@/lib/stores/companyOnboardingStore";
 import { useOnboardingStore } from "@/lib/stores/onboardingStore";
 import { useCompanyStore } from "@/lib/stores/companyStore";
 import { useSaveV2BusinessIdentity, useMyCompany } from "@/lib/hooks/useVendorNetwork";
@@ -37,7 +37,7 @@ export default function V2BusinessIdentityPage({
   const resolvedParams = use(params);
   const companyId = resolvedParams.companyId;
   const router = useRouter();
-  const store = useV2OnboardingStore();
+  const store = useCompanyOnboardingStore();
   const { data: company } = useMyCompany(companyId);
   const saveMutation = useSaveV2BusinessIdentity();
   const [isNavigating, setIsNavigating] = useState(false);

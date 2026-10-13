@@ -91,7 +91,7 @@ export async function getBankList(country: string = "NG"): Promise<
  * PATCH /vendors/onboarding/banking-details
  */
 export async function saveBankingDetails(
-  payload: BankingDetailsForm & { bank_code: string; account_name?: string; routing_number?: string }
+  payload: BankingDetailsForm & { bank_code: string; routing_number?: string }
 ): Promise<{ success: boolean }> {
   // INTEGRATION POINT ↓
   const { data } = await apiClient.patch("/vendors/onboarding/banking-details", {

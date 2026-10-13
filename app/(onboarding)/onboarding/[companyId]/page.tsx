@@ -3,7 +3,7 @@
 import { use, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useOnboardingStatus, useMyCompany } from "@/lib/hooks/useVendorNetwork";
-import { useV2OnboardingStore } from "@/lib/stores/v2OnboardingStore";
+import { useCompanyOnboardingStore } from "@/lib/stores/companyOnboardingStore";
 import { useAuthStore } from "@/lib/stores/authStore";
 import { useOnboardingStore } from "@/lib/stores/onboardingStore";
 import { PageSpinner } from "@/components/ui/Spinner";
@@ -16,11 +16,11 @@ export default function V2OnboardingRouter({
   const resolvedParams = use(params);
   const companyId = resolvedParams.companyId;
   const router = useRouter();
-  const setActiveCompanyId = useV2OnboardingStore((s) => s.setActiveCompanyId);
-  const setOnboardingStatus = useV2OnboardingStore((s) => s.setOnboardingStatus);
-  const setUploadedDocumentsLocally = useV2OnboardingStore((s) => s.setUploadedDocumentsLocally);
-  const saveBusinessIdentityLocally = useV2OnboardingStore((s) => s.saveBusinessIdentityLocally);
-  const saveBankingDetailsLocally = useV2OnboardingStore((s) => s.saveBankingDetailsLocally);
+  const setActiveCompanyId = useCompanyOnboardingStore((s) => s.setActiveCompanyId);
+  const setOnboardingStatus = useCompanyOnboardingStore((s) => s.setOnboardingStatus);
+  const setUploadedDocumentsLocally = useCompanyOnboardingStore((s) => s.setUploadedDocumentsLocally);
+  const saveBusinessIdentityLocally = useCompanyOnboardingStore((s) => s.saveBusinessIdentityLocally);
+  const saveBankingDetailsLocally = useCompanyOnboardingStore((s) => s.saveBankingDetailsLocally);
   const user = useAuthStore((s) => s.user);
   // onboardingMode comes from the switch-company response (hydrated into the
   // onboarding store by useCompany) — the my-company endpoint doesn't return it.
@@ -96,6 +96,8 @@ export default function V2OnboardingRouter({
         stepPath = "review";
       } else if (target.includes("document")) {
         stepPath = "documents";
+      } else if (target.includes("payment")) {
+        stepPath = "payment-terms";
       } else if (target.includes("banking")) {
         stepPath = "banking";
       } else if (status.canSubmit) {

@@ -2,7 +2,7 @@
 
 import { use, useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { useV2OnboardingStore } from "@/lib/stores/v2OnboardingStore";
+import { useCompanyOnboardingStore } from "@/lib/stores/companyOnboardingStore";
 import { useSubmitV2Onboarding } from "@/lib/hooks/useVendorNetwork";
 import { Button } from "@/components/ui/Button";
 import { CheckCircle2, Check, ArrowRight } from "lucide-react";
@@ -21,7 +21,7 @@ export default function V2ReviewPage({ params }: { params: Promise<{ companyId: 
   const resolvedParams = use(params);
   const companyId = resolvedParams.companyId;
   const router = useRouter();
-  const store = useV2OnboardingStore();
+  const store = useCompanyOnboardingStore();
   const submitMutation = useSubmitV2Onboarding();
   const authUser = useAuthStore((s) => s.user);
   const setUser = useAuthStore((s) => s.setUser);
@@ -80,9 +80,53 @@ export default function V2ReviewPage({ params }: { params: Promise<{ companyId: 
                   <p className="font-medium text-foreground">{store.bankingDetails?.bankName || "Not provided"}</p>
                 </div>
                 <div>
-                  <p className="text-xs text-muted-foreground mb-1">Account</p>
+                  <p className="text-xs text-muted-foreground mb-1">Account Number</p>
                   <p className="font-medium text-foreground">{store.bankingDetails?.accountNumber || "Not provided"}</p>
                 </div>
+                <div>
+                  <p className="text-xs text-muted-foreground mb-1">Account Name</p>
+                  <p className="font-medium text-foreground">{store.bankingDetails?.accountName || "Not provided"}</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Payment Terms card */}
+            <div className="border border-border/60 rounded-xl p-6">
+              <h4 className="text-muted-foreground font-medium mb-4">Payment Terms</h4>
+              <div className="h-px w-full bg-border/40 mb-4" />
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <p className="text-xs text-muted-foreground mb-1">Preferred Arrangement</p>
+                  <p className="font-medium text-foreground">
+                    {store.paymentTerms?.arrangement || "Not provided"}
+                  </p>
+                </div>
+                {store.paymentTerms?.period && (
+                  <div>
+                    <p className="text-xs text-muted-foreground mb-1">Payment Period</p>
+                    <p className="font-medium text-foreground">
+                      {store.paymentTerms.period === "Other" && store.paymentTerms.customPeriod
+                        ? store.paymentTerms.customPeriod
+                        : store.paymentTerms.period}
+                    </p>
+                  </div>
+                )}
+                {store.paymentTerms?.advancePercentage !== undefined && (
+                  <div>
+                    <p className="text-xs text-muted-foreground mb-1">Advance Payment</p>
+                    <p className="font-medium text-foreground">
+                      {store.paymentTerms.advancePercentage}%
+                    </p>
+                  </div>
+                )}
+                {store.paymentTerms?.notes && (
+                  <div className="md:col-span-2">
+                    <p className="text-xs text-muted-foreground mb-1">Additional Terms or Notes</p>
+                    <p className="font-medium text-foreground whitespace-pre-wrap">
+                      {store.paymentTerms.notes}
+                    </p>
+                  </div>
+                )}
               </div>
             </div>
 

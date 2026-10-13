@@ -16,8 +16,17 @@ import {
 export type OnboardingStep =
   | "business-identity"
   | "banking"
+  | "payment-terms"
   | "documents"
   | "review";
+
+export interface PaymentTermsData {
+  arrangement: string;
+  period?: string;
+  customPeriod?: string;
+  advancePercentage?: number;
+  notes?: string;
+}
 
 interface DocumentState {
   type: DocumentType;
@@ -56,6 +65,7 @@ interface OnboardingState {
   // Step data
   businessIdentity: Partial<BusinessIdentityForm>;
   banking: Partial<BankingDetailsForm & { bank_code: string }>;
+  paymentTerms?: PaymentTermsData | null;
   documents: DocumentState[];
 
   // Verification results
@@ -72,6 +82,7 @@ interface OnboardingState {
     resolvedName: string,
     matchScore: number
   ) => void;
+  savePaymentTerms: (data: PaymentTermsData) => void;
   updateDocument: (type: DocumentType, update: Partial<DocumentState>) => void;
   /** Hydrate store after login — fills vendor identity + any partial step data from the session */
   hydrateFromSession: (session: {
@@ -89,6 +100,7 @@ interface OnboardingState {
     bankingDetails?: {
       bankName?: string;
       accountNumber?: string;
+      accountName?: string;
       routingNumber?: string;
     } | null;
     documents?: {
@@ -133,6 +145,7 @@ const DEFAULT_DOCUMENTS: DocumentState[] = [
 const STEPS: OnboardingStep[] = [
   "business-identity",
   "banking",
+  "payment-terms",
   "documents",
   "review",
 ];
@@ -190,6 +203,12 @@ export const useOnboardingStore = create<OnboardingState>()(
           bankResolvedName: resolvedName,
           bankMatchScore: matchScore,
           bankFlagged: matchScore < 90,
+          currentStep: "payment-terms",
+        }),
+
+      savePaymentTerms: (data) =>
+        set({
+          paymentTerms: data,
           currentStep: "documents",
         }),
 
@@ -242,6 +261,7 @@ export const useOnboardingStore = create<OnboardingState>()(
                   banking: {
                     bank_name: session.bankingDetails.bankName || "",
                     account_number: session.bankingDetails.accountNumber || "",
+                    account_name: session.bankingDetails.accountName || "",
                     routing_number: session.bankingDetails.routingNumber || "",
                     // We don't have bank_code here necessarily, but the form handles fallback
                   }
@@ -285,6 +305,7 @@ export const useOnboardingStore = create<OnboardingState>()(
           legalBusinessName: null,
           businessIdentity: {},
           banking: {},
+          paymentTerms: null,
           documents: DEFAULT_DOCUMENTS,
           bankResolvedName: null,
           bankMatchScore: null,
@@ -308,6 +329,7 @@ export const useOnboardingStore = create<OnboardingState>()(
         legalBusinessName: state.legalBusinessName,
         businessIdentity: state.businessIdentity,
         banking: state.banking,
+        paymentTerms: state.paymentTerms,
         documents: state.documents,
         bankResolvedName: state.bankResolvedName,
         bankMatchScore: state.bankMatchScore,
