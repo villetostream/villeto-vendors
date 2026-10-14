@@ -49,6 +49,7 @@ export interface FulfillmentFormData {
     quantityReady: number;
     remainingDisposition?: string;
     expectedReadyDate?: string;
+    reason?: string;
     dispositionReason?: string;
   }[];
 }
@@ -192,13 +193,16 @@ export function FulfillmentModal({
         let remainingDisposition: string | undefined;
         let expectedReadyDate: string | undefined;
         let dispositionReason: string | undefined;
+        let reason: string | undefined;
         
         if (declaration !== "full" && qtyReady < remaining) {
           remainingDisposition = dispositions[item.purchaseOrderLineItemId] || undefined;
           if (remainingDisposition === "backordered") {
             expectedReadyDate = expectedDates[item.purchaseOrderLineItemId] || undefined;
           }
-          dispositionReason = dispositionReasons[item.purchaseOrderLineItemId] || undefined;
+          const trimmedReason = dispositionReasons[item.purchaseOrderLineItemId]?.trim();
+          reason = trimmedReason || undefined;
+          dispositionReason = trimmedReason || undefined;
         }
 
         return {
@@ -206,6 +210,7 @@ export function FulfillmentModal({
           quantityReady: qtyReady,
           remainingDisposition,
           expectedReadyDate,
+          reason,
           dispositionReason,
         };
       });

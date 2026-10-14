@@ -292,6 +292,7 @@ export interface OrderLineItem {
   remainingDisposition?: RemainingDisposition | null;
   expectedReadyDate?: string | null;
   dispositionReason?: string;
+  reason?: string;
   fulfillmentState?: FulfillmentState;
 }
 
@@ -307,6 +308,7 @@ export interface FulfillmentLineItem {
   remainingDisposition?: RemainingDisposition | null;
   expectedReadyDate?: string | null;
   dispositionReason?: string;
+  reason?: string;
   quantityReceived?: number;
   quantityAwaitingReceipt?: number;
 }
@@ -428,6 +430,7 @@ export interface CreateFulfillmentLineItemPayload {
   quantityReady: number;
   remainingDisposition?: RemainingDisposition;
   expectedReadyDate?: string;
+  reason?: string;
   dispositionReason?: string;
 }
 
@@ -473,6 +476,7 @@ export interface FulfillmentPayload {
     quantityReady: number;
     remainingDisposition?: "backordered" | "cannot_fulfill";
     expectedReadyDate?: string;
+    reason?: string;
     dispositionReason?: string;
   }[];
 }
@@ -502,6 +506,7 @@ export interface ConfirmDeliveryPayload {
     quantityReady: number;
     remainingDisposition?: "backordered" | "cannot_fulfill";
     expectedReadyDate?: string;
+    reason?: string;
     dispositionReason?: string;
     // Legacy compat
     deliveredQuantity?: number;
@@ -693,6 +698,23 @@ export type DocumentType =
   | "government_id"
   | "bank_document";
 
+/**
+ * Document types that carry an expiration date (ISO-8601).
+ * When a document is one of these types, `expiresAt` should be included in the upload payload.
+ */
+export const DOCS_WITH_EXPIRY: ReadonlySet<DocumentType> = new Set([
+  "government_id",
+  "tax_certificate",
+]);
+
+/**
+ * Document types that support an accompanying screenshot / secondary image
+ * (e.g. back side of a government ID).
+ */
+export const DOCS_WITH_SCREENSHOT: ReadonlySet<DocumentType> = new Set([
+  "government_id",
+]);
+
 export interface DocumentUpload {
   type: DocumentType;
   label: string;
@@ -701,6 +723,14 @@ export interface DocumentUpload {
   file_name?: string;
   url?: string;
   uploaded?: boolean;
+  /** ISO-8601 expiration date — only for applicable document types (see DOCS_WITH_EXPIRY). */
+  expiresAt?: string;
+  /** Secondary screenshot/image (e.g. back of ID) — only for applicable document types. */
+  screenshot?: {
+    file_name?: string;
+    document_id?: string;
+    url?: string;
+  };
 }
 
 export interface VerificationStatus {

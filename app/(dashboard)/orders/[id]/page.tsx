@@ -268,9 +268,9 @@ function FulfillmentHistorySection({
                               ) : (
                                 <span className="text-xs text-muted-foreground">Will fulfill later</span>
                               )}
-                              {li.dispositionReason && (
+                              {(li.reason || li.dispositionReason) && (
                                 <p className="text-xs text-muted-foreground mt-1 max-w-sm">
-                                  <span className="font-medium">Reason:</span> {li.dispositionReason}
+                                  <span className="font-medium">Reason:</span> {li.reason || li.dispositionReason}
                                 </p>
                               )}
                             </div>
@@ -578,20 +578,25 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
       {
         purchaseOrderId: order.purchaseOrderId,
         payload: {
-          fulfillmentReference: `FUL-${crypto.randomUUID().slice(0, 8)}`,
+          fulfillmentReference: data.fulfillmentReference || `FUL-${crypto.randomUUID().slice(0, 8)}`,
           declaration: data.declaration,
           fulfillmentMethod: data.fulfillmentMethod as any,
+          readyAt: new Date().toISOString(),
           expectedDeliveryDate: data.expectedDeliveryDate,
           carrier: data.carrier,
           trackingNumber: data.trackingNumber,
           packingSlipNumber: data.packingSlipNumber,
           notes: data.notes,
-          lineItems: data.lineItems.map(li => ({
-            purchaseOrderLineItemId: li.purchaseOrderLineItemId,
-            quantityReady: li.quantityReady,
-            ...(li.remainingDisposition ? { remainingDisposition: li.remainingDisposition as any } : {}),
-            ...(li.expectedReadyDate ? { expectedReadyDate: li.expectedReadyDate } : {}),
-          })),
+          lineItems: data.lineItems.map(li => {
+            const reason = li.reason || li.dispositionReason;
+            return {
+              purchaseOrderLineItemId: li.purchaseOrderLineItemId,
+              quantityReady: li.quantityReady,
+              ...(li.remainingDisposition ? { remainingDisposition: li.remainingDisposition as any } : {}),
+              ...(li.expectedReadyDate ? { expectedReadyDate: li.expectedReadyDate } : {}),
+              ...(reason ? { reason } : {}),
+            };
+          }),
         },
       },
       {
@@ -834,9 +839,9 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
                                     {item.quantity - qtyReady} Cannot Fulfill
                                   </span>
                                 )}
-                                {item.dispositionReason && (
+                                {(item.reason || item.dispositionReason) && (
                                   <p className="text-xs text-muted-foreground mt-1 max-w-sm">
-                                    <span className="font-medium">Reason:</span> {item.dispositionReason}
+                                    <span className="font-medium">Reason:</span> {item.reason || item.dispositionReason}
                                   </p>
                                 )}
                                 {!qtyReady && !item.remainingDisposition && (

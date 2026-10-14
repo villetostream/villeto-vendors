@@ -13,6 +13,7 @@ import {
   OnboardingMode,
 } from "@/lib/types";
 
+
 export type OnboardingStep =
   | "business-identity"
   | "banking"
@@ -36,6 +37,14 @@ interface DocumentState {
   document_id?: string;
   url?: string;
   uploaded: boolean;
+  /** ISO-8601 expiration date — only sent for applicable document types. */
+  expiresAt?: string;
+  /** Secondary screenshot/image upload result — only for applicable document types. */
+  screenshot?: {
+    file_name?: string;
+    document_id?: string;
+    url?: string;
+  };
 }
 
 /** Shape of the validated invite coming from POST /vendors/invitations/preview */
