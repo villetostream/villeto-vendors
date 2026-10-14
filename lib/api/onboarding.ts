@@ -107,21 +107,42 @@ export async function saveBankingDetails(
 // STEP 3: Document Upload
 // ─────────────────────────────────────────────
 
+export interface UploadDocumentOptions {
+  /** ISO-8601 expiration date — included only for document types that carry one. */
+  expiresAt?: string;
+  /**
+   * Secondary screenshot / back-side image — included only for document types
+   * that support a companion image (e.g. government_id).
+   */
+  screenshotFile?: File;
+}
+
 /**
  * Upload a single document or change an existing one.
  * PATCH /vendors/onboarding/documents
  * Content-Type: multipart/form-data
+ *
+ * Optional fields (`expiresAt`, `screenshot`) are appended to the payload only
+ * when provided — callers should omit them for document types that don't apply.
  *
  * Returns presigned URL or stored document reference.
  */
 export async function uploadDocument(
   type: DocumentType,
   file: File,
-  onProgress?: (pct: number) => void
+  onProgress?: (pct: number) => void,
+  options?: UploadDocumentOptions
 ): Promise<{ document_id: string; url: string; file_name: string }> {
   const formData = new FormData();
   formData.append("documentType", type);
   formData.append("file", file);
+
+  if (options?.expiresAt) {
+    formData.append("expiresAt", options.expiresAt);
+  }
+  if (options?.screenshotFile) {
+    formData.append("screenshot", options.screenshotFile);
+  }
 
   // INTEGRATION POINT ↓
   const { data } = await uploadClient.patch(

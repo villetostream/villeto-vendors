@@ -156,6 +156,7 @@ export function ItemFulfillmentDrawer({
                                 <span className="text-muted-foreground font-normal">
                                   {" "}· {remainingAtTime} {li.remainingDisposition === "cannot_fulfill" ? "Cannot fulfill remaining" : "Backordered remaining"}
                                   {li.remainingDisposition === "backordered" && li.expectedReadyDate && ` (Expected: ${formatDateTime(li.expectedReadyDate).split(',')[0]})`}
+                                  {(li.reason || li.dispositionReason) && ` · Reason: ${li.reason || li.dispositionReason}`}
                                 </span>
                               )}
                             </p>
