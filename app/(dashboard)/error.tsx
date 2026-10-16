@@ -34,6 +34,12 @@ export default function DashboardError({
         An unexpected error occurred while loading this page. You can try
         again, or head back to the dashboard.
       </p>
+      {process.env.NODE_ENV !== "production" && error?.message && (
+        <div className="max-w-md w-full p-3 mb-6 bg-red-50 border border-red-200 rounded-lg text-left overflow-auto max-h-40">
+          <p className="text-xs font-semibold text-red-800 mb-1">Error details (Dev Mode):</p>
+          <p className="text-xs font-mono text-red-600 whitespace-pre-wrap break-all">{error.message}</p>
+        </div>
+      )}
       <div className="flex gap-3">
         <Button variant="outline" asChild>
           <Link href="/dashboard">Go to dashboard</Link>

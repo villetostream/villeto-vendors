@@ -123,7 +123,7 @@ export default function CompanyDetailPage({
     );
   }
 
-  const isActive = company.status.toLowerCase() === "active";
+  const isActive = (company.status ?? "").trim().toLowerCase() === "active";
   const nextAction = company.nextAction;
 
   // Build status badge config
@@ -133,7 +133,7 @@ export default function CompanyDetailPage({
     ? { dot: "bg-amber-500", label: "Invitation Pending", labelClass: "text-amber-600" }
     : nextAction === "complete_onboarding"
     ? { dot: "bg-orange-500", label: "Action Required", labelClass: "text-orange-600" }
-    : { dot: "bg-slate-400", label: company.status, labelClass: "text-slate-600" };
+    : { dot: "bg-slate-400", label: company.status || "Unknown", labelClass: "text-slate-600" };
 
   return (
     <div className="space-y-6">

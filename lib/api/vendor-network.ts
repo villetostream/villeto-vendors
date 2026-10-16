@@ -24,11 +24,40 @@ export async function getMyCompanies(params?: {
   name?: string;
   companyName?: string;
 }): Promise<{ data: V2CompanyRelationship[]; total: number }> {
-  const { data } = await apiClient.get("/vendor-network/me/companies", { params });
-  return {
-    data: data?.data?.data || data?.data || [],
-    total: data?.data?.total || 0,
-  };
+  try {
+    const { data } = await apiClient.get("/vendor-network/me/companies", { params });
+    const rawList = Array.isArray(data?.data?.data)
+      ? data.data.data
+      : Array.isArray(data?.data)
+      ? data.data
+      : Array.isArray(data?.data?.companies)
+      ? data.data.companies
+      : Array.isArray(data?.data?.items)
+      ? data.data.items
+      : [];
+    return {
+      data: rawList,
+      total: data?.data?.total ?? rawList.length,
+    };
+  } catch (err: any) {
+    if (err?.response?.status === 404 || err?.status === 404) {
+      try {
+        const { data } = await apiClient.get("/vendors/me/companies");
+        const rawList = Array.isArray(data?.data?.data)
+          ? data.data.data
+          : Array.isArray(data?.data)
+          ? data.data
+          : [];
+        return {
+          data: rawList,
+          total: rawList.length,
+        };
+      } catch {
+        throw err;
+      }
+    }
+    throw err;
+  }
 }
 
 export async function getMyCompany(companyId: string): Promise<V2CompanyRelationship> {
