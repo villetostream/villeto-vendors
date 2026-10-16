@@ -32,14 +32,15 @@ const STATUS_MAP: Record<string, { label: string; dot: string }> = {
   archive:          { label: "Archived",           dot: "bg-slate-400" },
 };
 
-function getStatusDot(status: string, nextAction?: string | null) {
+function getStatusDot(status?: string | null, nextAction?: string | null) {
   if (nextAction === "accept_invitation") {
     return { label: "Invitation Pending", dot: "bg-amber-500" };
   }
   if (nextAction === "complete_onboarding") {
     return { label: "Action Required", dot: "bg-orange-500" };
   }
-  return STATUS_MAP[status.toLowerCase()] ?? { label: status, dot: "bg-slate-400" };
+  const s = (status ?? "").trim().toLowerCase();
+  return STATUS_MAP[s] ?? { label: status || "Unknown", dot: "bg-slate-400" };
 }
 
 function getInitials(name?: string | null) {
@@ -53,16 +54,17 @@ function getInitials(name?: string | null) {
 /* ── Stat summary helpers ───────────────────── */
 
 function computeStats(companies: V2CompanyRelationship[]) {
+  const list = Array.isArray(companies) ? companies : [];
   return {
-    total: companies.length,
-    active: companies.filter((c) => c.status.toLowerCase() === "active").length,
-    pendingApproval: companies.filter(
+    total: list.length,
+    active: list.filter((c) => (c?.status ?? "").trim().toLowerCase() === "active").length,
+    pendingApproval: list.filter(
       (c) =>
-        c.status.toLowerCase() === "pending_approval" ||
-        c.nextAction === "complete_onboarding" ||
-        c.nextAction === "accept_invitation"
+        (c?.status ?? "").trim().toLowerCase() === "pending_approval" ||
+        c?.nextAction === "complete_onboarding" ||
+        c?.nextAction === "accept_invitation"
     ).length,
-    paymentsEnabled: companies.filter((c) => c.isPaymentEnabled).length,
+    paymentsEnabled: list.filter((c) => Boolean(c?.isPaymentEnabled)).length,
   };
 }
 
@@ -77,23 +79,35 @@ export default function CompaniesPage() {
   // don't trigger a new network request and cause a full reload.
   const { data, isLoading, error } = useMyCompanies({});
 
-  const companies = data?.data || [];
+  const rawData = data?.data;
+  const companies: V2CompanyRelationship[] = Array.isArray(rawData)
+    ? rawData
+    : Array.isArray((rawData as any)?.data)
+    ? (rawData as any).data
+    : Array.isArray((rawData as any)?.companies)
+    ? (rawData as any).companies
+    : Array.isArray((rawData as any)?.items)
+    ? (rawData as any).items
+    : [];
+
   const stats = computeStats(companies);
 
   // Client-side filtering — no extra network requests
   const filteredCompanies = companies.filter((c) => {
+    if (!c) return false;
+    const cStatus = (c.status ?? "").trim().toLowerCase();
+    const cName = (c.companyName ?? (c as any).name ?? (c as any).businessDetails?.displayName ?? "").toLowerCase();
+
     const matchesFilter =
       filter === "all" ? true
-      : filter === "Active" ? c.status.toLowerCase() === "active"
+      : filter === "Active" ? cStatus === "active"
       : filter === "pending_approval"
-        ? c.status.toLowerCase() === "pending_approval" ||
+        ? cStatus === "pending_approval" ||
           c.nextAction === "complete_onboarding" ||
           c.nextAction === "accept_invitation"
         : true;
 
-    const matchesSearch = c.companyName
-      .toLowerCase()
-      .includes(search.toLowerCase());
+    const matchesSearch = cName.includes(search.toLowerCase());
 
     return matchesFilter && matchesSearch;
   });
@@ -245,25 +259,27 @@ export default function CompaniesPage() {
                 </tr>
               </thead>
               <tbody>
-                {filteredCompanies.map((company) => {
+                {filteredCompanies.map((company, index) => {
+                  const companyId = company.companyId || (company as any).id || (company as any)._id || `company-${index}`;
+                  const companyName = company.companyName || (company as any).name || (company as any).businessDetails?.displayName || "Organization";
                   const { label: statusLabel, dot } = getStatusDot(company.status, company.nextAction);
-                  const onboardingLabel = (company.onboardingStatus || "pending").replace(/_/g, " ");
-                  const approvalLabel = company.approvalStatus || "pending";
+                  const onboardingLabel = String(company.onboardingStatus || "pending").replace(/_/g, " ");
+                  const approvalLabel = String(company.approvalStatus || "pending");
 
                   return (
                     <tr
-                      key={company.companyId}
-                      onClick={() => router.push(`/companies/${company.companyId}`)}
+                      key={companyId}
+                      onClick={() => router.push(`/companies/${companyId}`)}
                       className="border-b border-dashboard-border/60 hover:bg-muted/30 transition-colors cursor-pointer group"
                     >
                       {/* Organization */}
                       <td className="px-6 py-4">
                         <div className="flex items-center gap-3.5">
                           <div className="h-10 w-10 rounded-xl bg-slate-100 border border-slate-200 flex items-center justify-center text-slate-600 text-sm font-semibold shrink-0">
-                            {getInitials(company.companyName)}
+                            {getInitials(companyName)}
                           </div>
                           <span className="font-semibold text-sm text-foreground group-hover:text-primary transition-colors truncate max-w-[200px]">
-                            {company.companyName}
+                            {companyName}
                           </span>
                         </div>
                       </td>
@@ -328,7 +344,7 @@ export default function CompaniesPage() {
                           variant="ghost"
                           size="sm"
                           className="text-muted-foreground hover:text-primary"
-                          onClick={() => router.push(`/companies/${company.companyId}`)}
+                          onClick={() => router.push(`/companies/${companyId}`)}
                         >
                           <ExternalLink className="h-4 w-4" />
                         </Button>
