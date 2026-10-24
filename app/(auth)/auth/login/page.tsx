@@ -138,6 +138,7 @@ function LoginContent() {
       // onboarding mode they were originally in), route directly to the 
       // status page to prevent them from bouncing through the wizard.
       const activeCo = res.data.companies?.find((c) => c.companyId === currentVendor.companyId) || res.data.companies?.[0];
+      const targetCompanyId = activeCo?.companyId || currentVendor.companyId;
       const effApproval = activeCo?.approvalStatus ?? currentVendor.approvalStatus;
       const effOnboarding = activeCo?.onboardingStatus ?? currentVendor.onboardingStatus;
 
@@ -148,13 +149,21 @@ function LoginContent() {
 
       // 3. Alternatively, if the backend marked their active context as needing acceptance
       if (currentVendor.nextAction === "accept_invitation" || currentVendor.onboardingStatus?.toLowerCase() === "invited") {
-        hardNavigate(`/invitation/${currentVendor.companyId}`);
+        if (targetCompanyId) {
+          hardNavigate(`/invitation/${targetCompanyId}`);
+        } else {
+          hardNavigate("/companies");
+        }
         return;
       }
 
       // 3. Otherwise, they are a standard new or continuing vendor — route them
-      // to the new V2 multi-company onboarding layout which handles its own step routing.
-      hardNavigate(`/onboarding/${currentVendor.companyId}`);
+      // to the new multi-company onboarding layout which handles its own step routing.
+      if (targetCompanyId) {
+        hardNavigate(`/onboarding/${targetCompanyId}`);
+      } else {
+        hardNavigate("/companies");
+      }
     } catch (err: unknown) {
       setIsNavigating(false);
       toast.error((err as { message?: string })?.message ?? "Invalid email or password");

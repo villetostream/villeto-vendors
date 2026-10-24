@@ -226,7 +226,7 @@ export default function CompanyDetailPage({
     ? { dot: "bg-rose-500", label: "Application Rejected", labelClass: "text-rose-600" }
     : nextAction === "accept_invitation"
     ? { dot: "bg-amber-500", label: "Invitation Pending", labelClass: "text-amber-600" }
-    : nextAction === "complete_onboarding"
+    : nextAction === "complete_onboarding" || nextAction === "continue_onboarding"
     ? { dot: "bg-orange-500", label: "Action Required", labelClass: "text-orange-600" }
     : { dot: "bg-slate-400", label: company.status || "Unknown", labelClass: "text-slate-600" };
 
@@ -282,7 +282,7 @@ export default function CompanyDetailPage({
                 </Button>
               </>
             )}
-            {nextAction === "complete_onboarding" && !isRejected && (
+            {(nextAction === "complete_onboarding" || nextAction === "continue_onboarding") && !isRejected && (
               <Button variant="primary" size="sm" onClick={() => router.push(`/onboarding/${company.companyId}`)}>
                 Continue Onboarding
               </Button>

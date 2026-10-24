@@ -10,7 +10,7 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/lib/stores/authStore";
 import Cookies from "js-cookie";
-import { AUTH_COOKIE_NAMES } from "@/lib/constants/auth";
+import { AUTH_COOKIE_NAMES, AUTH_COOKIE_OPTIONS } from "@/lib/constants/auth";
 
 const DOC_LABELS: Record<string, string> = {
   "certificate_of_incorporation": "Certificate of Incorporation",
@@ -44,8 +44,14 @@ export default function V2ReviewPage({ params }: { params: Promise<{ companyId: 
     cookieApproval === "approved" ||
     (company?.status ?? "").toLowerCase() === "active";
 
+  const isAwaitingReview =
+    (company?.onboardingStatus ?? "").toLowerCase() === "submitted" ||
+    (company as any)?.nextAction === "awaiting_company_review" ||
+    (authUser?.onboardingStatus ?? "").toLowerCase() === "submitted";
+
   const isRejected =
     !isApproved &&
+    !isAwaitingReview &&
     (company?.approvalStatus === "rejected" ||
       company?.status === "rejected" ||
       (company as any)?.onboardingStatus === "rejected" ||
@@ -61,8 +67,11 @@ export default function V2ReviewPage({ params }: { params: Promise<{ companyId: 
           ...authUser,
           approvalStatus: "pending",
           onboardingStatus: "submitted",
+          decisionNote: null,
         });
       }
+      Cookies.set(AUTH_COOKIE_NAMES.approvalStatus, "pending", AUTH_COOKIE_OPTIONS);
+      Cookies.remove(AUTH_COOKIE_NAMES.decisionNote);
       router.push("/pending");
     } catch (err: any) {
       toast.error(err.message || "Failed to submit profile");

@@ -25,21 +25,29 @@ interface AuthState {
 
 function currentVendorToAuthUser(v: CurrentVendor, companies?: CompanyRelationship[]): AuthUser {
   const match = companies?.find((c) => c.companyId === v.companyId) || companies?.[0];
-  const effectiveApproval = match?.approvalStatus ?? v.approvalStatus;
   const effectiveStatus = match?.status ?? v.status;
   const effectiveOnboarding = match?.onboardingStatus ?? v.onboardingStatus;
+  const effectiveNextAction = (match as any)?.nextAction ?? (v as any)?.nextAction;
+  const isAwaiting =
+    (effectiveOnboarding ?? "").toLowerCase() === "submitted" ||
+    effectiveNextAction === "awaiting_company_review";
+
+  const effectiveApproval = isAwaiting ? "pending" : (match?.approvalStatus ?? v.approvalStatus);
+  const effectiveDecisionNote = isAwaiting
+    ? null
+    : ((match as any)?.decisionNote || (match as any)?.rejectionReason || v.decisionNote);
 
   return {
     id: v.vendorId,
     vendorAccountId: v.vendorAccountId,
-    companyId: v.companyId,
+    companyId: v.companyId || match?.companyId,
     companyName: match?.companyName || v.companyName,
     email: v.email,
     business_name: v.displayName || v.legalName,
     status: effectiveStatus,
     approvalStatus: effectiveApproval,
     onboardingStatus: effectiveOnboarding,
-    decisionNote: v.decisionNote,
+    decisionNote: effectiveDecisionNote,
     isPaymentEnabled: match?.isPaymentEnabled ?? v.isPaymentEnabled,
     currentStep: v.currentStep,
   };
@@ -60,6 +68,11 @@ function persistSessionCookies(user: AuthUser) {
   }
   if (user.companyId) {
     Cookies.set(AUTH_COOKIE_NAMES.activeCompanyId, user.companyId, AUTH_COOKIE_OPTIONS);
+  }
+  if (user.decisionNote) {
+    Cookies.set(AUTH_COOKIE_NAMES.decisionNote, user.decisionNote, AUTH_COOKIE_OPTIONS);
+  } else {
+    Cookies.remove(AUTH_COOKIE_NAMES.decisionNote);
   }
 }
 
@@ -88,6 +101,7 @@ export const useAuthStore = create<AuthState>((set) => ({
     Cookies.remove(AUTH_COOKIE_NAMES.approvalStatus);
     Cookies.remove(AUTH_COOKIE_NAMES.vendorStatus);
     Cookies.remove(AUTH_COOKIE_NAMES.activeCompanyId);
+    Cookies.remove(AUTH_COOKIE_NAMES.decisionNote);
     if (typeof window !== "undefined") {
       localStorage.removeItem("villeto-onboarding");
       sessionStorage.removeItem("villeto-onboarding");

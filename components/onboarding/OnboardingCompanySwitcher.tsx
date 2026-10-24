@@ -41,7 +41,10 @@ export function OnboardingCompanySwitcher() {
   const { data } = useQuery({
     queryKey: queryKeys.companies(),
     queryFn: getVendorCompanies,
-    staleTime: 1000 * 30,
+    staleTime: 1000 * 3,
+    refetchInterval: 3000,
+    refetchIntervalInBackground: true,
+    refetchOnWindowFocus: true,
     // Only fetch if the user actually has an auth token — the OnboardingLayout
     // renders this component on /invite and /signup too where no token exists,
     // and a 401 from those pages triggers the global session-expired redirect.
@@ -108,9 +111,9 @@ export function OnboardingCompanySwitcher() {
     } catch (error) {
       console.error("Logout API failed:", error);
     } finally {
-      queryClient.clear();
       clearAuth();
-      router.push("/auth/login");
+      queryClient.clear();
+      window.location.replace("/auth/login");
     }
   };
 

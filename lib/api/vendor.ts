@@ -18,30 +18,45 @@ import {
 // MULTI-COMPANY
 // ─────────────────────────────────────────────
 
+let inFlightCompaniesPromise: Promise<CompanyRelationship[]> | null = null;
+
 /**
  * List every tenant company relationship for the logged-in vendor account.
  * Primary: GET /vendor-network/me/companies (has accurate approvalStatus and onboardingStatus)
  * Fallback: GET /vendors/me/companies
+ *
+ * In-flight deduplicated: concurrent callers share a single request instead of
+ * firing duplicate HTTP requests across the wire simultaneously.
  */
 export async function getVendorCompanies(): Promise<CompanyRelationship[]> {
-  try {
-    const { data } = await apiClient.get<any>("/vendor-network/me/companies");
-    const rawList = Array.isArray(data?.data?.data)
-      ? data.data.data
-      : Array.isArray(data?.data)
-      ? data.data
-      : null;
-    if (rawList && rawList.length > 0) {
-      return rawList;
-    }
-  } catch (err) {
-    console.warn("Failed to fetch /vendor-network/me/companies, falling back to /vendors/me/companies", err);
+  if (inFlightCompaniesPromise) {
+    return inFlightCompaniesPromise;
   }
 
-  const { data } = await apiClient.get<ApiEnvelope<{ data: CompanyRelationship[] }>>(
-    "/vendors/me/companies"
-  );
-  return data.data.data;
+  inFlightCompaniesPromise = (async () => {
+    try {
+      const { data } = await apiClient.get<any>("/vendor-network/me/companies");
+      const rawList = Array.isArray(data?.data?.data)
+        ? data.data.data
+        : Array.isArray(data?.data)
+        ? data.data
+        : null;
+      if (rawList && rawList.length > 0) {
+        return rawList;
+      }
+    } catch (err) {
+      console.warn("Failed to fetch /vendor-network/me/companies, falling back to /vendors/me/companies", err);
+    }
+
+    const { data } = await apiClient.get<ApiEnvelope<{ data: CompanyRelationship[] }>>(
+      "/vendors/me/companies"
+    );
+    return data.data.data;
+  })().finally(() => {
+    inFlightCompaniesPromise = null;
+  });
+
+  return inFlightCompaniesPromise;
 }
 
 export interface SwitchCompanyResult {
@@ -98,11 +113,23 @@ export async function getVendorSummary(filters: SummaryFilters = {}): Promise<Da
  * eventually be split at the API level; until then the frontend enforces
  * the split purely client-side by disabling inputs for locked fields.
  */
+let inFlightProfilePromise: Promise<VendorProfile> | null = null;
+
 export async function getVendorProfile(): Promise<VendorProfile> {
-  const { data } = await apiClient.get<ApiEnvelope<VendorProfile>>(
-    "/vendor-portal/profile"
-  );
-  return data.data;
+  if (inFlightProfilePromise) {
+    return inFlightProfilePromise;
+  }
+
+  inFlightProfilePromise = (async () => {
+    const { data } = await apiClient.get<ApiEnvelope<VendorProfile>>(
+      "/vendor-portal/profile"
+    );
+    return data.data;
+  })().finally(() => {
+    inFlightProfilePromise = null;
+  });
+
+  return inFlightProfilePromise;
 }
 
 /**
@@ -134,7 +161,10 @@ export async function updateVendorProfile(
 // endpoint until backend confirms one exists; calling it today will 404.
 // ─────────────────────────────────────────────
 
-export async function sendMessage(message: string): Promise<{ success: boolean }> {
-  const { data } = await apiClient.post("/vendor-portal/messages", { message });
+export async function sendMessage(message: string, companyId?: string): Promise<{ success: boolean }> {
+  const { data } = await apiClient.post("/vendor-portal/messages", {
+    message,
+    ...(companyId ? { companyId } : {}),
+  });
   return data;
 }

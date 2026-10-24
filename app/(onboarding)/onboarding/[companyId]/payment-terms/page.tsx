@@ -122,9 +122,8 @@ export default function PaymentTermsPage({
       store.savePaymentTermsLocally(values);
 
       if (isResubmit) {
-        // After resubmitting standalone payment terms, go to the company detail page
         toast.success("Payment terms resubmitted successfully!");
-        router.push(`/companies/${companyId}`);
+        router.push("/pending");
         return;
       }
 

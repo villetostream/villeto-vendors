@@ -117,19 +117,38 @@ export function getCompanyStatusConfig(
   rawStatus: string, 
   approvalStatus?: string | null, 
   nextAction?: string | null,
-  onboardingStatus?: string | null
+  onboardingStatus?: string | null,
+  paymentTermStatus?: string | null
 ) {
   const status = normalizeStatus(rawStatus);
   const approval = normalizeStatus(approvalStatus);
+  const onboarding = (onboardingStatus ?? "").toLowerCase().trim();
+  const next = (nextAction ?? "").toLowerCase().trim();
+  const paymentTerm = (paymentTermStatus ?? "").toLowerCase().trim();
 
-  if (approval === "rejected") {
-    return { label: "Rejected", color: "text-red-700", bg: "bg-red-50" };
-  }
+  const isAwaitingReview =
+    onboarding === "submitted" ||
+    next === "awaiting_company_review" ||
+    approval === "pending" ||
+    approval === "under_review";
+
   if (status === "active") {
     return { label: "Active", color: "text-green-700", bg: "bg-green-50" };
   }
+  if (paymentTerm === "rejected") {
+    return { label: "Payment terms rejected", color: "text-red-700", bg: "bg-red-50" };
+  }
   if (approval === "approved" && status !== "active") {
     return { label: "Setting up payments", color: "text-amber-700", bg: "bg-amber-50" };
+  }
+  if (approval === "rejected" && isAwaitingReview) {
+    return { label: "Under review", color: "text-amber-700", bg: "bg-amber-50" };
+  }
+  if (approval === "rejected" || status === "rejected") {
+    return { label: "Rejected", color: "text-red-700", bg: "bg-red-50" };
+  }
+  if (isAwaitingReview) {
+    return { label: "Under review", color: "text-amber-700", bg: "bg-amber-50" };
   }
   if (status === "suspended") {
     return { label: "Suspended", color: "text-orange-700", bg: "bg-orange-50" };

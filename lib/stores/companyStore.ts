@@ -87,7 +87,10 @@ export const queryKeys = {
   order: (companyId: string, id: string) => ["vendor-portal", "orders", companyId, "detail", id] as const,
   invoices: (companyId: string, filters = {}) => ["vendor-portal", "invoices", companyId, filters] as const,
   invoice: (companyId: string, id: string) => ["vendor-portal", "invoices", companyId, id] as const,
-  profile: (companyId: string) => ["vendor-portal", "profile", companyId] as const,
+  profile: (companyId?: string) =>
+    companyId
+      ? (["vendor-portal", "profile", companyId] as const)
+      : (["vendor-portal", "profile"] as const),
   companies: () => ["vendors", "me", "companies"] as const,
   notifications: (companyId: string, filters = {}) =>
     ["vendor-portal", "notifications", companyId, filters] as const,

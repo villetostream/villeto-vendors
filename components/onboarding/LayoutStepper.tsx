@@ -46,10 +46,16 @@ export function LayoutStepper() {
     authUser?.approvalStatus === "approved" ||
     cookieApproval === "approved";
 
+  const isAwaitingReview =
+    company?.onboardingStatus === "submitted" ||
+    (company as any)?.nextAction === "awaiting_company_review" ||
+    authUser?.onboardingStatus === "submitted";
+
   const isRejected =
-    company?.approvalStatus === "rejected" ||
-    company?.status === "rejected" ||
-    authUser?.approvalStatus === "rejected";
+    !isAwaitingReview &&
+    (company?.approvalStatus === "rejected" ||
+      company?.status === "rejected" ||
+      authUser?.approvalStatus === "rejected");
 
   const validSteps = ["business-identity", "verification", "banking", "payment-terms", "documents", "review"];
   
