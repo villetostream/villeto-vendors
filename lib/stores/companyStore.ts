@@ -96,4 +96,10 @@ export const queryKeys = {
   v2Company: (companyId: string) => ["vendor-network", "me", "companies", companyId] as const,
   v2Onboarding: (companyId: string) => ["vendor-network", "me", "companies", companyId, "onboarding"] as const,
   v2BankAccounts: () => ["vendor-network", "me", "bank-accounts"] as const,
+  v2PaymentTermOptions: (companyId: string, legalEntity?: string) =>
+    ["vendor-network", "me", "companies", companyId, "payment-term-options", legalEntity] as const,
+  v2PaymentTerms: (filters: Record<string, string | number> = {}, legalEntity?: string) =>
+    ["vendor-network", "me", "payment-terms", filters, legalEntity] as const,
+  v2PaymentTerm: (paymentTermId: string) =>
+    ["vendor-network", "me", "payment-terms", paymentTermId] as const,
 };

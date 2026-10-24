@@ -25,7 +25,10 @@ const schema = z.object({
   bank_name: z.string().min(1, "Select a bank"),
   account_name: z.string().trim().min(2, "Account name is required"),
   routing_number: z.string().optional(),
-  account_number: z.string().trim().min(10, "Account number must be at least 10 digits"),
+  account_number: z
+    .string()
+    .trim()
+    .regex(/^\d{10}$/, "Account number must be exactly 10 digits"),
 });
 
 type FormData = z.infer<typeof schema>;
@@ -190,8 +193,14 @@ export default function BankingPage() {
           >
             <Input
               placeholder="0000000000"
+              maxLength={10}
+              inputMode="numeric"
               error={!!errors.account_number}
-              {...register("account_number")}
+              {...register("account_number", {
+                onChange: (e) => {
+                  e.target.value = e.target.value.replace(/\D/g, "").slice(0, 10);
+                },
+              })}
             />
           </FormField>
 

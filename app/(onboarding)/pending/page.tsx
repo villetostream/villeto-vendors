@@ -8,9 +8,10 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { Send, XCircle, CreditCard } from "lucide-react";
 import { OnboardingStepper } from "@/components/onboarding/OnboardingStepper";
 import { Button } from "@/components/ui/Button";
-import { sendMessage } from "@/lib/api/vendor";
-import { getVendorProfile } from "@/lib/api/vendor";
+import { sendMessage, getVendorProfile, getVendorCompanies } from "@/lib/api/vendor";
 import { useAuthStore } from "@/lib/stores/authStore";
+import { useMyCompany } from "@/lib/hooks/useVendorNetwork";
+import { PageSpinner } from "@/components/ui/Spinner";
 import { toast } from "sonner";
 import { cn, isStatusActive, hasSubmittedOnboarding } from "@/lib/utils";
 import Cookies from "js-cookie";
@@ -117,8 +118,16 @@ const PHASE_COPY: Record<PendingPhase, { title: string; subtitle: string; badge:
 
 export default function PendingPage() {
   const router = useRouter();
-  const { user, setUser } = useAuthStore();
-  const phase = getPhase(user?.approvalStatus, user?.status);
+  const { user, setUser, isLoading } = useAuthStore();
+  const cookieCompanyId = typeof window !== "undefined" ? Cookies.get(AUTH_COOKIE_NAMES.activeCompanyId) : undefined;
+  const activeCompanyId = user?.companyId || cookieCompanyId;
+  const { data: company } = useMyCompany(activeCompanyId || "");
+
+  const cookieApproval = typeof window !== "undefined" ? Cookies.get(AUTH_COOKIE_NAMES.approvalStatus) : undefined;
+  const cookieStatus = typeof window !== "undefined" ? Cookies.get(AUTH_COOKIE_NAMES.vendorStatus) : undefined;
+  const effectiveApproval = company?.approvalStatus ?? user?.approvalStatus ?? cookieApproval;
+  const effectiveStatus = company?.status ?? user?.status ?? cookieStatus;
+  const phase = getPhase(effectiveApproval, effectiveStatus);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const userRef = useRef(user);
@@ -142,18 +151,25 @@ export default function PendingPage() {
   useEffect(() => {
     const poll = async () => {
       try {
-        const profile = await getVendorProfile();
+        const [profile, companies] = await Promise.all([
+          getVendorProfile(),
+          getVendorCompanies(),
+        ]);
         const current = userRef.current;
+        const activeId = current?.companyId || Cookies.get(AUTH_COOKIE_NAMES.activeCompanyId);
+        const match = companies.find((c) => c.companyId === activeId) || companies[0];
 
         const freshUser = {
           id: profile.vendorId,
           email: profile.email,
           business_name: profile.displayName || profile.legalName,
-          status: profile.status,
-          approvalStatus: profile.approvalStatus,
-          onboardingStatus: profile.onboardingStatus,
+          status: match?.status || profile.status,
+          approvalStatus: match?.approvalStatus || profile.approvalStatus,
+          onboardingStatus: match?.onboardingStatus || profile.onboardingStatus,
           decisionNote: profile.decisionNote,
-          isPaymentEnabled: profile.isPaymentEnabled,
+          isPaymentEnabled: match?.isPaymentEnabled ?? profile.isPaymentEnabled,
+          companyId: match?.companyId,
+          companyName: match?.companyName,
         };
 
         const meaningfullyChanged =
@@ -201,6 +217,14 @@ export default function PendingPage() {
     };
   }, [router, setUser]);
 
+  if (isLoading && !effectiveApproval) {
+    return (
+      <div className="w-full max-w-2xl flex flex-col h-full items-center justify-center py-20">
+        <PageSpinner />
+      </div>
+    );
+  }
+
   const {
     register,
     handleSubmit,
@@ -225,7 +249,12 @@ export default function PendingPage() {
   return (
     <div className="w-full max-w-2xl flex flex-col h-full">
       <div className="shrink-0 pb-6">
-        <OnboardingStepper currentStep="pending" pendingStep isRejected={isRejected} />
+        <OnboardingStepper
+          currentStep="pending"
+          pendingStep
+          isRejected={isRejected}
+          companyId={activeCompanyId}
+        />
       </div>
 
       <div
@@ -258,35 +287,47 @@ export default function PendingPage() {
         </div>
 
         <div className="flex-1 flex flex-col min-h-0 px-8 py-6 gap-5">
-          <p className="text-sm text-muted-foreground leading-relaxed shrink-0">
-            {phase === "rejected" && (
-              <>
-                Unfortunately your vendor application was <strong className="text-red-600">rejected</strong> by{" "}
-                <strong className="text-foreground">Villeto</strong>. You may send a message below to request
-                reconsideration or ask for more information about the decision.
-              </>
-            )}
-            {phase === "payment_setup" && (
-              <>
-                Your documents have been <strong className="text-foreground">approved</strong>. We&apos;re now
-                finishing payment setup — this usually only takes a short while. You&apos;ll be redirected
-                automatically the moment it&apos;s ready.
-              </>
-            )}
-            {phase === "under_review" && (
-              <>
-                Your credentials are pending approval from <strong className="text-foreground">Villeto</strong>.
-                You will be redirected to your dashboard automatically once you&apos;re approved and active. You
-                can send a message to the team while you wait.
-              </>
-            )}
-          </p>
-
-          {isRejected && user?.decisionNote && (
-            <div className="rounded-xl border border-red-200 bg-red-50 p-4 shrink-0">
-              <h3 className="text-sm font-semibold text-red-800 mb-1">Reason for Rejection</h3>
-              <p className="text-sm text-red-700">{user.decisionNote}</p>
+          {isRejected ? (
+            <div className="rounded-xl border border-red-200 bg-red-50 p-4.5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shrink-0">
+              <div>
+                <h3 className="text-sm font-semibold text-red-900 mb-1">
+                  Application Not Approved
+                </h3>
+                <p className="text-xs text-red-700 leading-relaxed">
+                  {user?.decisionNote
+                    ? `Feedback: ${user.decisionNote}`
+                    : "The organization requested changes before your application can be approved. You can review all steps, modify details, and resubmit."}
+                </p>
+              </div>
+              {activeCompanyId && (
+                <Button
+                  type="button"
+                  variant="primary"
+                  size="sm"
+                  onClick={() => router.push(`/onboarding/${activeCompanyId}/review`)}
+                  className="shrink-0 bg-red-600 hover:bg-red-700 text-white shadow-sm"
+                >
+                  Modify & Resubmit
+                </Button>
+              )}
             </div>
+          ) : (
+            <p className="text-sm text-muted-foreground leading-relaxed shrink-0">
+              {phase === "payment_setup" && (
+                <>
+                  Your documents have been <strong className="text-foreground">approved</strong>. We&apos;re now
+                  finishing payment setup — this usually only takes a short while. You&apos;ll be redirected
+                  automatically the moment it&apos;s ready.
+                </>
+              )}
+              {phase === "under_review" && (
+                <>
+                  Your credentials are pending approval from <strong className="text-foreground">Villeto</strong>.
+                  You will be redirected to your dashboard automatically once you&apos;re approved and active. You
+                  can send a message to the team while you wait.
+                </>
+              )}
+            </p>
           )}
 
           <div

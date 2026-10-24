@@ -7,13 +7,15 @@ export interface V2CompanyRelationship {
   companyId: string;
   companyName: string;
   status: "Active" | "Inactive" | "archive" | "rejected" | "pending_approval" | string;
-  nextAction?: "accept_invitation" | "complete_onboarding" | "submitted" | "available" | null;
+  nextAction?: "accept_invitation" | "complete_onboarding" | "submitted" | "available" | "rejected" | string | null;
   availableActions?: string[];
   verificationRequested: boolean;
   verificationAvailable?: boolean;
   onboardingStatus?: string;
   currentStep?: string;
   approvalStatus?: string | null;
+  decisionNote?: string | null;
+  rejectionReason?: string | null;
   isPaymentEnabled?: boolean;
   usesCompanyBankingDetails?: boolean;
   onboardingMethod?: string;
@@ -103,3 +105,63 @@ export interface V2BusinessIdentityPayload {
   businessAddress?: string;
   verificationMethod?: "cac" | "tin" | string;
 }
+
+export interface CompanyPaymentTermOption {
+  vendorPaymentTermOptionId: string;
+  code: string;
+  name: string;
+  description?: string;
+  days: number;
+  isActive: boolean;
+  isSystem: boolean;
+  createdAt: string;
+  updatedAt: string;
+  deletedAt?: string | null;
+}
+
+export interface SaveCompanyPaymentTermPayload {
+  /** Selecting a company preset — send ONLY this field */
+  optionId?: string;
+  /** Reusing a prior term — send ONLY this field */
+  reusePaymentTermId?: string;
+  /** Custom terms — send ONLY name + days (no optionId) */
+  name?: string;
+  days?: number;
+}
+
+export type PaymentTermStatus =
+  | "pending_review"
+  | "approved"
+  | "rejected"
+  | "superseded"
+  | string;
+
+export interface VendorPaymentTermSubmission {
+  paymentTermId: string;
+  companyId: string;
+  companyName: string;
+  vendorId: string;
+  vendorName: string;
+  code?: string;
+  name: string;
+  days: number;
+  status: PaymentTermStatus;
+  revision: number;
+  isCurrent: boolean;
+  rejectionReason?: string | null;
+  submittedAt: string;
+  reviewedAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface VendorPaymentTermsListResponse {
+  data: VendorPaymentTermSubmission[];
+  meta: {
+    totalCount: number;
+    totalPages: number;
+    currentPage: number;
+    limit: number;
+  };
+}
+

@@ -53,6 +53,21 @@ export const useLogin = (): UseMutationResult<LoginResponse, Error, LoginPayload
       // from a different company or user appearing on login.
       queryClient.clear();
 
+      // Find the active company relationship to seed accurate approvalStatus & status immediately
+      const activeCo = companies?.find((c) => c.companyId === currentVendor.companyId) || companies?.[0];
+      const effApproval = activeCo?.approvalStatus ?? currentVendor.approvalStatus;
+      const effStatus = activeCo?.status ?? currentVendor.status;
+
+      if (effApproval) {
+        Cookies.set(AUTH_COOKIE_NAMES.approvalStatus, effApproval, AUTH_COOKIE_OPTIONS);
+      }
+      if (effStatus) {
+        Cookies.set(AUTH_COOKIE_NAMES.vendorStatus, effStatus, AUTH_COOKIE_OPTIONS);
+      }
+      if (currentVendor.companyId || activeCo?.companyId) {
+        Cookies.set(AUTH_COOKIE_NAMES.activeCompanyId, currentVendor.companyId || activeCo!.companyId, AUTH_COOKIE_OPTIONS);
+      }
+
       setCurrentVendor(currentVendor, companies);
       setCompanies(companies);
       setActive(currentVendor.companyId, currentVendor.vendorId);

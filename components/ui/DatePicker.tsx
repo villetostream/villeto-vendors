@@ -58,6 +58,7 @@ export function DatePicker({
           mode="single"
           selected={date}
           onSelect={(d) => {
+            if (d && disabled && disabled(d)) return;
             onSelect(d);
             setCalendarOpen(false);
           }}

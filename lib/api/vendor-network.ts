@@ -11,6 +11,10 @@ import {
   BankAccountOption,
   AcceptCompanyPayload,
   V2VerificationPayload,
+  CompanyPaymentTermOption,
+  SaveCompanyPaymentTermPayload,
+  VendorPaymentTermSubmission,
+  VendorPaymentTermsListResponse,
 } from "@/lib/types";
 
 // ─────────────────────────────────────────────
@@ -60,9 +64,19 @@ export async function getMyCompanies(params?: {
   }
 }
 
-export async function getMyCompany(companyId: string): Promise<V2CompanyRelationship> {
-  const { data } = await apiClient.get(`/vendor-network/me/companies/${companyId}`);
-  return data?.data;
+export async function getMyCompany(companyId: string): Promise<V2CompanyRelationship | null> {
+  try {
+    const { data } = await apiClient.get(`/vendor-network/me/companies/${companyId}`);
+    return data?.data ?? null;
+  } catch (err: any) {
+    // A brand-new vendor who hasn't completed business-identity yet may get a
+    // 404 from this endpoint. Return null instead of throwing so the onboarding
+    // router can fall back to the first step gracefully.
+    if (err?.response?.status === 404 || err?.status === 404) {
+      return null;
+    }
+    throw err;
+  }
 }
 
 export async function acceptCompanyInvitation(
@@ -148,15 +162,31 @@ export async function saveV2BankingDetails(
 // DOCUMENTS
 // ─────────────────────────────────────────────
 
+export interface UploadV2DocumentOptions {
+  /** ISO date string (yyyy-MM-dd) — maps to backend field `issuedAt` */
+  issuedAt?: string;
+  /** ISO date string (yyyy-MM-dd) — maps to backend field `expiresAt` */
+  expiresAt?: string;
+  notApplicable?: boolean;
+}
+
 export async function uploadV2Document(
   companyId: string,
   type: string,
   file: File,
-  onProgress?: (pct: number) => void
+  onProgress?: (pct: number) => void,
+  options?: UploadV2DocumentOptions
 ): Promise<{ document_id: string; url: string; file_name: string }> {
   const formData = new FormData();
   formData.append("documentType", type);
   formData.append("file", file);
+
+  if (options?.issuedAt) {
+    formData.append("issuedAt", options.issuedAt);
+  }
+  if (options?.expiresAt && !options.notApplicable) {
+    formData.append("expiresAt", options.expiresAt);
+  }
 
   const { data } = await uploadClient.patch(
     `/vendor-network/me/companies/${companyId}/documents`,
@@ -178,3 +208,65 @@ export async function viewV2Document(companyId: string, vendorDocumentId: string
   );
   return data?.data;
 }
+
+// ─────────────────────────────────────────────
+// PAYMENT TERMS
+// ─────────────────────────────────────────────
+
+export async function getCompanyPaymentTermOptions(
+  companyId: string,
+  legalEntity?: string
+): Promise<CompanyPaymentTermOption[]> {
+  const headers: Record<string, string> = {};
+  if (legalEntity) {
+    headers["X-Villeto-Legal-Entity"] = legalEntity;
+  }
+  const { data } = await apiClient.get(
+    `/vendor-network/me/companies/${companyId}/payment-term-options`,
+    { headers }
+  );
+  return Array.isArray(data?.data) ? data.data : [];
+}
+
+export async function saveCompanyPaymentTerm(
+  companyId: string,
+  payload: SaveCompanyPaymentTermPayload
+): Promise<{ success: boolean; data?: VendorPaymentTermSubmission }> {
+  const { data } = await apiClient.put(
+    `/vendor-network/me/companies/${companyId}/payment-terms`,
+    payload
+  );
+  return data;
+}
+
+export async function getVendorPaymentTerms(
+  params?: {
+    page?: number;
+    limit?: number;
+    status?: string;
+    companyId?: string;
+    companyName?: string;
+  },
+  legalEntity?: string
+): Promise<VendorPaymentTermsListResponse> {
+  const headers: Record<string, string> = {};
+  if (legalEntity) {
+    headers["X-Villeto-Legal-Entity"] = legalEntity;
+  }
+  const { data } = await apiClient.get("/vendor-network/me/payment-terms", {
+    params,
+    headers,
+  });
+  return {
+    data: Array.isArray(data?.data) ? data.data : [],
+    meta: data?.meta || { totalCount: 0, totalPages: 0, currentPage: 1, limit: 10 },
+  };
+}
+
+export async function getVendorPaymentTermById(
+  paymentTermId: string
+): Promise<VendorPaymentTermSubmission> {
+  const { data } = await apiClient.get(`/vendor-network/me/payment-terms/${paymentTermId}`);
+  return data?.data ?? data;
+}
+

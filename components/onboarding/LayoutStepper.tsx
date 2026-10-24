@@ -1,8 +1,12 @@
 "use client";
 
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { OnboardingStepper } from "./OnboardingStepper";
 import { useCompanyOnboardingStore } from "@/lib/stores/companyOnboardingStore";
+import { useAuthStore } from "@/lib/stores/authStore";
+import { useMyCompany } from "@/lib/hooks/useVendorNetwork";
+import Cookies from "js-cookie";
+import { AUTH_COOKIE_NAMES } from "@/lib/constants/auth";
 
 const PATHNAME_TO_STEP: Record<string, string> = {
   "/onboarding/business-identity": "business-identity",
@@ -13,8 +17,10 @@ const PATHNAME_TO_STEP: Record<string, string> = {
 };
 
 export function LayoutStepper() {
+  const router = useRouter();
   const pathname = usePathname() ?? "";
   const v2Store = useCompanyOnboardingStore();
+  const authUser = useAuthStore((s) => s.user);
   
   let step = PATHNAME_TO_STEP[pathname];
   let companyId: string | undefined;
@@ -32,6 +38,18 @@ export function LayoutStepper() {
       }
     }
   }
+
+  const { data: company } = useMyCompany(companyId || "");
+  const cookieApproval = typeof window !== "undefined" ? Cookies.get(AUTH_COOKIE_NAMES.approvalStatus) : undefined;
+  const isApproved =
+    company?.approvalStatus === "approved" ||
+    authUser?.approvalStatus === "approved" ||
+    cookieApproval === "approved";
+
+  const isRejected =
+    company?.approvalStatus === "rejected" ||
+    company?.status === "rejected" ||
+    authUser?.approvalStatus === "rejected";
 
   const validSteps = ["business-identity", "verification", "banking", "payment-terms", "documents", "review"];
   
@@ -58,6 +76,7 @@ export function LayoutStepper() {
       <OnboardingStepper
         currentStep={step}
         pendingStep={isPending}
+        isRejected={isRejected}
         companyId={companyId}
         customSteps={customSteps}
       />

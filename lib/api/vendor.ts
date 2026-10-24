@@ -20,9 +20,24 @@ import {
 
 /**
  * List every tenant company relationship for the logged-in vendor account.
- * GET /vendors/me/companies
+ * Primary: GET /vendor-network/me/companies (has accurate approvalStatus and onboardingStatus)
+ * Fallback: GET /vendors/me/companies
  */
 export async function getVendorCompanies(): Promise<CompanyRelationship[]> {
+  try {
+    const { data } = await apiClient.get<any>("/vendor-network/me/companies");
+    const rawList = Array.isArray(data?.data?.data)
+      ? data.data.data
+      : Array.isArray(data?.data)
+      ? data.data
+      : null;
+    if (rawList && rawList.length > 0) {
+      return rawList;
+    }
+  } catch (err) {
+    console.warn("Failed to fetch /vendor-network/me/companies, falling back to /vendors/me/companies", err);
+  }
+
   const { data } = await apiClient.get<ApiEnvelope<{ data: CompanyRelationship[] }>>(
     "/vendors/me/companies"
   );

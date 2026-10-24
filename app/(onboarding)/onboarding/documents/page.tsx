@@ -11,6 +11,7 @@ import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/Modal";
 import Image from "next/image";
+import { format, startOfDay, isBefore } from "date-fns";
 
 interface UploadState {
   uploading: boolean;
@@ -82,6 +83,12 @@ export default function DocumentsPage() {
   const confirmUpload = async () => {
     if (!pendingUpload) return;
     const { type, file, expiresAt, screenshotFile } = pendingUpload;
+
+    if (expiresAt && isBefore(startOfDay(new Date(expiresAt)), startOfDay(new Date()))) {
+      toast.error("Expiration date must be today or in the future");
+      return;
+    }
+
     setPendingUpload(null);
     setUploadState(type, { uploading: true, progress: 0, error: undefined });
 
@@ -132,6 +139,13 @@ export default function DocumentsPage() {
   const handleContinue = () => {
     if (!allRequiredUploaded) {
       toast.error("Please upload all required documents.");
+      return;
+    }
+    const hasInvalidExpiry = store.documents.some(
+      (d) => d.expiresAt && isBefore(startOfDay(new Date(d.expiresAt)), startOfDay(new Date()))
+    );
+    if (hasInvalidExpiry) {
+      toast.error("Expiration date must be today or in the future");
       return;
     }
     setIsNavigating(true);
@@ -301,13 +315,19 @@ export default function DocumentsPage() {
                       <input
                         id={`exp-date-${doc.type}`}
                         type="date"
+                        min={format(new Date(), "yyyy-MM-dd")}
                         aria-label={`Expiration date for ${doc.label}`}
                         value={doc.expiresAt ?? ""}
-                        onChange={(e) =>
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          if (val && isBefore(startOfDay(new Date(val)), startOfDay(new Date()))) {
+                            toast.error("Expiration date must be today or in the future");
+                            return;
+                          }
                           store.updateDocument(doc.type, {
-                            expiresAt: e.target.value || undefined,
-                          })
-                        }
+                            expiresAt: val || undefined,
+                          });
+                        }}
                         className="ml-auto text-xs rounded-lg border border-border bg-white px-2.5 py-1.5 text-foreground focus:outline-none focus:ring-1 focus:ring-primary/50 transition-colors"
                       />
                     </div>
@@ -469,12 +489,18 @@ export default function DocumentsPage() {
                 <input
                   id="dialog-exp-date"
                   type="date"
+                  min={format(new Date(), "yyyy-MM-dd")}
                   value={pendingUpload.expiresAt ?? ""}
-                  onChange={(e) =>
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    if (val && isBefore(startOfDay(new Date(val)), startOfDay(new Date()))) {
+                      toast.error("Expiration date must be today or in the future");
+                      return;
+                    }
                     setPendingUpload((prev) =>
-                      prev ? { ...prev, expiresAt: e.target.value || undefined } : prev
-                    )
-                  }
+                      prev ? { ...prev, expiresAt: val || undefined } : prev
+                    );
+                  }}
                   className="ml-auto text-sm rounded-lg border border-border bg-white px-3 py-1.5 text-foreground focus:outline-none focus:ring-1 focus:ring-primary/50 transition-colors"
                 />
               </div>

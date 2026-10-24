@@ -47,17 +47,20 @@ export function OnboardingStepper({
         const isCompleted = idx < currentIdx || (pendingStep && idx < steps.length - 1);
         const isCurrent = step.key === currentStep;
         const isLast = idx === steps.length - 1;
+        const isClickable =
+          step.key !== "pending" &&
+          (isCompleted || isRejected || currentStep === "review" || (Boolean(companyId) && !pendingStep));
 
         return (
           <div key={step.key} className="flex items-center">
             {/* Step circle + label */}
             <div 
               className={cn(
-                "flex flex-col items-center gap-1.5 relative z-20",
-                isCompleted && (!pendingStep || isRejected) && "cursor-pointer hover:opacity-80 transition-opacity"
+                "flex flex-col items-center gap-1.5 relative z-20 select-none",
+                isClickable && "cursor-pointer hover:opacity-80 transition-opacity"
               )}
               onClick={() => {
-                if (isCompleted && (!pendingStep || isRejected)) {
+                if (isClickable) {
                   if (companyId) {
                     router.push(`/onboarding/${companyId}/${step.key}`);
                   } else {
