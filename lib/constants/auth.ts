@@ -29,6 +29,8 @@ export const AUTH_COOKIE_NAMES = {
   vendorStatus: "villeto_vendor_status",
   /** companyId of the currently-selected tenant relationship. */
   activeCompanyId: "villeto_active_company_id",
+  /** Decision feedback note from company rejection */
+  decisionNote: "villeto_decision_note",
 } as const;
 
 /**

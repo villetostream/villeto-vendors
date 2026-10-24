@@ -29,6 +29,11 @@ export default function OnboardingError({
         An unexpected error occurred while loading this step. Your progress
         on previous steps is safe — you can try again.
       </p>
+      {process.env.NODE_ENV !== "production" && error?.message && (
+        <div className="mb-6 p-3 bg-red-50 border border-red-200 rounded-lg text-left max-w-md w-full overflow-x-auto text-xs text-red-800 font-mono">
+          {error.message}
+        </div>
+      )}
       <div className="flex gap-3">
         <Button variant="outline" asChild>
           <Link href="/auth/login">Back to login</Link>

@@ -34,11 +34,21 @@ export function useMyCompanies(filters: Record<string, string | number> = {}) {
 }
 
 // Single Company
-export function useMyCompany(companyId: string) {
+export function useMyCompany(
+  companyId: string,
+  options?: {
+    refetchInterval?: number | false | ((query: any) => number | false);
+    refetchIntervalInBackground?: boolean;
+    refetchOnWindowFocus?: boolean;
+  }
+) {
   return useQuery({
     queryKey: queryKeys.v2Company(companyId),
     queryFn: () => getMyCompany(companyId),
     enabled: !!companyId,
+    refetchInterval: options?.refetchInterval,
+    refetchIntervalInBackground: options?.refetchIntervalInBackground,
+    refetchOnWindowFocus: options?.refetchOnWindowFocus ?? true,
     // getMyCompany returns null on 404 (brand-new vendor not yet registered
     // on the vendor-network side). No point retrying a deliberate 404.
     retry: (failureCount, error: any) => {
@@ -111,6 +121,8 @@ export function useSubmitV2Onboarding() {
       queryClient.invalidateQueries({ queryKey: queryKeys.v2Onboarding(companyId) });
       queryClient.invalidateQueries({ queryKey: queryKeys.v2Company(companyId) });
       queryClient.invalidateQueries({ queryKey: queryKeys.v2Companies() });
+      queryClient.invalidateQueries({ queryKey: queryKeys.companies() });
+      queryClient.invalidateQueries({ queryKey: queryKeys.profile() });
     },
   });
 }
@@ -153,11 +165,21 @@ export function useCompanyPaymentTermOptions(companyId: string, legalEntity?: st
 
 export function useVendorPaymentTerms(
   filters: Record<string, string | number> = {},
-  legalEntity?: string
+  legalEntity?: string,
+  options?: {
+    refetchInterval?: number | false | ((query: any) => number | false);
+    refetchIntervalInBackground?: boolean;
+    refetchOnWindowFocus?: boolean;
+    enabled?: boolean;
+  }
 ) {
   return useQuery({
     queryKey: queryKeys.v2PaymentTerms(filters, legalEntity),
     queryFn: () => getVendorPaymentTerms(filters, legalEntity),
+    enabled: options?.enabled ?? true,
+    refetchInterval: options?.refetchInterval,
+    refetchIntervalInBackground: options?.refetchIntervalInBackground,
+    refetchOnWindowFocus: options?.refetchOnWindowFocus ?? true,
   });
 }
 

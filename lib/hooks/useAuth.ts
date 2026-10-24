@@ -55,7 +55,15 @@ export const useLogin = (): UseMutationResult<LoginResponse, Error, LoginPayload
 
       // Find the active company relationship to seed accurate approvalStatus & status immediately
       const activeCo = companies?.find((c) => c.companyId === currentVendor.companyId) || companies?.[0];
-      const effApproval = activeCo?.approvalStatus ?? currentVendor.approvalStatus;
+      const effOnboarding = activeCo?.onboardingStatus ?? currentVendor.onboardingStatus;
+      const effNextAction = (activeCo as any)?.nextAction ?? (currentVendor as any)?.nextAction;
+      const isAwaiting =
+        (effOnboarding ?? "").toLowerCase() === "submitted" ||
+        effNextAction === "awaiting_company_review";
+
+      const effApproval = isAwaiting
+        ? "pending"
+        : (activeCo?.approvalStatus ?? currentVendor.approvalStatus);
       const effStatus = activeCo?.status ?? currentVendor.status;
 
       if (effApproval) {
@@ -66,6 +74,14 @@ export const useLogin = (): UseMutationResult<LoginResponse, Error, LoginPayload
       }
       if (currentVendor.companyId || activeCo?.companyId) {
         Cookies.set(AUTH_COOKIE_NAMES.activeCompanyId, currentVendor.companyId || activeCo!.companyId, AUTH_COOKIE_OPTIONS);
+      }
+      const effDecisionNote = isAwaiting
+        ? null
+        : ((activeCo as any)?.decisionNote || (activeCo as any)?.rejectionReason);
+      if (effDecisionNote) {
+        Cookies.set(AUTH_COOKIE_NAMES.decisionNote, effDecisionNote, AUTH_COOKIE_OPTIONS);
+      } else {
+        Cookies.remove(AUTH_COOKIE_NAMES.decisionNote);
       }
 
       setCurrentVendor(currentVendor, companies);

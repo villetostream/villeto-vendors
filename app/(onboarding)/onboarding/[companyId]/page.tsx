@@ -113,15 +113,26 @@ export default function V2OnboardingRouter({
         ""
       ).toLowerCase();
 
+      const isAwaitingReview =
+        company.onboardingStatus?.toLowerCase() === "submitted" ||
+        (company as any).nextAction === "awaiting_company_review" ||
+        user?.onboardingStatus?.toLowerCase() === "submitted" ||
+        target === "submitted" ||
+        target === "under_review";
+
       const isRejected =
-        company.approvalStatus === "rejected" ||
-        company.status === "rejected" ||
-        (company as any).onboardingStatus === "rejected" ||
-        user?.approvalStatus === "rejected";
+        !isAwaitingReview &&
+        (company.approvalStatus === "rejected" ||
+          company.status === "rejected" ||
+          (company as any).onboardingStatus === "rejected" ||
+          user?.approvalStatus === "rejected");
       
       let stepPath = "business-identity";
       
-      if (isRejected) {
+      if (isAwaitingReview) {
+        router.replace("/pending");
+        return;
+      } else if (isRejected) {
         // Rejected vendors land on review to see rejection feedback and jump to any step to edit
         stepPath = "review";
       } else if (isProfileReuse) {

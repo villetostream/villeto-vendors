@@ -58,9 +58,16 @@ export default function InvitationPage({
 
   useEffect(() => {
     if (company && company.nextAction !== "accept_invitation") {
-      // If the vendor already accepted this invite (e.g. they clicked an old email link),
-      // kick them out of this standalone acceptance page and back into the main app shell.
-      router.replace(`/companies/${companyId}`);
+      const isActive = (company.status ?? "").toLowerCase() === "active";
+      const isUnderReview = (company.approvalStatus !== null && company.approvalStatus !== undefined) || company.onboardingStatus === "submitted";
+
+      if (isUnderReview) {
+        router.replace("/pending");
+      } else if (!isActive) {
+        router.replace(`/onboarding/${companyId}`);
+      } else {
+        router.replace(`/companies/${companyId}`);
+      }
     }
   }, [company, companyId, router]);
 

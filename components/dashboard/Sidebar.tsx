@@ -81,10 +81,9 @@ export function Sidebar({ isMobileOpen = false, onMobileClose }: SidebarProps) {
     } finally {
       // Always clear local state and redirect to login, even if the backend
       // logout call fails (e.g. 401 Unauthorized because the token expired).
-      queryClient.clear();
       clearAuth();
-      router.push("/auth/login");
-      setIsLoggingOut(false);
+      queryClient.clear();
+      window.location.replace("/auth/login");
     }
   };
 
