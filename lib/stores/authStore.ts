@@ -23,19 +23,24 @@ interface AuthState {
   setLoading: (loading: boolean) => void;
 }
 
-function currentVendorToAuthUser(v: CurrentVendor): AuthUser {
+function currentVendorToAuthUser(v: CurrentVendor, companies?: CompanyRelationship[]): AuthUser {
+  const match = companies?.find((c) => c.companyId === v.companyId) || companies?.[0];
+  const effectiveApproval = match?.approvalStatus ?? v.approvalStatus;
+  const effectiveStatus = match?.status ?? v.status;
+  const effectiveOnboarding = match?.onboardingStatus ?? v.onboardingStatus;
+
   return {
     id: v.vendorId,
     vendorAccountId: v.vendorAccountId,
     companyId: v.companyId,
-    companyName: v.companyName,
+    companyName: match?.companyName || v.companyName,
     email: v.email,
     business_name: v.displayName || v.legalName,
-    status: v.status,
-    approvalStatus: v.approvalStatus,
-    onboardingStatus: v.onboardingStatus,
+    status: effectiveStatus,
+    approvalStatus: effectiveApproval,
+    onboardingStatus: effectiveOnboarding,
     decisionNote: v.decisionNote,
-    isPaymentEnabled: v.isPaymentEnabled,
+    isPaymentEnabled: match?.isPaymentEnabled ?? v.isPaymentEnabled,
     currentStep: v.currentStep,
   };
 }
@@ -72,7 +77,7 @@ export const useAuthStore = create<AuthState>((set) => ({
   setCompanies: (companies) => set({ companies }),
 
   setCurrentVendor: (vendor, companies) => {
-    const user = currentVendorToAuthUser(vendor);
+    const user = currentVendorToAuthUser(vendor, companies);
     persistSessionCookies(user);
     set({ user, companies, isAuthenticated: true, isLoading: false });
   },

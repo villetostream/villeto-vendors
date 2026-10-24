@@ -30,11 +30,29 @@ export default function V2OnboardingRouter({
   const { data: company, isLoading: loadingCompany, error: companyError } = useMyCompany(companyId);
 
   useEffect(() => {
-    if (status && company && companyId) {
-      // Initialize the store for this company
-      setActiveCompanyId(companyId);
-      setOnboardingStatus(status);
-      
+    // If both queries are done (not loading), proceed — company may be null for
+    // brand-new vendors whose company record isn't on the vendor-network side yet.
+    if (!loadingStatus && !loadingCompany && companyId) {
+      // If the onboarding status API also errored, fall back immediately to
+      // business-identity rather than showing a stuck error screen.
+      if (statusError) {
+        router.replace(`/onboarding/${companyId}/business-identity`);
+        return;
+      }
+
+      if (status) {
+        setActiveCompanyId(companyId);
+        setOnboardingStatus(status);
+      }
+
+      // company can be null if the backend hasn't created the vendor-network
+      // record yet (brand-new vendor, just accepted invite, first login).
+      // In that case we always start at business-identity.
+      if (!company) {
+        router.replace(`/onboarding/${companyId}/business-identity`);
+        return;
+      }
+
       if (company.documents && Array.isArray(company.documents)) {
         const docs = company.documents.map((d: any) => ({
           id: d.documentType,
@@ -78,19 +96,35 @@ export default function V2OnboardingRouter({
       if (
         company.nextAction === "accept_invitation" || 
         company.onboardingStatus?.toLowerCase() === "invited" ||
-        status.nextAction === "accept_invitation" ||
-        status.accessState === "invitation_pending"
+        status?.nextAction === "accept_invitation" ||
+        status?.accessState === "invitation_pending"
       ) {
         router.replace(`/invitation/${companyId}`);
         return;
       }
 
-      // Determine the correct step based on backend progress
-      const target = (company.currentStep || company.onboardingStatus || "").toLowerCase();
+      // Determine the correct step based on backend progress.
+      // Also consider the onboardingStatus from auth store as a fallback (comes
+      // from the /vendors/me/companies list which is always populated).
+      const target = (
+        company.currentStep ||
+        company.onboardingStatus ||
+        user?.onboardingStatus ||
+        ""
+      ).toLowerCase();
+
+      const isRejected =
+        company.approvalStatus === "rejected" ||
+        company.status === "rejected" ||
+        (company as any).onboardingStatus === "rejected" ||
+        user?.approvalStatus === "rejected";
       
       let stepPath = "business-identity";
       
-      if (isProfileReuse) {
+      if (isRejected) {
+        // Rejected vendors land on review to see rejection feedback and jump to any step to edit
+        stepPath = "review";
+      } else if (isProfileReuse) {
         stepPath = "business-identity";
       } else if (target === "review") {
         stepPath = "review";
@@ -100,28 +134,20 @@ export default function V2OnboardingRouter({
         stepPath = "payment-terms";
       } else if (target.includes("banking")) {
         stepPath = "banking";
-      } else if (status.canSubmit) {
+      } else if (status?.canSubmit) {
         stepPath = "review";
       }
       
       // Navigate to the correct step
       router.replace(`/onboarding/${companyId}/${stepPath}`);
     }
-  }, [status, company, companyId, router, setActiveCompanyId, setOnboardingStatus, setUploadedDocumentsLocally, saveBusinessIdentityLocally, saveBankingDetailsLocally, sessionOnboardingMode, user?.currentStep, user?.onboardingStatus]);
+  }, [status, company, companyId, router, loadingStatus, loadingCompany, statusError, setActiveCompanyId, setOnboardingStatus, setUploadedDocumentsLocally, saveBusinessIdentityLocally, saveBankingDetailsLocally, sessionOnboardingMode, user?.currentStep, user?.onboardingStatus, user?.approvalStatus]);
 
   if (loadingStatus || loadingCompany) {
     return (
       <div className="flex flex-col items-center justify-center h-64 space-y-4">
         <PageSpinner />
         <p className="text-sm text-muted-foreground">Loading onboarding progress...</p>
-      </div>
-    );
-  }
-
-  if (statusError || companyError) {
-    return (
-      <div className="p-8 text-center text-red-600">
-        Failed to load onboarding status. Please try again.
       </div>
     );
   }

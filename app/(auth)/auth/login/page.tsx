@@ -137,7 +137,11 @@ function LoginContent() {
       // 2. If the vendor has already submitted their profile (regardless of the
       // onboarding mode they were originally in), route directly to the 
       // status page to prevent them from bouncing through the wizard.
-      if (currentVendor.approvalStatus !== null || currentVendor.onboardingStatus === "submitted") {
+      const activeCo = res.data.companies?.find((c) => c.companyId === currentVendor.companyId) || res.data.companies?.[0];
+      const effApproval = activeCo?.approvalStatus ?? currentVendor.approvalStatus;
+      const effOnboarding = activeCo?.onboardingStatus ?? currentVendor.onboardingStatus;
+
+      if ((effApproval !== null && effApproval !== undefined) || effOnboarding === "submitted") {
         hardNavigate("/pending");
         return;
       }

@@ -9,7 +9,10 @@ export default function PaymentTermsPage() {
   const store = useOnboardingStore();
 
   const handleContinue = (values: PaymentTermsValues) => {
-    store.savePaymentTerms(values);
+    store.savePaymentTerms({
+      ...values,
+      arrangement: values.arrangement || values.name || "Payment within a specified number of days",
+    });
     router.push("/onboarding/documents");
   };
 

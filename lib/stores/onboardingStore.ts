@@ -22,11 +22,14 @@ export type OnboardingStep =
   | "review";
 
 export interface PaymentTermsData {
-  arrangement: string;
+  arrangement?: string;
   period?: string;
   customPeriod?: string;
   advancePercentage?: number;
   notes?: string;
+  optionId?: string;
+  name?: string;
+  days?: number;
 }
 
 interface DocumentState {

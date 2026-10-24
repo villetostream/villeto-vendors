@@ -5,25 +5,31 @@ import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { ArrowRight, CreditCard, Loader2 } from "lucide-react";
+import { ArrowRight, CreditCard, Loader2, CheckCircle2 } from "lucide-react";
 import { Input } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
 import { FormField } from "@/components/ui/Label";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/Select";
 import { useCompanyOnboardingStore, fingerprint } from "@/lib/stores/companyOnboardingStore";
 import { useOnboardingStore } from "@/lib/stores/onboardingStore";
-import { useSavedBankAccounts, useSaveV2BankingDetails } from "@/lib/hooks/useVendorNetwork";
+import { useSavedBankAccounts, useSaveV2BankingDetails, useMyCompany } from "@/lib/hooks/useVendorNetwork";
+import { useAuthStore } from "@/lib/stores/authStore";
 import { getBanksForCountry } from "@/lib/constants/banks";
 import { COUNTRIES } from "@/lib/constants/countries";
 import { useDebounce } from "use-debounce";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import Cookies from "js-cookie";
+import { AUTH_COOKIE_NAMES } from "@/lib/constants/auth";
 
 const schema = z.object({
   bankCode: z.string().min(1, "Select a bank"),
   bankName: z.string().min(1, "Select a bank"),
   accountName: z.string().trim().min(2, "Account name is required"),
-  accountNumber: z.string().trim().min(10, "Account number must be at least 10 digits"),
+  accountNumber: z
+    .string()
+    .trim()
+    .regex(/^\d{10}$/, "Account number must be exactly 10 digits"),
 });
 type FormData = z.infer<typeof schema>;
 
@@ -32,7 +38,15 @@ export default function V2BankingPage({ params }: { params: Promise<{ companyId:
   const companyId = resolvedParams.companyId;
   const router = useRouter();
   const store = useCompanyOnboardingStore();
-  
+  const { data: company } = useMyCompany(companyId);
+  const authUser = useAuthStore((s) => s.user);
+  const cookieApproval = typeof window !== "undefined" ? Cookies.get(AUTH_COOKIE_NAMES.approvalStatus) : undefined;
+  const isApproved =
+    company?.approvalStatus === "approved" ||
+    authUser?.approvalStatus === "approved" ||
+    cookieApproval === "approved" ||
+    (company?.status ?? "").toLowerCase() === "active";
+
   const { data: savedAccounts = [], isLoading: loadingAccounts } = useSavedBankAccounts();
   const sessionBanking = useOnboardingStore((s) => s.banking);
 
@@ -227,39 +241,48 @@ export default function V2BankingPage({ params }: { params: Promise<{ companyId:
           </p>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-8 pt-6">
-          {effectiveAccounts.length > 0 && (
-            <div className="flex gap-2 mb-8 bg-slate-100 p-1 rounded-lg">
-              <button
-                onClick={() => setMode("reuse")}
-                className={cn(
-                  "flex-1 py-2 text-sm font-medium rounded-md transition-all",
-                  mode === "reuse" ? "bg-white shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"
-                )}
-              >
-                Use Saved Account
-              </button>
-              <button
-                onClick={() => setMode("new")}
-                className={cn(
-                  "flex-1 py-2 text-sm font-medium rounded-md transition-all",
-                  mode === "new" ? "bg-white shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"
-                )}
-              >
-                Add New Account
-              </button>
+        <div className="flex-1 overflow-y-auto overflow-x-hidden p-8 pt-6">
+          {loadingAccounts ? (
+            <div className="space-y-4 py-2">
+              <div className="h-10 bg-slate-100 rounded-lg animate-pulse" />
+              <div className="h-20 bg-slate-100 rounded-xl animate-pulse" />
+              <div className="h-20 bg-slate-100 rounded-xl animate-pulse" />
             </div>
-          )}
+          ) : (
+            <>
+              {effectiveAccounts.length > 0 && !isApproved && (
+                <div className="flex gap-2 mb-8 bg-slate-100 p-1 rounded-lg">
+                  <button
+                    onClick={() => setMode("reuse")}
+                    className={cn(
+                      "flex-1 py-2 text-sm font-medium rounded-md transition-all",
+                      mode === "reuse" ? "bg-white shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"
+                    )}
+                  >
+                    Use Saved Account
+                  </button>
+                  <button
+                    onClick={() => setMode("new")}
+                    className={cn(
+                      "flex-1 py-2 text-sm font-medium rounded-md transition-all",
+                      mode === "new" ? "bg-white shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"
+                    )}
+                  >
+                    Add New Account
+                  </button>
+                </div>
+              )}
 
-          {mode === "reuse" && effectiveAccounts.length > 0 ? (
+              {mode === "reuse" && effectiveAccounts.length > 0 ? (
             <div className="space-y-4">
               <div className="grid gap-3">
                 {effectiveAccounts.map((acc) => (
                   <div
                     key={acc.bankOptionId}
-                    onClick={() => setSelectedBankOptionId(acc.bankOptionId)}
+                    onClick={() => !isApproved && setSelectedBankOptionId(acc.bankOptionId)}
                     className={cn(
-                      "flex items-center gap-4 p-4 rounded-xl border cursor-pointer transition-all",
+                      "flex items-center gap-4 p-4 rounded-xl border transition-all",
+                      isApproved ? "cursor-default border-border bg-slate-50/50 opacity-95" : "cursor-pointer",
                       selectedBankOptionId === acc.bankOptionId
                         ? "border-primary bg-primary/5 shadow-sm"
                         : "border-border hover:border-primary/50"
@@ -282,17 +305,29 @@ export default function V2BankingPage({ params }: { params: Promise<{ companyId:
                 ))}
               </div>
               <div className="flex gap-3 pt-6 mt-4 border-t border-border/50">
-                <Button variant="outline" size="lg" className="px-8" onClick={() => router.back()}>Back</Button>
-                <Button 
-                  variant="primary" 
-                  size="lg" 
-                  className="flex-1" 
-                  onClick={handleReuse}
-                  disabled={!selectedBankOptionId}
-                  loading={saveMutation.isPending || isNavigating}
-                >
-                  Continue <ArrowRight className="h-4 w-4 ml-2" />
-                </Button>
+                <Button variant="outline" size="lg" className="px-6" onClick={() => router.back()}>Back</Button>
+                {isApproved ? (
+                  <Button
+                    type="button"
+                    variant="primary"
+                    size="lg"
+                    className="flex-1"
+                    onClick={() => router.push("/pending")}
+                  >
+                    Return to Overview
+                  </Button>
+                ) : (
+                  <Button 
+                    variant="primary" 
+                    size="lg" 
+                    className="flex-1" 
+                    onClick={handleReuse}
+                    disabled={!selectedBankOptionId}
+                    loading={saveMutation.isPending || isNavigating}
+                  >
+                    Continue <ArrowRight className="h-4 w-4 ml-2" />
+                  </Button>
+                )}
               </div>
             </div>
           ) : (
@@ -301,13 +336,15 @@ export default function V2BankingPage({ params }: { params: Promise<{ companyId:
                 {banks.length > 0 ? (
                   <Select
                     onValueChange={(v) => {
+                      if (isApproved) return;
                       const bank = banks.find((b) => b.code === v);
                       setValue("bankCode", v, { shouldValidate: true });
                       setValue("bankName", bank?.name ?? "", { shouldValidate: true });
                     }}
                     value={watch("bankCode") || undefined}
+                    disabled={isApproved}
                   >
-                    <SelectTrigger error={!!errors.bankName}>
+                    <SelectTrigger error={!!errors.bankName} className={cn(isApproved && "bg-muted/50")}>
                       <SelectValue placeholder="Select your bank" />
                     </SelectTrigger>
                     <SelectContent>
@@ -320,6 +357,7 @@ export default function V2BankingPage({ params }: { params: Promise<{ companyId:
                   <Input
                     placeholder="Enter your bank name"
                     error={!!errors.bankName}
+                    disabled={isApproved}
                     {...register("bankName", {
                       onChange: (e) => setValue("bankCode", e.target.value.toUpperCase().replace(/\s+/g, "_").slice(0, 12))
                     })}
@@ -330,8 +368,15 @@ export default function V2BankingPage({ params }: { params: Promise<{ companyId:
               <FormField label="Account Number" required error={errors.accountNumber?.message}>
                 <Input
                   placeholder="0000000000"
+                  maxLength={10}
+                  inputMode="numeric"
                   error={!!errors.accountNumber}
-                  {...register("accountNumber")}
+                  disabled={isApproved}
+                  {...register("accountNumber", {
+                    onChange: (e) => {
+                      e.target.value = e.target.value.replace(/\D/g, "").slice(0, 10);
+                    },
+                  })}
                 />
               </FormField>
 
@@ -339,25 +384,40 @@ export default function V2BankingPage({ params }: { params: Promise<{ companyId:
                 <Input
                   placeholder="e.g. John Doe"
                   error={!!errors.accountName}
+                  disabled={isApproved}
                   {...register("accountName")}
                 />
               </FormField>
 
               <div className="flex gap-3 pt-4 border-t border-border/50">
-                <Button type="button" variant="outline" size="lg" className="px-8" onClick={() => router.back()}>Back</Button>
-                <Button 
-                  type="submit" 
-                  variant="primary" 
-                  size="lg" 
-                  className="flex-1"
-                  loading={saveMutation.isPending || isNavigating}
-                >
-                  Continue <ArrowRight className="h-4 w-4 ml-2" />
-                </Button>
+                <Button type="button" variant="outline" size="lg" className="px-6" onClick={() => router.back()}>Back</Button>
+                {isApproved ? (
+                  <Button
+                    type="button"
+                    variant="primary"
+                    size="lg"
+                    className="flex-1"
+                    onClick={() => router.push("/pending")}
+                  >
+                    Return to Overview
+                  </Button>
+                ) : (
+                  <Button 
+                    type="submit" 
+                    variant="primary" 
+                    size="lg" 
+                    className="flex-1"
+                    loading={saveMutation.isPending || isNavigating}
+                  >
+                    Continue <ArrowRight className="h-4 w-4 ml-2" />
+                  </Button>
+                )}
               </div>
             </form>
           )}
-        </div>
+        </>
+      )}
+    </div>
       </div>
     </div>
   );

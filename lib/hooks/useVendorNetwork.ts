@@ -13,8 +13,17 @@ import {
   verifyVendor,
   getSavedBankAccounts,
   saveV2BankingDetails,
+  getCompanyPaymentTermOptions,
+  saveCompanyPaymentTerm,
+  getVendorPaymentTerms,
+  getVendorPaymentTermById,
 } from "@/lib/api/vendor-network";
-import { AcceptCompanyPayload, V2BusinessIdentityPayload, V2VerificationPayload } from "@/lib/types";
+import {
+  AcceptCompanyPayload,
+  V2BusinessIdentityPayload,
+  V2VerificationPayload,
+  SaveCompanyPaymentTermPayload,
+} from "@/lib/types";
 
 // Companies List
 export function useMyCompanies(filters: Record<string, string | number> = {}) {
@@ -30,6 +39,12 @@ export function useMyCompany(companyId: string) {
     queryKey: queryKeys.v2Company(companyId),
     queryFn: () => getMyCompany(companyId),
     enabled: !!companyId,
+    // getMyCompany returns null on 404 (brand-new vendor not yet registered
+    // on the vendor-network side). No point retrying a deliberate 404.
+    retry: (failureCount, error: any) => {
+      if (error?.response?.status === 404 || error?.status === 404) return false;
+      return failureCount < 2;
+    },
   });
 }
 
@@ -123,4 +138,53 @@ export function useSaveV2BankingDetails() {
     },
   });
 }
+
+// ─────────────────────────────────────────────
+// PAYMENT TERMS
+// ─────────────────────────────────────────────
+
+export function useCompanyPaymentTermOptions(companyId: string, legalEntity?: string) {
+  return useQuery({
+    queryKey: queryKeys.v2PaymentTermOptions(companyId, legalEntity),
+    queryFn: () => getCompanyPaymentTermOptions(companyId, legalEntity),
+    enabled: !!companyId,
+  });
+}
+
+export function useVendorPaymentTerms(
+  filters: Record<string, string | number> = {},
+  legalEntity?: string
+) {
+  return useQuery({
+    queryKey: queryKeys.v2PaymentTerms(filters, legalEntity),
+    queryFn: () => getVendorPaymentTerms(filters, legalEntity),
+  });
+}
+
+export function useVendorPaymentTerm(paymentTermId: string) {
+  return useQuery({
+    queryKey: queryKeys.v2PaymentTerm(paymentTermId),
+    queryFn: () => getVendorPaymentTermById(paymentTermId),
+    enabled: !!paymentTermId,
+  });
+}
+
+export function useSaveCompanyPaymentTerm() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      companyId,
+      payload,
+    }: {
+      companyId: string;
+      payload: SaveCompanyPaymentTermPayload;
+    }) => saveCompanyPaymentTerm(companyId, payload),
+    onSuccess: (_, { companyId }) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.v2PaymentTerms() });
+      queryClient.invalidateQueries({ queryKey: queryKeys.v2Company(companyId) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.v2Onboarding(companyId) });
+    },
+  });
+}
+
 

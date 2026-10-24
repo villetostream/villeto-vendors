@@ -39,7 +39,7 @@ export const businessIdentitySchema = z.object({
 export const bankingSchema = z.object({
   bank_code: z.string().min(1, "Select a bank"),
   bank_name: z.string().min(1, "Select a bank"),
-  account_number: z.string().length(10, "Account number must be 10 digits"),
+  account_number: z.string().trim().regex(/^\d{10}$/, "Account number must be exactly 10 digits"),
   flag_note: z.string().optional(),
 });
 

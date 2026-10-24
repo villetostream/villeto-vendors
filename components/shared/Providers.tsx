@@ -9,7 +9,7 @@ import { useAuthStore } from "@/lib/stores/authStore";
 import { useCompanyStore, queryKeys } from "@/lib/stores/companyStore";
 import { getVendorCompanies, getVendorProfile } from "@/lib/api/vendor";
 import Cookies from "js-cookie";
-import { AUTH_COOKIE_NAMES } from "@/lib/constants/auth";
+import { AUTH_COOKIE_NAMES, AUTH_COOKIE_OPTIONS } from "@/lib/constants/auth";
 import { AuthUser } from "@/lib/types";
 
 function profileToAuthUser(profile: Awaited<ReturnType<typeof getVendorProfile>>): AuthUser {
@@ -51,13 +51,30 @@ function AuthInitializer({ children }: { children: React.ReactNode }) {
 
     Promise.all([getVendorProfile(), getVendorCompanies()])
       .then(([profile, companies]) => {
-        const user = profileToAuthUser(profile);
+        const activeCompanyId = Cookies.get(AUTH_COOKIE_NAMES.activeCompanyId);
+        const match = companies.find((c) => c.companyId === activeCompanyId) ?? companies[0];
+
+        const user: AuthUser = {
+          ...profileToAuthUser(profile),
+          companyId: match?.companyId,
+          companyName: match?.companyName,
+          status: match?.status || profile.status,
+          approvalStatus: match?.approvalStatus || profile.approvalStatus,
+          onboardingStatus: match?.onboardingStatus || profile.onboardingStatus,
+        };
+
         setUser(user);
         setCompanies(companies);
         getQueryClient().setQueryData(queryKeys.companies(), companies);
-        const activeCompanyId = Cookies.get(AUTH_COOKIE_NAMES.activeCompanyId);
-        const match = companies.find((c) => c.companyId === activeCompanyId) ?? companies[0];
-        if (match) setActive(match.companyId, match.vendorId);
+        if (match) {
+          setActive(match.companyId, match.vendorId);
+          if (match.approvalStatus) {
+            Cookies.set(AUTH_COOKIE_NAMES.approvalStatus, match.approvalStatus, AUTH_COOKIE_OPTIONS);
+          }
+          if (match.status) {
+            Cookies.set(AUTH_COOKIE_NAMES.vendorStatus, match.status, AUTH_COOKIE_OPTIONS);
+          }
+        }
       })
       .catch(() => {
         // Cookie existed but the session is no longer valid server-side.

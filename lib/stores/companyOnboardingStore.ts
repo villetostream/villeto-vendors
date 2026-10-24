@@ -12,10 +12,17 @@ import {
 } from "@/lib/types";
 
 export interface PaymentTermsData {
-  arrangement: string;
+  optionId?: string;
+  reusePaymentTermId?: string;
+  name?: string;
+  days?: number;
+  code?: string;
+  description?: string;
+  arrangement?: string;
   period?: string;
   customPeriod?: string;
   advancePercentage?: number;
+  isDynamic?: boolean;
   notes?: string;
 }
 

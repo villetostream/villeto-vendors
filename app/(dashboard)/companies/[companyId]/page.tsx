@@ -2,7 +2,14 @@
 
 import { use, useState } from "react";
 import { useRouter } from "next/navigation";
-import { useMyCompany, useAcceptInvitation, useRejectInvitation } from "@/lib/hooks/useVendorNetwork";
+import {
+  useMyCompany,
+  useAcceptInvitation,
+  useRejectInvitation,
+  useVendorPaymentTerms,
+  useCompanyPaymentTermOptions,
+  useSaveCompanyPaymentTerm,
+} from "@/lib/hooks/useVendorNetwork";
 import { useAuthStore } from "@/lib/stores/authStore";
 import { useCompanyStore } from "@/lib/stores/companyStore";
 import { useCompany } from "@/lib/hooks/useCompany";
@@ -19,8 +26,18 @@ import {
   Building2,
   LayoutDashboard,
   Layers,
+  Edit3,
+  Sparkles,
+  RefreshCw,
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
+import { Input } from "@/components/ui/Input";
+import {
+  Dialog,
+  DialogContent,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/Modal";
 import Link from "next/link";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -66,6 +83,77 @@ export default function CompanyDetailPage({
   const acceptMutation = useAcceptInvitation();
   const rejectMutation = useRejectInvitation();
   const [isSwitching, setIsSwitching] = useState(false);
+
+  // Payment terms queries & state
+  const { data: termsData, isLoading: loadingTerms } = useVendorPaymentTerms({ companyId });
+  const { data: termOptions = [], isLoading: loadingTermOptions } = useCompanyPaymentTermOptions(companyId);
+  const saveTermsMutation = useSaveCompanyPaymentTerm();
+
+  const currentTerm = termsData?.data?.find((t) => t.isCurrent) || termsData?.data?.[0];
+
+  const [isTermsModalOpen, setIsTermsModalOpen] = useState(false);
+  const [selectedOptionId, setSelectedOptionId] = useState("");
+  const [isCustomDays, setIsCustomDays] = useState(false);
+  const [customDays, setCustomDays] = useState("30");
+  const [customName, setCustomName] = useState("Custom Net 30");
+
+  const openTermsModal = () => {
+    if (currentTerm) {
+      const match = termOptions.find((o) => o.days === currentTerm.days);
+      if (match) {
+        setSelectedOptionId(match.vendorPaymentTermOptionId);
+        setIsCustomDays(false);
+      } else {
+        setIsCustomDays(true);
+        setCustomDays(String(currentTerm.days));
+        setCustomName(currentTerm.name);
+      }
+    } else if (termOptions.length > 0) {
+      setSelectedOptionId(termOptions[0].vendorPaymentTermOptionId);
+      setIsCustomDays(false);
+    }
+    setIsTermsModalOpen(true);
+  };
+
+  const handleSaveTerms = async () => {
+    try {
+      if (isCustomDays) {
+        const daysNum = Math.max(0, parseInt(customDays, 10) || 0);
+        const fallbackOpt = termOptions.find((o) => o.days === daysNum) || termOptions[0];
+        if (!fallbackOpt) {
+          toast.error("No valid payment term option available");
+          return;
+        }
+        await saveTermsMutation.mutateAsync({
+          companyId,
+          payload: {
+            optionId: fallbackOpt.vendorPaymentTermOptionId,
+            name: customName.trim() || `Custom Net ${daysNum}`,
+            days: daysNum,
+          },
+        });
+      } else {
+        const selectedOpt = termOptions.find((o) => o.vendorPaymentTermOptionId === selectedOptionId);
+        if (!selectedOpt) {
+          toast.error("Please select a payment term option");
+          return;
+        }
+        await saveTermsMutation.mutateAsync({
+          companyId,
+          payload: {
+            optionId: selectedOpt.vendorPaymentTermOptionId,
+            name: selectedOpt.name,
+            days: selectedOpt.days,
+          },
+        });
+      }
+      toast.success("Payment terms submitted successfully");
+      setIsTermsModalOpen(false);
+    } catch (err: any) {
+      toast.error(err.message || "Failed to update payment terms");
+    }
+  };
+
 
 
 
@@ -125,10 +213,17 @@ export default function CompanyDetailPage({
 
   const isActive = (company.status ?? "").trim().toLowerCase() === "active";
   const nextAction = company.nextAction;
+  const isRejected =
+    company.approvalStatus === "rejected" ||
+    company.status === "rejected" ||
+    company.onboardingStatus === "rejected" ||
+    (nextAction as string) === "rejected";
 
   // Build status badge config
   const statusConfig = isActive
     ? { dot: "bg-emerald-500", label: "Active", labelClass: "text-emerald-600" }
+    : isRejected
+    ? { dot: "bg-rose-500", label: "Application Rejected", labelClass: "text-rose-600" }
     : nextAction === "accept_invitation"
     ? { dot: "bg-amber-500", label: "Invitation Pending", labelClass: "text-amber-600" }
     : nextAction === "complete_onboarding"
@@ -166,6 +261,17 @@ export default function CompanyDetailPage({
           </div>
 
           <div className="flex items-center gap-3 shrink-0">
+            {isRejected && (
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={() => router.push(`/onboarding/${company.companyId}`)}
+                className="bg-rose-600 hover:bg-rose-700 text-white"
+              >
+                <Edit3 className="h-4 w-4 mr-2" />
+                Modify & Resubmit
+              </Button>
+            )}
             {nextAction === "accept_invitation" && (
               <>
                 <Button variant="primary" onClick={handleAccept} loading={acceptMutation.isPending} size="sm">
@@ -176,7 +282,7 @@ export default function CompanyDetailPage({
                 </Button>
               </>
             )}
-            {nextAction === "complete_onboarding" && (
+            {nextAction === "complete_onboarding" && !isRejected && (
               <Button variant="primary" size="sm" onClick={() => router.push(`/onboarding/${company.companyId}`)}>
                 Continue Onboarding
               </Button>
@@ -199,7 +305,32 @@ export default function CompanyDetailPage({
         </div>
 
         {/* ── Action Banner ───────────────────────── */}
-        {nextAction === "accept_invitation" && (
+        {isRejected && (
+          <div className="px-6 py-4 bg-rose-50 border-b border-rose-100 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div className="flex items-start gap-3">
+              <AlertCircle className="h-4 w-4 text-rose-600 mt-0.5 shrink-0" />
+              <div>
+                <p className="text-sm font-semibold text-rose-900">
+                  Onboarding Application Not Approved
+                </p>
+                <p className="text-xs text-rose-700 mt-0.5 leading-relaxed">
+                  {company.decisionNote ||
+                    (company as any).rejectionReason ||
+                    "The organization requested changes before your onboarding can be approved. You can review all steps, edit details, and resubmit."}
+                </p>
+              </div>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => router.push(`/onboarding/${company.companyId}`)}
+              className="shrink-0 text-xs border-rose-300 text-rose-800 hover:bg-rose-100"
+            >
+              Review & Edit Steps
+            </Button>
+          </div>
+        )}
+        {nextAction === "accept_invitation" && !isRejected && (
           <div className="px-6 py-4 bg-amber-50 border-b border-amber-100 flex items-start gap-3">
             <AlertCircle className="h-4 w-4 text-amber-600 mt-0.5 shrink-0" />
             <p className="text-sm text-amber-800">
@@ -207,7 +338,7 @@ export default function CompanyDetailPage({
             </p>
           </div>
         )}
-        {nextAction === "complete_onboarding" && (
+        {nextAction === "complete_onboarding" && !isRejected && (
           <div className="px-6 py-4 bg-orange-50 border-b border-orange-100 flex items-start gap-3">
             <AlertCircle className="h-4 w-4 text-orange-600 mt-0.5 shrink-0" />
             <p className="text-sm text-orange-800">
@@ -215,7 +346,7 @@ export default function CompanyDetailPage({
             </p>
           </div>
         )}
-        {nextAction === "submitted" && (
+        {nextAction === "submitted" && !isRejected && (
           <div className="px-6 py-4 bg-blue-50 border-b border-blue-100 flex items-start gap-3">
             <Clock className="h-4 w-4 text-blue-600 mt-0.5 shrink-0" />
             <p className="text-sm text-blue-800">
@@ -336,6 +467,148 @@ export default function CompanyDetailPage({
         </div>
       )}
 
+      {/* ── Payment Terms ─────────────────────────── */}
+      {nextAction !== "accept_invitation" && (
+        <div className="bg-white rounded-2xl border border-dashboard-border overflow-hidden">
+          <div className="px-6 py-4 border-b border-dashboard-border bg-slate-50/50 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <h2 className="text-lg font-semibold text-foreground">Payment Terms</h2>
+              {currentTerm && (
+                <span
+                  className={cn(
+                    "text-xs font-medium px-2.5 py-0.5 rounded-full capitalize border inline-flex items-center gap-1.5",
+                    currentTerm.status === "approved"
+                      ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                      : currentTerm.status === "rejected"
+                      ? "bg-rose-50 text-rose-700 border-rose-200"
+                      : currentTerm.status === "superseded"
+                      ? "bg-slate-100 text-slate-700 border-slate-200"
+                      : "bg-amber-50 text-amber-700 border-amber-200"
+                  )}
+                >
+                  {currentTerm.status === "approved" ? (
+                    <CheckCircle2 className="h-3 w-3" />
+                  ) : currentTerm.status === "rejected" ? (
+                    <XCircle className="h-3 w-3" />
+                  ) : (
+                    <Clock className="h-3 w-3" />
+                  )}
+                  {currentTerm.status.replace(/_/g, " ")}
+                </span>
+              )}
+            </div>
+
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={
+                currentTerm?.status === "rejected"
+                  ? () => router.push(`/onboarding/${companyId}/payment-terms`)
+                  : openTermsModal
+              }
+              className={cn(
+                "text-xs h-8",
+                currentTerm?.status === "rejected" &&
+                  "border-rose-300 text-rose-700 hover:bg-rose-50"
+              )}
+            >
+              {currentTerm?.status === "rejected" ? (
+                <>
+                  <RefreshCw className="h-3.5 w-3.5 mr-1.5" />
+                  Resubmit Payment Terms
+                </>
+              ) : (
+                <>
+                  <Edit3 className="h-3.5 w-3.5 mr-1.5" />
+                  {currentTerm ? "Change Terms" : "Set Payment Terms"}
+                </>
+              )}
+            </Button>
+          </div>
+
+          {currentTerm?.status === "rejected" && (
+            <div className="px-6 py-3 bg-rose-50 border-b border-rose-100 flex items-start justify-between gap-3">
+              <div className="flex items-start gap-2.5">
+                <AlertCircle className="h-4 w-4 text-rose-600 shrink-0 mt-0.5" />
+                <div className="text-xs text-rose-800">
+                  {currentTerm.rejectionReason ? (
+                    <>
+                      <span className="font-semibold">Rejection reason: </span>
+                      {currentTerm.rejectionReason}
+                    </>
+                  ) : (
+                    <span className="font-semibold">
+                      Your payment terms were rejected. Please modify and resubmit.
+                    </span>
+                  )}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => router.push(`/onboarding/${companyId}/payment-terms`)}
+                className="text-xs font-semibold text-rose-700 hover:text-rose-900 underline underline-offset-2 shrink-0 whitespace-nowrap"
+              >
+                Modify & Resubmit
+              </button>
+            </div>
+          )}
+
+          {currentTerm ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 divide-y md:divide-y-0 md:divide-x divide-dashboard-border">
+              <div className="px-6 py-2">
+                <InfoRow label="Term Name" value={currentTerm.name} />
+                <InfoRow
+                  label="Due Window"
+                  value={
+                    currentTerm.days === 0
+                      ? "Due on receipt (0 days)"
+                      : `${currentTerm.days} days`
+                  }
+                />
+                <InfoRow label="Code" value={currentTerm.code || "—"} valueClass="normal-case" />
+              </div>
+              <div className="px-6 py-2">
+                <InfoRow label="Revision" value={`v${currentTerm.revision}`} />
+                <InfoRow
+                  label="Submitted"
+                  value={
+                    currentTerm.submittedAt
+                      ? new Date(currentTerm.submittedAt).toLocaleDateString("en-US", {
+                          month: "short",
+                          day: "numeric",
+                          year: "numeric",
+                        })
+                      : "—"
+                  }
+                />
+                <InfoRow
+                  label="Reviewed"
+                  value={
+                    currentTerm.reviewedAt
+                      ? new Date(currentTerm.reviewedAt).toLocaleDateString("en-US", {
+                          month: "short",
+                          day: "numeric",
+                          year: "numeric",
+                        })
+                      : "Pending review"
+                  }
+                />
+              </div>
+            </div>
+          ) : (
+            <div className="p-6 text-center text-sm text-muted-foreground">
+              No payment terms recorded for this organization yet.
+              <div className="mt-3">
+                <Button variant="primary" size="sm" onClick={openTermsModal}>
+                  Configure Payment Terms
+                </Button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+
       {/* ── Documents ─────────────────────────── */}
       {nextAction !== "accept_invitation" && company.documents && company.documents.length > 0 && (
         <div className="bg-white rounded-2xl border border-dashboard-border overflow-hidden">
@@ -376,6 +649,164 @@ export default function CompanyDetailPage({
           </div>
         </div>
       )}
+      {/* ── Update Payment Terms Modal ───────────── */}
+      <Dialog open={isTermsModalOpen} onOpenChange={setIsTermsModalOpen}>
+        <DialogContent size="md">
+          <DialogTitle>Update Payment Terms</DialogTitle>
+          <DialogDescription>
+            Select your preferred payment terms from the options approved by {company.companyName}.
+          </DialogDescription>
+
+          <div className="space-y-4 pt-3 max-h-[60vh] overflow-y-auto pr-1">
+            {loadingTermOptions ? (
+              <div className="py-8 flex justify-center">
+                <PageSpinner />
+              </div>
+            ) : (
+              <div className="space-y-2.5">
+                {termOptions
+                  .filter((opt) => opt.isActive !== false)
+                  .map((opt) => {
+                    const isSelected =
+                      !isCustomDays &&
+                      selectedOptionId === opt.vendorPaymentTermOptionId;
+                    return (
+                      <div
+                        key={opt.vendorPaymentTermOptionId}
+                        onClick={() => {
+                          setIsCustomDays(false);
+                          setSelectedOptionId(opt.vendorPaymentTermOptionId);
+                        }}
+                        className={cn(
+                          "p-3.5 rounded-xl border transition-all cursor-pointer flex items-center justify-between",
+                          isSelected
+                            ? "border-primary bg-primary/5 ring-1 ring-primary/30"
+                            : "border-border/70 hover:border-slate-300 hover:bg-slate-50/50"
+                        )}
+                      >
+                        <div className="flex items-center gap-3">
+                          <div
+                            className={cn(
+                              "h-4 w-4 rounded-full border-2 flex items-center justify-center shrink-0 transition-all",
+                              isSelected
+                                ? "border-primary bg-white"
+                                : "border-slate-300 bg-white"
+                            )}
+                          >
+                            {isSelected && (
+                              <div className="h-2 w-2 rounded-full bg-primary" />
+                            )}
+                          </div>
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <span className="text-sm font-semibold text-foreground">
+                                {opt.name}
+                              </span>
+                              <span className="text-[11px] px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 font-medium">
+                                {opt.days === 0 ? "Due on receipt" : `${opt.days} days`}
+                              </span>
+                            </div>
+                            {opt.description && (
+                              <p className="text-xs text-muted-foreground mt-0.5 line-clamp-1">
+                                {opt.description}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+
+                {/* Propose custom option */}
+                <div
+                  onClick={() => setIsCustomDays(true)}
+                  className={cn(
+                    "p-3.5 rounded-xl border transition-all cursor-pointer flex items-center justify-between",
+                    isCustomDays
+                      ? "border-primary bg-primary/5 ring-1 ring-primary/30"
+                      : "border-border/70 hover:border-slate-300 hover:bg-slate-50/50"
+                  )}
+                >
+                  <div className="flex items-center gap-3">
+                    <div
+                      className={cn(
+                        "h-4 w-4 rounded-full border-2 flex items-center justify-center shrink-0 transition-all",
+                        isCustomDays
+                          ? "border-primary bg-white"
+                          : "border-slate-300 bg-white"
+                      )}
+                    >
+                      {isCustomDays && (
+                        <div className="h-2 w-2 rounded-full bg-primary" />
+                      )}
+                    </div>
+                    <div>
+                      <span className="text-sm font-semibold text-foreground">
+                        Custom payment terms
+                      </span>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        Propose custom days subject to company approval.
+                      </p>
+                    </div>
+                  </div>
+                  <Sparkles className="h-4 w-4 text-amber-500 shrink-0" />
+                </div>
+
+                {isCustomDays && (
+                  <div className="space-y-3 bg-slate-50 p-3.5 rounded-xl border border-slate-200 mt-2">
+                    <div className="space-y-1">
+                      <label className="text-xs font-medium text-foreground">
+                        Custom Term Name
+                      </label>
+                      <Input
+                        placeholder="e.g. Custom Net 21"
+                        value={customName}
+                        onChange={(e) => setCustomName(e.target.value)}
+                        className="h-9 text-sm bg-white"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-xs font-medium text-foreground">
+                        Due Window (days)
+                      </label>
+                      <Input
+                        type="number"
+                        min={0}
+                        max={365}
+                        placeholder="e.g. 21"
+                        value={customDays}
+                        onChange={(e) => setCustomDays(e.target.value)}
+                        className="h-9 text-sm bg-white"
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          <div className="flex justify-end gap-3 pt-4 border-t border-border/50 mt-4">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setIsTermsModalOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="primary"
+              size="sm"
+              loading={saveTermsMutation.isPending}
+              onClick={handleSaveTerms}
+            >
+              {currentTerm?.status === "rejected" ? "Resubmit Payment Terms" : "Save Payment Terms"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
+

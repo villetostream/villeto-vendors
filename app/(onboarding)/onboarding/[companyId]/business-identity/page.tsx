@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { ArrowRight, ShieldCheck } from "lucide-react";
+import { ArrowRight, ShieldCheck, AlertCircle } from "lucide-react";
 import { Input } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
 import { FormField } from "@/components/ui/Label";
@@ -13,10 +13,13 @@ import { CountrySelect } from "@/components/ui/CountrySelect";
 import { useCompanyOnboardingStore, fingerprint } from "@/lib/stores/companyOnboardingStore";
 import { useOnboardingStore } from "@/lib/stores/onboardingStore";
 import { useCompanyStore } from "@/lib/stores/companyStore";
+import { useAuthStore } from "@/lib/stores/authStore";
 import { useSaveV2BusinessIdentity, useMyCompany } from "@/lib/hooks/useVendorNetwork";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/Select";
+import Cookies from "js-cookie";
+import { AUTH_COOKIE_NAMES } from "@/lib/constants/auth";
 
 const schema = z.object({
   businessName: z.string().min(2, "Business name is required"),
@@ -50,23 +53,32 @@ export default function V2BusinessIdentityPage({
   const sessionBusinessIdentity = useOnboardingStore((s) => s.businessIdentity);
   const companies = useCompanyStore((s) => s.companies);
 
-  // If the vendor has already submitted, completed, or been approved for ANY company,
-  // their core business identity is established and shared, so it should be locked.
+  const isCurrentCompanyRejected =
+    company?.approvalStatus === "rejected" ||
+    company?.status === "rejected" ||
+    (company as any)?.onboardingStatus === "rejected";
+
+  // If the vendor has already been approved and active for another company,
+  // their core business identity is established and shared. But if they've been
+  // rejected or don't have an approved company elsewhere, fields MUST remain editable.
   const hasEstablishedProfile = companies.some(
     (c) =>
-      c.status === "Active" ||
-      c.approvalStatus !== null ||
-      c.onboardingStatus === "submitted" ||
-      c.onboardingStatus === "completed"
+      (c.status === "Active" ||
+        c.approvalStatus === "approved" ||
+        c.onboardingStatus === "completed")
   );
 
-  // Vendor already has a verified profile from another company. Legal
-  // identity is shared across every company, so it's confirmed — not edited —
-  // here. We ONLY lock these fields if the profile has actually been
-  // submitted/established somewhere. If the backend flags them as "reuse"
-  // but they haven't finished onboarding anywhere yet, they must still be able
-  // to correct mistakes.
-  const isProfileReuse = hasEstablishedProfile;
+  const authUser = useAuthStore((s) => s.user);
+  const cookieApproval = typeof window !== "undefined" ? Cookies.get(AUTH_COOKIE_NAMES.approvalStatus) : undefined;
+
+  const isApproved =
+    company?.approvalStatus === "approved" ||
+    authUser?.approvalStatus === "approved" ||
+    cookieApproval === "approved" ||
+    companies.some((c) => c.companyId === companyId && c.approvalStatus === "approved") ||
+    (company?.status ?? "").toLowerCase() === "active";
+
+  const isProfileReuse = (hasEstablishedProfile && !isCurrentCompanyRejected) || isApproved;
 
   const {
     register,
@@ -87,6 +99,11 @@ export default function V2BusinessIdentityPage({
   });
 
   const onSubmit = async (data: FormData) => {
+    if (isApproved) {
+      router.push("/pending");
+      return;
+    }
+
     const goNext = () => {
       setIsNavigating(true);
       if (verificationRequested) {
@@ -149,7 +166,19 @@ export default function V2BusinessIdentityPage({
               ? "Confirm the details from your existing Villeto profile."
               : "Review and update your official business registration details."}
           </p>
-          {isProfileReuse && (
+          {isCurrentCompanyRejected && (
+            <div className="mt-4 flex gap-3 p-3.5 bg-rose-50 border border-rose-200 rounded-xl text-sm text-rose-900">
+              <AlertCircle className="h-5 w-5 shrink-0 text-rose-600 mt-0.5" aria-hidden="true" />
+              <div>
+                <p className="font-semibold text-rose-950">Application was not approved</p>
+                <p className="text-xs text-rose-700 mt-0.5">
+                  {company?.decisionNote || (company as any)?.rejectionReason || "Please review your business details, make any required corrections, and proceed through the steps to resubmit."}
+                </p>
+              </div>
+            </div>
+          )}
+
+          {isProfileReuse && !isCurrentCompanyRejected && (
             <div className="mt-4 flex gap-3 p-3 bg-teal-50 border border-teal-200 rounded-lg text-sm text-teal-900">
               <ShieldCheck className="h-5 w-5 shrink-0 text-teal-600" aria-hidden="true" />
               <p>
@@ -166,7 +195,7 @@ export default function V2BusinessIdentityPage({
           )}
         </div>
 
-        <div className="flex-1 overflow-y-auto p-8 pt-6">
+        <div className="flex-1 overflow-y-auto overflow-x-hidden p-8 pt-6">
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
             <FormField label="Business Name" error={errors.businessName?.message}>
               <Input
@@ -237,21 +266,43 @@ export default function V2BusinessIdentityPage({
               <Input
                 placeholder="Registered address"
                 error={!!errors.businessAddress}
+                disabled={isProfileReuse}
                 {...register("businessAddress")}
               />
             </FormField>
 
             <div className="flex gap-3 pt-4">
               <Button
-                type="submit"
-                variant="primary"
+                type="button"
+                variant="outline"
                 size="lg"
-                loading={isSubmitting || saveMutation.isPending || isNavigating}
-                className="w-full"
+                className="px-6"
+                onClick={() => router.back()}
               >
-                Continue
-                <ArrowRight className="h-4 w-4 ml-2" aria-hidden="true" />
+                Back
               </Button>
+              {isApproved ? (
+                <Button
+                  type="button"
+                  variant="primary"
+                  size="lg"
+                  className="flex-1"
+                  onClick={() => router.push("/pending")}
+                >
+                  Return to Overview
+                </Button>
+              ) : (
+                <Button
+                  type="submit"
+                  variant="primary"
+                  size="lg"
+                  loading={isSubmitting || saveMutation.isPending || isNavigating}
+                  className="flex-1"
+                >
+                  Continue
+                  <ArrowRight className="h-4 w-4 ml-2" aria-hidden="true" />
+                </Button>
+              )}
             </div>
           </form>
         </div>
