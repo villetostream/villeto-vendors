@@ -30,7 +30,7 @@ export default function V2DocumentsPage({ params }: { params: Promise<{ companyI
   const store = useCompanyOnboardingStore();
   const [mounted, setMounted] = useState(false);
   const [isNavigating, setIsNavigating] = useState(false);
-  const [uploads, setUploads] = useState<Record<string, { status: "uploading" | "done" | "error"; url?: string; progress?: number; filename?: string }>>(() => {
+  const [uploads, setUploads] = useState<Record<string, { status: "pending" | "uploading" | "done" | "error"; url?: string; progress?: number; filename?: string }>>(() => {
     const initial: Record<string, any> = {};
     if (store.uploadedDocuments) {
       store.uploadedDocuments.forEach(doc => {
@@ -46,6 +46,8 @@ export default function V2DocumentsPage({ params }: { params: Promise<{ companyI
     notApplicable?: boolean;
   }
   const [docDates, setDocDates] = useState<Record<string, DocDates>>({});
+  // Files chosen by the user but not yet sent (waiting for dates / Not applicable)
+  const [pendingFiles, setPendingFiles] = useState<Record<string, File>>({});
 
   const { data: company } = useMyCompany(companyId);
   const authUser = useAuthStore((s) => s.user);
@@ -105,24 +107,35 @@ export default function V2DocumentsPage({ params }: { params: Promise<{ companyI
     }
   }, [company]);
 
-  const onDrop = async (acceptedFiles: File[], docId: string) => {
+  const isDocReady = (docId: string, dates?: DocDates) => {
+    if (dates?.notApplicable) return true;
+    const expiryOk = !!dates?.expiryDate && !isBefore(startOfDay(dates.expiryDate), startOfDay(new Date()));
+    if (!expiryOk) return false;
+    if (docId === "tax_certificate") {
+      return !!dates?.issueDate && !isAfter(startOfDay(dates.issueDate), startOfDay(new Date()));
+    }
+    return true;
+  };
+
+  const onDrop = (acceptedFiles: File[], docId: string) => {
     const file = acceptedFiles[0];
     if (!file) return;
+    setPendingFiles((prev) => ({ ...prev, [docId]: file }));
+    setUploads((prev) => ({ ...prev, [docId]: { status: "pending", filename: file.name } }));
+  };
 
-    const dates = docDates[docId];
-    if (docId === "tax_certificate" && dates?.issueDate) {
-      if (isAfter(startOfDay(dates.issueDate), startOfDay(new Date()))) {
-        toast.error("Issue date must be today or in the past");
-        return;
+  // Send a pending file only once its dates (or Not applicable) are satisfied
+  useEffect(() => {
+    Object.entries(pendingFiles).forEach(([docId, file]) => {
+      if (isDocReady(docId, docDates[docId])) {
+        setPendingFiles((prev) => { const n = { ...prev }; delete n[docId]; return n; });
+        void doUpload(file, docId, docDates[docId]);
       }
-    }
-    if (!dates?.notApplicable && dates?.expiryDate) {
-      if (isBefore(startOfDay(dates.expiryDate), startOfDay(new Date()))) {
-        toast.error("Expiration date must be today or in the future");
-        return;
-      }
-    }
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingFiles, docDates]);
 
+  const doUpload = async (file: File, docId: string, dates?: DocDates) => {
     const localUrl = URL.createObjectURL(file);
     setUploads((prev) => ({ ...prev, [docId]: { status: "uploading", progress: 0, filename: file.name } }));
 
@@ -180,6 +193,7 @@ export default function V2DocumentsPage({ params }: { params: Promise<{ companyI
   };
 
   const allRequiredDone = REQUIRED_DOCS.filter(d => d.required).every(d => uploads[d.id]?.status === "done");
+  const hasPendingFiles = Object.keys(pendingFiles).length > 0;
   const hasInvalidDates = Object.entries(docDates).some(([id, d]) => {
     if (id === "tax_certificate" && d.issueDate && isAfter(startOfDay(d.issueDate), startOfDay(new Date()))) return true;
     if (!d.notApplicable && d.expiryDate && isBefore(startOfDay(d.expiryDate), startOfDay(new Date()))) return true;
@@ -227,6 +241,7 @@ export default function V2DocumentsPage({ params }: { params: Promise<{ companyI
                 }}
                 onDrop={(files: File[]) => onDrop(files, doc.id)}
                 onRemove={() => {
+                  setPendingFiles((prev) => { const n = { ...prev }; delete n[doc.id]; return n; });
                   setUploads((prev) => { const n = { ...prev }; delete n[doc.id]; return n; });
                 }}
               />
@@ -246,7 +261,7 @@ export default function V2DocumentsPage({ params }: { params: Promise<{ companyI
                 Return to Overview
               </Button>
             ) : (
-              <Button type="button" variant="primary" size="lg" className="flex-1" onClick={handleNext} loading={isNavigating} disabled={!allRequiredDone || hasInvalidDates}>
+              <Button type="button" variant="primary" size="lg" className="flex-1" onClick={handleNext} loading={isNavigating} disabled={!allRequiredDone || hasInvalidDates || hasPendingFiles}>
                 Continue <ArrowRight className="h-4 w-4 ml-2" />
               </Button>
             )}
@@ -278,16 +293,16 @@ function DocumentUploader({ label, uploadState, onDrop, onRemove, docId, verific
   const isIssueDateInvalid = Boolean(issueDate && isAfter(startOfDay(issueDate), startOfDay(new Date())));
   const isExpiryDateInvalid = Boolean(!notApplicable && expiryDate && isBefore(startOfDay(expiryDate), startOfDay(new Date())));
 
-  // Gate: "Not applicable" bypasses ALL date requirements.
-  // Otherwise: expiry is always required; issue date only for tax_certificate.
+  // Files can be chosen at any time; they are only sent once dates are ready
+  // ("Not applicable" bypasses ALL date requirements; expiry always required; issue date only for tax_certificate).
   const expiryReady = notApplicable || (!!expiryDate && !isExpiryDateInvalid);
   const issueReady = notApplicable || docId !== "tax_certificate" || (!!issueDate && !isIssueDateInvalid);
-  const canUpload = expiryReady && issueReady;
-
-  const tooltipText = !issueReady
-    ? "Set the issue date, or toggle \"Not applicable\""
+  const canUpload = true;
+  const isPending = uploadState?.status === "pending";
+  const pendingHint = !issueReady
+    ? "Set the issue date or toggle \"Not applicable\" to upload"
     : !expiryReady
-    ? "Set an expiry date, or toggle \"Not applicable\""
+    ? "Set an expiry date or toggle \"Not applicable\" to upload"
     : "";
 
   const handleIssueDateSelect = (d?: Date) => {
@@ -344,14 +359,17 @@ function DocumentUploader({ label, uploadState, onDrop, onRemove, docId, verific
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <h4 className="text-sm font-semibold text-foreground">{isDone ? uploadState.filename : label}</h4>
+              <h4 className="text-sm font-semibold text-foreground">{isDone || isPending ? uploadState.filename : label}</h4>
               {isDocRejected && (
                 <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-rose-100 text-rose-700 border border-rose-200">
                   Rejected — Re-upload required
                 </span>
               )}
             </div>
-            <p className="text-xs text-muted-foreground mt-0.5">{isDone ? label : "PDF, JPG or PNG (max. 10MB)"}</p>
+            <p className="text-xs text-muted-foreground mt-0.5">{isDone || isPending ? label : "PDF, JPG or PNG (max. 10MB)"}</p>
+            {isPending && (
+              <p className="text-[11px] text-amber-600 font-medium mt-1">{pendingHint}</p>
+            )}
             {isUploading && (
               <div className="flex items-center gap-2 mt-2 w-32">
                 <div className="h-1.5 w-full bg-slate-200 rounded-full overflow-hidden">
@@ -370,35 +388,22 @@ function DocumentUploader({ label, uploadState, onDrop, onRemove, docId, verific
             Verified &amp; Approved
           </span>
         ) : (
-          <div
-            className="relative shrink-0"
-            onMouseEnter={() => !canUpload && setShowTooltip(true)}
-            onMouseLeave={() => setShowTooltip(false)}
-          >
+          <div className="relative shrink-0">
             <button
               type="button"
-              onClick={canUpload ? open : undefined}
-              disabled={!canUpload || isUploading}
+              onClick={open}
+              disabled={isUploading}
               className={cn(
                 "border rounded-lg px-4 py-1.5 text-xs font-semibold bg-white transition-colors",
-                !canUpload || isUploading
+                isUploading
                   ? "border-slate-200 text-slate-400 bg-slate-100 cursor-not-allowed"
                   : isDocRejected
                   ? "border-rose-500 text-rose-600 hover:bg-rose-500 hover:text-white"
                   : "border-primary text-primary hover:bg-primary hover:text-white"
               )}
             >
-              {isUploading ? "Uploading…" : isDone ? "Change" : "Upload"}
+              {isUploading ? "Uploading…" : isDone || isPending ? "Change" : "Upload"}
             </button>
-
-            {/* Tooltip — visible on hover when button is locked */}
-            {showTooltip && !canUpload && (
-              <div className="absolute right-0 top-full mt-2 z-50 w-56 rounded-lg bg-slate-800 px-3 py-2.5 text-[11px] text-white shadow-lg leading-snug pointer-events-none">
-                <span className="font-semibold block mb-0.5">Upload locked 🔒</span>
-                {tooltipText}
-                <span className="absolute -top-1.5 right-4 w-3 h-3 bg-slate-800 rotate-45 rounded-sm" />
-              </div>
-            )}
           </div>
         )}
       </div>

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
-import { ArrowRight, Clock, Check, Sparkles, AlertCircle, RefreshCw, Truck } from "lucide-react";
+import { ArrowRight, Clock, Check, CalendarClock, AlertCircle, RefreshCw, Truck } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import {
@@ -18,7 +18,7 @@ import { PageSpinner } from "@/components/ui/Spinner";
 export const PAYMENT_ARRANGEMENTS = [
   "Payment within a specified number of days",
   "Payment upon delivery",
-  "Specify terms per invoice (Dynamic)",
+  "Specify terms per invoice",
 ] as const;
 
 export type PaymentArrangement = (typeof PAYMENT_ARRANGEMENTS)[number];
@@ -89,7 +89,7 @@ export function PaymentTermsForm({
       raw.includes("dynamic") ||
       raw.includes("custom")
     ) {
-      return "Specify terms per invoice (Dynamic)";
+      return "Specify terms per invoice";
     }
     if (
       raw.includes("delivery") ||
@@ -214,7 +214,7 @@ export function PaymentTermsForm({
     // 3. Specify terms per invoice (Dynamic)
     // Allows vendors to set preferred terms per invoice rather than fixed onboarding terms
     if (
-      arrangement === "Specify terms per invoice (Dynamic)" ||
+      arrangement === "Specify terms per invoice" ||
       arrangement === "Other/custom arrangement"
     ) {
       onContinue({
@@ -460,13 +460,13 @@ export function PaymentTermsForm({
                   )}
 
                   {/* 3. Specify terms per invoice (Dynamic) */}
-                  {(arrangement === "Specify terms per invoice (Dynamic)" ||
+                  {(arrangement === "Specify terms per invoice" ||
                     arrangement === "Other/custom arrangement") && (
                     <div className="p-4 rounded-xl border border-teal-200 bg-teal-50/60 flex items-start gap-3">
-                      <Sparkles className="h-5 w-5 text-teal-600 mt-0.5 shrink-0" />
+                      <CalendarClock className="h-5 w-5 text-teal-600 mt-0.5 shrink-0" />
                       <div>
                         <h4 className="text-sm font-semibold text-teal-900">
-                          Dynamic Terms (Set Per Invoice)
+                          Terms Set Per Invoice
                         </h4>
                         <p className="text-xs text-teal-700 mt-0.5 leading-relaxed">
                           Instead of locking into a fixed payment schedule during onboarding, you will be prompted to specify the payment terms individually each time you generate an invoice.
