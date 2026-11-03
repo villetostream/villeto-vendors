@@ -212,7 +212,7 @@ export default function V2ReviewPage({ params }: { params: Promise<{ companyId: 
                   <div>
                     <p className="text-xs text-muted-foreground mb-1">Payment Period</p>
                     <p className="font-medium text-teal-700">
-                      Dynamic (Specified per invoice)
+                      Specified per invoice
                     </p>
                   </div>
                 ) : store.paymentTerms?.days !== undefined ? (
@@ -220,8 +220,8 @@ export default function V2ReviewPage({ params }: { params: Promise<{ companyId: 
                     <p className="text-xs text-muted-foreground mb-1">Payment Period</p>
                     <p className="font-medium text-foreground">
                       {store.paymentTerms.days === 0
-                        ? "Due on receipt (0 days)"
-                        : `${store.paymentTerms.days} days`}
+                        ? "Due on receipt"
+                        : `Net ${store.paymentTerms.days} days`}
                     </p>
                   </div>
                 ) : store.paymentTerms?.period ? (

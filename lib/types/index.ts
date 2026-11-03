@@ -587,6 +587,7 @@ export interface Invoice {
   vendorInvoiceId: string;
   invoiceNumber: string;
   invoiceDate: string;
+  dueDate?: string;
   deliveryDate?: string;
   status: InvoiceStatus;
   paymentStatus: InvoicePaymentStatus;
@@ -614,6 +615,7 @@ export interface CreateInvoicePayload {
   purchaseOrderId: string;
   invoiceNumber: string;
   invoiceDate: string;
+  dueDate?: string;
   deliveryDate?: string;
   currency: string;
   notes?: string;

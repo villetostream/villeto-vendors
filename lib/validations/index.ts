@@ -57,6 +57,7 @@ export const invoiceLineItemSchema = z.object({
 export const createInvoiceSchema = z.object({
   order_id: z.string().optional(),
   delivery_date: z.string().min(1, "Delivery date is required"),
+  due_date: z.string().optional(),
   items: z
     .array(invoiceLineItemSchema)
     .min(1, "At least one item is required"),
