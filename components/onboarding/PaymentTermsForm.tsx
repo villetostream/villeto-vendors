@@ -23,16 +23,16 @@ export const PAYMENT_ARRANGEMENTS = [
 
 export type PaymentArrangement = (typeof PAYMENT_ARRANGEMENTS)[number];
 
-export const PAYMENT_PERIODS = [
-  "Net 7 days",
-  "Net 15 days",
-  "Net 30 days",
-  "Net 45 days",
-  "Net 60 days",
+export const DEFAULT_PAYMENT_PERIODS = [
+  "Net 7",
+  "Net 15",
+  "Net 21",
+  "Net 30",
+  "Net 45",
+  "Net 60",
+  "Net 90",
   "Other",
 ] as const;
-
-export type PaymentPeriod = (typeof PAYMENT_PERIODS)[number];
 
 export interface PaymentTermsValues {
   optionId?: string;
@@ -81,20 +81,39 @@ export function PaymentTermsForm({
     initialValues?.reusePaymentTermId || savedSubmissions[0]?.paymentTermId || ""
   );
 
+  // 1. Dynamic Net options derived from backend (days > 0, active)
+  const netOptions = useMemo(() => {
+    return (options || [])
+      .filter((o) => typeof o.days === "number" && o.days > 0 && o.isActive !== false)
+      .sort((a, b) => a.days - b.days);
+  }, [options]);
+
+  const periodsList = useMemo(() => {
+    if (netOptions.length > 0) {
+      return [...netOptions.map((o) => o.name), "Other"];
+    }
+    return [...DEFAULT_PAYMENT_PERIODS];
+  }, [netOptions]);
+
   const initialArrangement = useMemo(() => {
-    const raw = (initialValues?.arrangement || initialValues?.name || "").toLowerCase();
+    const rawArr = (initialValues?.arrangement || "").toLowerCase();
+    const rawName = (initialValues?.name || "").toLowerCase();
+
     if (
       initialValues?.isDynamic ||
-      raw.includes("invoice") ||
-      raw.includes("dynamic") ||
-      raw.includes("custom")
+      rawArr.includes("invoice") ||
+      rawArr.includes("dynamic") ||
+      rawName.includes("invoice") ||
+      rawName.includes("vendor selects")
     ) {
       return "Specify terms per invoice";
     }
     if (
-      raw.includes("delivery") ||
-      raw.includes("receipt") ||
-      (initialValues?.days === 0 && !initialValues?.period)
+      rawArr.includes("delivery") ||
+      rawArr.includes("receipt") ||
+      rawName.includes("receipt") ||
+      rawName.includes("delivery") ||
+      (initialValues?.days === 0 && !initialValues?.period && !initialValues?.isDynamic)
     ) {
       return "Payment upon delivery";
     }
@@ -105,16 +124,25 @@ export function PaymentTermsForm({
     if (initialValues?.customPeriod || initialValues?.period === "Other") {
       return "Other";
     }
-    if (initialValues?.period && PAYMENT_PERIODS.includes(initialValues.period as any)) {
-      return initialValues.period;
+    if (initialValues?.optionId && netOptions.length > 0) {
+      const match = netOptions.find((o) => o.vendorPaymentTermOptionId === initialValues.optionId);
+      if (match) return match.name;
+    }
+    if (initialValues?.period) {
+      const pNorm = initialValues.period.toLowerCase().replace(/\s*days?/, "").trim();
+      const match = netOptions.find((o) => {
+        const oNorm = o.name.toLowerCase().replace(/\s*days?/, "").trim();
+        return oNorm === pNorm;
+      });
+      if (match) return match.name;
     }
     if (initialValues?.days !== undefined && initialValues.days > 0) {
-      const match = PAYMENT_PERIODS.find((p) => p.includes(`${initialValues.days} days`));
-      if (match) return match;
+      const match = netOptions.find((o) => o.days === initialValues.days);
+      if (match) return match.name;
       return "Other";
     }
-    return "Net 7 days";
-  }, [initialValues]);
+    return netOptions[0]?.name || "Net 7";
+  }, [initialValues, netOptions]);
 
   const [arrangement, setArrangement] = useState<string>(initialArrangement);
   const [period, setPeriod] = useState<string>(initialPeriod);
@@ -123,7 +151,7 @@ export function PaymentTermsForm({
       (initialValues?.period === "Other" ||
       (initialValues?.days !== undefined &&
         initialValues.days > 0 &&
-        !PAYMENT_PERIODS.some((p) => p.includes(`${initialValues?.days} days`)))
+        !netOptions.some((o) => o.days === initialValues?.days))
         ? initialValues?.name || (initialValues?.days ? `Net ${initialValues.days} days` : "")
         : "")
   );
@@ -134,10 +162,24 @@ export function PaymentTermsForm({
     if (initialValues?.arrangement) {
       setArrangement(initialArrangement);
     }
-    if (initialValues?.period) {
+    if (initialValues?.period || initialValues?.days !== undefined) {
       setPeriod(initialPeriod);
     }
   }, [initialValues, initialArrangement, initialPeriod]);
+
+  // Sync selected period once backend netOptions are available
+  useEffect(() => {
+    if (netOptions.length > 0 && period !== "Other") {
+      const exists = netOptions.some(
+        (o) =>
+          o.name.toLowerCase() === period.toLowerCase() ||
+          parseInt(o.name.replace(/\D/g, ""), 10) === parseInt(period.replace(/\D/g, ""), 10)
+      );
+      if (!exists && !initialValues?.customPeriod) {
+        setPeriod(netOptions[0].name);
+      }
+    }
+  }, [netOptions, period, initialValues]);
 
   const handleContinue = () => {
     // 0. Reuse mode
@@ -153,11 +195,10 @@ export function PaymentTermsForm({
       return;
     }
 
-    // 1. Payment upon delivery (0 days / immediate)
-    // Uses the 0-days option from the options endpoint, sending its optionId
+    // 1. Case 1: Payment upon delivery -> maps to DUE_ON_RECEIPT
     if (arrangement === "Payment upon delivery") {
-      const zeroOpt =
-        options?.find((o) => o.days === 0) ||
+      const dueOnReceiptOpt =
+        options?.find((o) => o.code === "DUE_ON_RECEIPT") ||
         options?.find(
           (o) =>
             o.name?.toLowerCase().includes("receipt") ||
@@ -165,8 +206,8 @@ export function PaymentTermsForm({
         );
 
       onContinue({
-        optionId: zeroOpt?.vendorPaymentTermOptionId,
-        name: zeroOpt?.name || "Payment upon delivery",
+        optionId: dueOnReceiptOpt?.vendorPaymentTermOptionId,
+        name: dueOnReceiptOpt?.name || "Due on receipt",
         days: 0,
         arrangement: "Payment upon delivery",
         period: "Due on receipt",
@@ -175,7 +216,7 @@ export function PaymentTermsForm({
       return;
     }
 
-    // 2. Payment within a specified number of days
+    // 2. Case 2: Payment within a specified number of days (Net options from backend or custom 'Other')
     if (arrangement === "Payment within a specified number of days") {
       if (period === "Other") {
         // "Other" creates a new custom term without optionId
@@ -193,34 +234,47 @@ export function PaymentTermsForm({
         return;
       }
 
-      // Preset periods (Net 7, Net 15, Net 30, Net 45, Net 60)
-      // Match option from endpoint with remaining dates to send its optionId
-      const daysNum = parseInt(period.replace(/\D/g, ""), 10) || 30;
+      // Match selected option from backend options
       const matchingOpt =
-        options?.find((o) => o.days === daysNum) ||
-        options?.find((o) => o.name?.toLowerCase().includes(`${daysNum} day`));
+        netOptions.find((o) => o.name === period) ||
+        netOptions.find((o) => {
+          const daysNum = parseInt(period.replace(/\D/g, ""), 10);
+          return daysNum && o.days === daysNum;
+        });
+
+      const daysNum = matchingOpt?.days ?? (parseInt(period.replace(/\D/g, ""), 10) || 30);
+      const termName = matchingOpt?.name || period;
 
       onContinue({
         optionId: matchingOpt?.vendorPaymentTermOptionId,
-        name: period,
+        name: termName,
         days: daysNum,
         arrangement: "Payment within a specified number of days",
-        period,
+        period: termName,
         notes: notes.trim(),
       });
       return;
     }
 
-    // 3. Specify terms per invoice (Dynamic)
-    // Allows vendors to set preferred terms per invoice rather than fixed onboarding terms
+    // 3. Case 3: Specify terms per invoice -> maps to VENDOR_SELECTS_DUE_DATE
     if (
       arrangement === "Specify terms per invoice" ||
       arrangement === "Other/custom arrangement"
     ) {
+      const vendorSelectsOpt =
+        options?.find((o) => o.code === "VENDOR_SELECTS_DUE_DATE") ||
+        options?.find((o) => o.allowsInvoiceDueDate) ||
+        options?.find(
+          (o) =>
+            o.name?.toLowerCase().includes("selects invoice due date") ||
+            o.name?.toLowerCase().includes("invoice")
+        );
+
       onContinue({
-        name: "Specify terms per invoice",
+        optionId: vendorSelectsOpt?.vendorPaymentTermOptionId,
+        name: vendorSelectsOpt?.name || "Specify terms per invoice",
         days: 0,
-        arrangement: "Specify terms per invoice (Dynamic)",
+        arrangement: "Specify terms per invoice",
         isDynamic: true,
         notes: notes.trim(),
       });
@@ -399,8 +453,14 @@ export function PaymentTermsForm({
                         Preferred payment period
                       </label>
                       <div className="space-y-3">
-                        {PAYMENT_PERIODS.map((p) => {
+                        {periodsList.map((p) => {
                           const isSelected = period === p;
+                          const displayLabel =
+                            p === "Other"
+                              ? "Other"
+                              : p.toLowerCase().includes("day")
+                              ? p
+                              : `${p} days`;
                           return (
                             <div
                               key={p}
@@ -423,7 +483,7 @@ export function PaymentTermsForm({
                                 )}
                               </div>
                               <span className="text-sm text-foreground font-normal">
-                                {p}
+                                {displayLabel}
                               </span>
                             </div>
                           );

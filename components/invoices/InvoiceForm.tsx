@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ArrowLeft, ShieldCheck, CheckCircle2, Package, Truck, Monitor, Wrench, ClipboardCheck, Info } from "lucide-react";
+import { ArrowLeft, ShieldCheck, CheckCircle2, Package, Truck, Monitor, Wrench, ClipboardCheck, Info, CalendarClock } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { getOrder, getOrders } from "@/lib/api/orders";
@@ -17,8 +17,9 @@ import { useCreateInvoice, useUpdateInvoice } from "@/lib/hooks/useInvoices";
 import { formatCurrency, formatDateTime, cn } from "@/lib/utils";
 import { Spinner } from "@/components/ui/Spinner";
 import { DatePicker } from "@/components/ui/DatePicker";
-import { InvoiceLineItemInput, OrderLineItem, Fulfillment, FulfillmentLineItem } from "@/lib/types";
-import { format } from "date-fns";
+import { InvoiceLineItemInput, OrderLineItem, Fulfillment, FulfillmentLineItem, CreateInvoicePayload } from "@/lib/types";
+import { format, addDays, isBefore, startOfDay } from "date-fns";
+import { useVendorPaymentTerms } from "@/lib/hooks/useVendorNetwork";
 
 /**
  * Line item fields shown to a vendor. Deliberately excludes
@@ -232,12 +233,74 @@ export function InvoiceForm({ mode, invoiceId }: InvoiceFormProps) {
   const [selectedPOId, setSelectedPOId] = useState(prefillPurchaseOrderId ?? "");
   const [invoiceNumber, setInvoiceNumber] = useState("");
   const [invoiceDate, setInvoiceDate] = useState(todayISODate());
+  const [dueDate, setDueDate] = useState("");
   const [deliveryDate, setDeliveryDate] = useState("");
   const [currency, setCurrency] = useState("USD");
   const [notes, setNotes] = useState("");
   const [items, setItems] = useState<FormLineItem[]>([]);
   const [showSuccess, setShowSuccess] = useState(false);
   const [prefilledPOId, setPrefilledPOId] = useState("");
+
+  // ── Payment Terms for active company ──
+  const { data: paymentTermsData } = useVendorPaymentTerms(
+    companyId ? { companyId } : {},
+    undefined,
+    { enabled: !!companyId }
+  );
+
+  const paymentTerms = paymentTermsData?.data || [];
+  const companyPaymentTerm = useMemo(() => {
+    if (!companyId || paymentTerms.length === 0) return null;
+    return (
+      paymentTerms.find((t) => t.companyId === companyId && t.isCurrent) ||
+      paymentTerms.find((t) => t.companyId === companyId) ||
+      paymentTerms[0]
+    );
+  }, [paymentTerms, companyId]);
+
+  const isVendorSelectsDueDate = useMemo(() => {
+    if (!companyPaymentTerm) return false;
+    const code = (companyPaymentTerm.code || "").toUpperCase();
+    const name = (companyPaymentTerm.name || "").toLowerCase();
+    return (
+      code === "VENDOR_SELECTS_DUE_DATE" ||
+      name.includes("selects invoice due date") ||
+      name.includes("specify terms per invoice") ||
+      name.includes("dynamic")
+    );
+  }, [companyPaymentTerm]);
+
+  // For all other payment terms, automatically prefill due date and keep it in sync:
+  // - Payment upon delivery / Due on receipt (0 days): matches deliveryDate if available, else invoiceDate
+  // - Net X days: invoiceDate + term.days
+  useEffect(() => {
+    if (mode !== "create") return;
+    if (isVendorSelectsDueDate) return;
+
+    if (companyPaymentTerm) {
+      const isDeliveryOrReceipt =
+        companyPaymentTerm.code === "DUE_ON_RECEIPT" ||
+        (companyPaymentTerm.name || "").toLowerCase().includes("delivery") ||
+        (companyPaymentTerm.name || "").toLowerCase().includes("receipt") ||
+        companyPaymentTerm.days === 0;
+
+      if (isDeliveryOrReceipt) {
+        // Payment on delivery / Due on receipt
+        const targetDate = deliveryDate || invoiceDate;
+        if (targetDate) {
+          setDueDate(targetDate);
+        }
+      } else if (companyPaymentTerm.days && companyPaymentTerm.days > 0 && invoiceDate) {
+        // Net days
+        try {
+          const calculated = format(addDays(new Date(invoiceDate), companyPaymentTerm.days), "yyyy-MM-dd");
+          setDueDate(calculated);
+        } catch {
+          // ignore invalid date
+        }
+      }
+    }
+  }, [invoiceDate, deliveryDate, companyPaymentTerm, isVendorSelectsDueDate, mode]);
 
   // ── Queries ──
 
@@ -356,6 +419,7 @@ export function InvoiceForm({ mode, invoiceId }: InvoiceFormProps) {
     setSelectedPOId(existingInvoice.purchaseOrderId);
     setInvoiceNumber(existingInvoice.invoiceNumber);
     setInvoiceDate(existingInvoice.invoiceDate);
+    setDueDate(existingInvoice.dueDate ?? "");
     setDeliveryDate(existingInvoice.deliveryDate ?? "");
     setCurrency(existingInvoice.currency);
     setNotes(existingInvoice.notes ?? "");
@@ -387,6 +451,17 @@ export function InvoiceForm({ mode, invoiceId }: InvoiceFormProps) {
     if (!selectedPOId) return "Please select a purchase order to invoice against.";
     if (!invoiceNumber.trim()) return "Please enter an invoice number.";
     if (!invoiceDate) return "Please select an invoice date.";
+    if (isVendorSelectsDueDate) {
+      if (!dueDate) {
+        return "Please select a due date for this invoice as your agreed payment terms require specifying the due date per invoice.";
+      }
+      if (isBefore(startOfDay(new Date(dueDate)), startOfDay(new Date()))) {
+        return "Due date must be today or in the future.";
+      }
+    }
+    if (dueDate && invoiceDate && isBefore(startOfDay(new Date(dueDate)), startOfDay(new Date(invoiceDate)))) {
+      return "Due date cannot be earlier than the invoice date.";
+    }
     if (items.length === 0) return "No invoiceable items. The buyer must confirm receipt of deliveries before you can invoice.";
     const invalidItem = items.find((i) => !i.purchaseOrderLineItemId || !i.name.trim() || i.quantity <= 0 || i.unitPrice <= 0);
     if (invalidItem) {
@@ -418,10 +493,11 @@ export function InvoiceForm({ mode, invoiceId }: InvoiceFormProps) {
       unitOfMeasure: i.unitOfMeasure?.trim() || undefined,
     }));
 
-    const payload = {
+    const payload: CreateInvoicePayload = {
       purchaseOrderId: selectedPOId,
       invoiceNumber: invoiceNumber.trim(),
       invoiceDate,
+      dueDate: dueDate || undefined,
       deliveryDate: deliveryDate || undefined,
       currency,
       notes: notes.trim() || undefined,
@@ -480,7 +556,25 @@ export function InvoiceForm({ mode, invoiceId }: InvoiceFormProps) {
           <div className="space-y-4">
             {/* ── Invoice Information ── */}
             <div className="bg-white rounded-2xl border border-dashboard-border p-6">
-              <h2 className="text-base font-semibold mb-5">Invoice Information</h2>
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-5">
+                <h2 className="text-base font-semibold">Invoice Information</h2>
+                {companyPaymentTerm && (
+                  <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-slate-100 text-slate-700 border border-slate-200 self-start sm:self-auto">
+                    <CalendarClock className="h-3.5 w-3.5 text-slate-500" />
+                    <span>Terms: {companyPaymentTerm.name}</span>
+                    {isVendorSelectsDueDate ? (
+                      <span className="text-teal-700 font-semibold bg-teal-50 px-1.5 py-0.5 rounded border border-teal-200 text-[10px]">
+                        Due Date Required
+                      </span>
+                    ) : companyPaymentTerm.days > 0 ? (
+                      <span className="text-muted-foreground text-[11px]">({companyPaymentTerm.days} days)</span>
+                    ) : (
+                      <span className="text-muted-foreground text-[11px]">(Due on receipt)</span>
+                    )}
+                  </div>
+                )}
+              </div>
+
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <FormField label="Purchase Order">
                   <Select value={selectedPOId} onValueChange={setSelectedPOId}>
@@ -518,6 +612,36 @@ export function InvoiceForm({ mode, invoiceId }: InvoiceFormProps) {
                     date={invoiceDate ? new Date(invoiceDate) : undefined}
                     onSelect={(d) => setInvoiceDate(d ? format(d, "yyyy-MM-dd") : "")}
                   />
+                </FormField>
+
+                <FormField
+                  label={
+                    isVendorSelectsDueDate
+                      ? "Due Date (Required)"
+                      : "Due Date (Agreed Terms)"
+                  }
+                >
+                  <div>
+                    <DatePicker
+                      date={dueDate ? new Date(dueDate) : undefined}
+                      onSelect={(d) => {
+                        if (!isVendorSelectsDueDate) return;
+                        setDueDate(d ? format(d, "yyyy-MM-dd") : "");
+                      }}
+                      disabled={(d) => isBefore(startOfDay(d), startOfDay(new Date()))}
+                      isDisabled={!isVendorSelectsDueDate}
+                      error={isVendorSelectsDueDate && (!dueDate || isBefore(startOfDay(new Date(dueDate)), startOfDay(new Date())))}
+                    />
+                    {isVendorSelectsDueDate ? (
+                      <p className="text-[11px] text-teal-700 mt-1">
+                        Required: select a due date from today or in the future.
+                      </p>
+                    ) : (
+                      <p className="text-[11px] text-muted-foreground mt-1">
+                        Prefilled based on your agreed payment terms ({companyPaymentTerm?.name || "Standard terms"}) and cannot be changed.
+                      </p>
+                    )}
+                  </div>
                 </FormField>
 
                 <FormField label="Delivery Date">

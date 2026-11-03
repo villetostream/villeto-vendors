@@ -162,7 +162,7 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
           <div className="space-y-4">
             <div className="bg-white rounded-2xl border border-dashboard-border p-6">
               <h2 className="text-base font-semibold mb-4">Summary</h2>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-5 border-t border-border pt-4">
+              <div className="grid grid-cols-2 md:grid-cols-5 gap-5 border-t border-border pt-4">
                 <div>
                   <p className="text-xs text-muted-foreground">Related PO</p>
                   <p className="text-sm font-semibold mt-0.5">{invoice.poNumber ?? "—"}</p>
@@ -174,6 +174,10 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
                 <div>
                   <p className="text-xs text-muted-foreground">Invoice Date</p>
                   <p className="text-sm font-semibold mt-0.5">{formatDate(invoice.invoiceDate)}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Due Date</p>
+                  <p className="text-sm font-semibold mt-0.5">{formatDate(invoice.dueDate)}</p>
                 </div>
                 <div>
                   <p className="text-xs text-muted-foreground">Delivery Date</p>

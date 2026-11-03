@@ -114,8 +114,11 @@ export interface CompanyPaymentTermOption {
   days: number;
   isActive: boolean;
   isSystem: boolean;
-  createdAt: string;
-  updatedAt: string;
+  requiresDays?: boolean;
+  requiresDetails?: boolean;
+  allowsInvoiceDueDate?: boolean;
+  createdAt?: string;
+  updatedAt?: string;
   deletedAt?: string | null;
 }
 
