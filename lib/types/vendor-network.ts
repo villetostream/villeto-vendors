@@ -20,6 +20,17 @@ export interface V2CompanyRelationship {
   usesCompanyBankingDetails?: boolean;
   onboardingMethod?: string;
   verification?: unknown | null;
+  /** Current payment term for this company, embedded in GET /vendor-network/me/companies/:id */
+  paymentTerms?: {
+    paymentTermId: string;
+    name: string;
+    code?: string;
+    days: number;
+    status: PaymentTermStatus;
+    revision?: number;
+    rejectionReason?: string | null;
+    reviewedAt?: string | null;
+  } | null;
   businessDetails?: {
     legalName?: string | null;
     displayName?: string | null;
@@ -130,6 +141,8 @@ export interface SaveCompanyPaymentTermPayload {
   /** Custom terms — send ONLY name + days (no optionId) */
   name?: string;
   days?: number;
+  /** Required by some custom options (requiresDetails) */
+  details?: string;
 }
 
 export type PaymentTermStatus =

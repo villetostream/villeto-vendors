@@ -31,13 +31,14 @@ const DialogContent = React.forwardRef<
   React.ElementRef<typeof DialogPrimitive.Content>,
   React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content> & {
     showClose?: boolean;
-    size?: "sm" | "md" | "lg";
+    size?: "sm" | "md" | "lg" | "xl";
   }
 >(({ className, children, showClose = true, size = "md", ...props }, ref) => {
   const sizeClasses = {
     sm: "max-w-sm",
     md: "max-w-lg",
     lg: "max-w-2xl",
+    xl: "max-w-3xl",
   };
 
   return (
