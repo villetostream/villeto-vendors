@@ -298,6 +298,61 @@ export interface OrderLineItem {
 
 // ── Delivery Notice / Fulfillment record ──
 
+export type InspectionOutcome =
+  | "awaiting_inspection"
+  | "accepted"
+  | "accepted_with_exceptions"
+  | "rejected";
+
+export type ExceptionResolutionStatus =
+  | "not_required"
+  | "awaiting_vendor_response"
+  | "acknowledged"
+  | "disputed"
+  | "resolved";
+
+export type VendorResolutionAction = "backorder" | "forfeit" | "dispute";
+
+export interface LineItemResolution {
+  purchaseOrderLineItemId: string;
+  vendorDeliveryNoticeLineItemId?: string;
+  name: string;
+  quantityRejected: number;
+  buyerReason?: string;
+  buyerCategory?: string;
+  action: VendorResolutionAction;
+  expectedReadyDate?: string;
+  disputeReason?: string;
+  attachmentName?: string;
+  attachmentFile?: File;
+}
+
+export interface UnifiedResolutionPayload {
+  fulfillmentId: string;
+  shipmentReference?: string;
+  overallStatus: "acknowledged" | "disputed" | "mixed";
+  resolutions: LineItemResolution[];
+  notes?: string;
+}
+
+export interface AcknowledgeResolutionPayload {
+  fulfillmentId: string;
+  shipmentReference?: string;
+  resolutionType: "backorder" | "forfeit" | "mixed";
+  expectedReadyDate?: string;
+  resolutions: LineItemResolution[];
+  notes?: string;
+}
+
+export interface DisputeResolutionPayload {
+  fulfillmentId: string;
+  shipmentReference?: string;
+  disputeReason: string;
+  attachmentName?: string;
+  attachmentFile?: File;
+  lineItemIds?: string[];
+}
+
 export interface FulfillmentLineItem {
   vendorDeliveryNoticeLineItemId: string;
   purchaseOrderLineItemId: string;
@@ -311,6 +366,14 @@ export interface FulfillmentLineItem {
   reason?: string;
   quantityReceived?: number;
   quantityAwaitingReceipt?: number;
+
+  // ── Line-level Inspection & Resolution ──
+  quantityAccepted?: number;
+  quantityRejected?: number;
+  rejectionReason?: string;
+  rejectionCategory?: string;
+  inspectionOutcome?: InspectionOutcome;
+  resolutionAction?: VendorResolutionAction;
 }
 
 export interface Fulfillment {
@@ -332,6 +395,18 @@ export interface Fulfillment {
   notes?: string | null;
   isPartial: boolean;
   lineItems: FulfillmentLineItem[];
+
+  // ── Inspection & Exception Resolution Fields (US-04 to US-13) ──
+  inspectionOutcome?: InspectionOutcome;
+  resolutionStatus?: ExceptionResolutionStatus;
+  totalDeliveredQuantity?: number;
+  totalAcceptedQuantity?: number;
+  totalRejectedQuantity?: number;
+  rejectionReason?: string;
+  rejectionCategory?: string;
+  buyerNotes?: string;
+  buyerAttachmentName?: string;
+  buyerAttachmentUrl?: string;
 }
 
 /** Row shape from the list endpoint — lighter than the detail shape. */

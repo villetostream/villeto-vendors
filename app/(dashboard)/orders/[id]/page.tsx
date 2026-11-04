@@ -3,7 +3,7 @@
 import React, { use, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, CheckCircle2, ChevronDown, ChevronRight, ClipboardCheck, FilePlus2, Package, Truck, Send, Monitor, Wrench } from "lucide-react";
+import { ArrowLeft, CheckCircle2, ChevronDown, ChevronRight, ClipboardCheck, FilePlus2, Package, Truck, Send, Monitor, Wrench, AlertCircle, AlertTriangle, Clock, XCircle, ShieldAlert } from "lucide-react";
 import {
   useOrder,
   useAcknowledgeOrder,
@@ -18,12 +18,13 @@ import { Skeleton } from "@/components/ui/Skeleton";
 import { DeliveryTypeMenu } from "@/components/orders/DeliveryTypeMenu";
 import { FulfillmentModal, FulfillmentFormData } from "@/components/orders/FulfillmentModal";
 import { ItemFulfillmentDrawer } from "@/components/orders/ItemFulfillmentDrawer";
+import { ResolutionModal } from "@/components/orders/ResolutionModal";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/Modal";
 import { DatePicker } from "@/components/ui/DatePicker";
 import { ErrorState, EmptyState } from "@/components/ui/Spinner";
 import { formatCurrency, formatDate, formatDateTime, cn } from "@/lib/utils";
 import { format } from "date-fns";
-import { Fulfillment, DeliveryType, TimelineEvent, OrderLineItem } from "@/lib/types";
+import { Fulfillment, DeliveryType, TimelineEvent, OrderLineItem, UnifiedResolutionPayload, VendorResolutionAction, LineItemResolution } from "@/lib/types";
 import { toast } from "sonner";
 
 function OrderDetailSkeleton() {
@@ -76,11 +77,20 @@ function FulfillmentStateBadge({ state }: { state?: string }) {
 function FulfillmentHistorySection({
   notices,
   onDispatch,
-  isDispatching
+  isDispatching,
+  localResolutions = {},
+  onOpenResolution,
 }: {
   notices: Fulfillment[];
   onDispatch: (fulfillmentId: string) => void;
   isDispatching: (fulfillmentId: string) => boolean;
+  localResolutions?: Record<string, any>;
+  onOpenResolution: (
+    notice: Fulfillment,
+    index: number,
+    targetItemId?: string | null,
+    initialAction?: VendorResolutionAction
+  ) => void;
 }) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [confirmDispatchId, setConfirmDispatchId] = useState<string | null>(null);
@@ -121,6 +131,26 @@ function FulfillmentHistorySection({
             Icon = Wrench;
           }
 
+          // Per-fulfillment rejection calculations
+          const local = localResolutions[notice.vendorDeliveryNoticeId];
+          const totalDelivered = notice.totalDeliveredQuantity ?? notice.lineItems.reduce((sum, li) => sum + (li.quantityReady || li.quantityShipped || 0), 0);
+          const totalAccepted = notice.totalAcceptedQuantity ?? notice.lineItems.reduce((sum, li) => sum + (li.quantityAccepted ?? li.quantityReceived ?? 0), 0);
+          let totalRejected = notice.totalRejectedQuantity ?? 0;
+          if (!totalRejected && (notice.inspectionOutcome === "accepted_with_exceptions" || notice.inspectionOutcome === "rejected")) {
+            totalRejected = Math.max(0, totalDelivered - totalAccepted);
+          }
+          const lineItemsWithRejection = notice.lineItems.filter((li) => (li.quantityRejected || 0) > 0);
+          if (lineItemsWithRejection.length > 0 && !totalRejected) {
+            totalRejected = lineItemsWithRejection.reduce((sum, li) => sum + (li.quantityRejected || 0), 0);
+          }
+
+          const hasRejectionException = !local && (
+            notice.resolutionStatus === "awaiting_vendor_response" ||
+            notice.inspectionOutcome === "accepted_with_exceptions" ||
+            notice.inspectionOutcome === "rejected" ||
+            totalRejected > 0
+          );
+
           return (
             <div key={notice.vendorDeliveryNoticeId}>
               <button
@@ -141,7 +171,19 @@ function FulfillmentHistorySection({
                   </div>
                 </div>
                 <div className="flex items-center gap-3 shrink-0">
-                  {isPhysical && (
+                  {local?.status === "disputed" ? (
+                    <span className="text-xs px-2 py-0.5 rounded-full font-medium border bg-purple-50 text-purple-700 border-purple-200">
+                      Disputed (Under Review)
+                    </span>
+                  ) : local?.status === "acknowledged" ? (
+                    <span className="text-xs px-2 py-0.5 rounded-full font-medium border bg-blue-50 text-blue-700 border-blue-200">
+                      Acknowledged ({local.action === "backorder" || local.type === "backorder" ? "Backordered" : local.action === "forfeit" || local.type === "forfeit" ? "Forfeited" : "Mixed"})
+                    </span>
+                  ) : hasRejectionException ? (
+                    <span className="text-xs px-2 py-0.5 rounded-full font-medium border bg-red-50 text-red-600 border-red-200 flex items-center gap-1">
+                      <AlertCircle className="h-3 w-3" /> {totalRejected} Rejected
+                    </span>
+                  ) : isPhysical && (
                     <span className={cn(
                       "text-xs px-2 py-0.5 rounded-full font-medium border",
                       notice.dispatchStatus === "dispatched"
@@ -159,6 +201,36 @@ function FulfillmentHistorySection({
 
               {isExpanded && (
                 <div className="px-6 pb-4 space-y-3">
+                  {/* Rejection Alert Banner inside notice if awaiting action */}
+                  {hasRejectionException && (
+                    <div className="p-3.5 rounded-xl bg-red-50/80 border border-red-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-1.5 font-bold text-red-700">
+                          <AlertCircle className="h-4 w-4 text-red-500 shrink-0" />
+                          <span>Buyer inspection recorded {totalRejected} rejected units</span>
+                        </div>
+                        <p className="text-red-600 leading-relaxed pl-5.5">
+                          <span className="font-semibold text-red-700">Reason: </span>
+                          {notice.rejectionReason || "The units are not up to standard, we need to change them"}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0 self-end sm:self-center pl-5.5 sm:pl-0">
+                        <Button
+                          type="button"
+                          variant="primary"
+                          size="sm"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onOpenResolution(notice, idx, null, "backorder");
+                          }}
+                          className="h-8.5 px-4 text-xs font-semibold bg-[#00b29a] hover:bg-[#009b86] text-white shadow-xs"
+                        >
+                          Review & Resolve Rejections
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+
                   {/* Shipment meta */}
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 p-3 rounded-lg bg-muted/30 border border-border/60">
                     <div>
@@ -207,75 +279,85 @@ function FulfillmentHistorySection({
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="border-b border-border">
-                        <th className="py-2 text-left text-xs font-medium text-muted-foreground">Item</th>
-                        <th className="py-2 text-left text-xs font-medium text-muted-foreground">Included Qty</th>
-                        <th className="py-2 text-left text-xs font-medium text-muted-foreground">Status (Buyer)</th>
-                        <th className="py-2 text-left text-xs font-medium text-muted-foreground">Remaining Disposition</th>
+                        <th className="py-2.5 text-left text-xs font-semibold text-muted-foreground">Item</th>
+                        <th className="py-2.5 text-left text-xs font-semibold text-muted-foreground">Shipped Qty</th>
+                        <th className="py-2.5 text-left text-xs font-semibold text-muted-foreground">Buyer Inspection</th>
+                        <th className="py-2.5 text-right text-xs font-semibold text-muted-foreground">Resolution</th>
                       </tr>
                     </thead>
                     <tbody>
                       {notice.lineItems.map((li) => {
-                        // Sum of quantityReady shipped in ALL previous notices (before this one)
-                        const previousCumulativeReady = notices
-                          .slice(0, idx)
-                          .reduce((sum, pastNotice) => {
-                            const match = pastNotice.lineItems.find(x => x.purchaseOrderLineItemId === li.purchaseOrderLineItemId);
-                            return sum + (match?.quantityReady || 0);
-                          }, 0);
-
-                        // Sum including this shipment — used for remaining disposition
-                        const cumulativeReady = previousCumulativeReady + (li.quantityReady || 0);
-
-                        // What was remaining BEFORE this shipment (denominator for Included Qty)
-                        const remainingBeforeThisShipment = li.quantityOrdered - previousCumulativeReady;
-
-                        // What is remaining AFTER this shipment (for disposition badge)
-                        const remainingToFulfill = li.quantityOrdered - cumulativeReady;
+                        const itemRejected = li.quantityRejected || 0;
+                        const itemAccepted = li.quantityAccepted ?? li.quantityReceived ?? 0;
+                        const itemResolution = local?.itemResolutions?.[li.purchaseOrderLineItemId];
 
                         return (
-                        <tr key={li.vendorDeliveryNoticeLineItemId} className="border-b border-border/40">
-                          <td className="py-2 font-medium">{li.name}</td>
-                          <td className="py-2">
-                            {li.quantityReady} <span className="text-muted-foreground">/ {remainingBeforeThisShipment} remaining</span>
-                          </td>
-                          <td className="py-2 text-xs">
-                            {notice.dispatchStatus !== "dispatched" ? (
-                              <span className="text-muted-foreground">—</span>
-                            ) : li.quantityReady === 0 ? (
-                              <span className="text-muted-foreground">—</span>
-                            ) : li.quantityReceived === li.quantityReady ? (
-                              <span className="text-green-600 font-medium">All Received</span>
-                            ) : (li.quantityReceived || 0) > 0 ? (
-                              <span>{li.quantityReceived} Received, {li.quantityAwaitingReceipt} Awaiting Confirmation</span>
-                            ) : (
-                              <span className="text-muted-foreground">Awaiting Confirmation</span>
-                            )}
-                          </td>
-                          <td className="py-2">
-                            <div className="flex flex-col gap-1 items-start">
-                              {remainingToFulfill <= 0 ? (
-                                <span className="text-xs text-green-700 bg-green-50 border border-green-200 px-1.5 py-0.5 rounded-md font-medium">Fully Fulfilled</span>
-                              ) : li.remainingDisposition === "cannot_fulfill" ? (
-                                <span className="text-xs text-red-700 bg-red-50 border border-red-200 px-1.5 py-0.5 rounded-md font-medium">
-                                  {remainingToFulfill} Cannot Fulfill
+                          <tr key={li.vendorDeliveryNoticeLineItemId} className="border-b border-border/40 hover:bg-slate-50/50 transition-colors">
+                            <td className="py-3 font-semibold text-foreground">{li.name}</td>
+                            <td className="py-3 text-muted-foreground font-medium">
+                              {li.quantityReady} units
+                            </td>
+                            <td className="py-3 text-xs">
+                              {itemRejected > 0 ? (
+                                <span className="text-xs text-red-700 font-semibold bg-red-50 border border-red-200/80 px-2.5 py-1 rounded-md inline-flex items-center gap-1.5">
+                                  <AlertCircle className="h-3.5 w-3.5 text-red-500 shrink-0" />
+                                  {itemAccepted} Accepted · {itemRejected} Rejected
                                 </span>
-                              ) : li.remainingDisposition === "backordered" ? (
-                                <span className="text-xs text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded-md font-medium">
-                                  {remainingToFulfill} Backordered{li.expectedReadyDate ? ` (${formatDate(li.expectedReadyDate)})` : ""}
+                              ) : notice.dispatchStatus !== "dispatched" ? (
+                                <span className="text-muted-foreground">—</span>
+                              ) : li.quantityReady === 0 ? (
+                                <span className="text-muted-foreground">—</span>
+                              ) : li.quantityReceived === li.quantityReady ? (
+                                <span className="text-green-700 font-medium bg-green-50 border border-green-200 px-2 py-0.5 rounded-md inline-flex items-center gap-1">
+                                  <CheckCircle2 className="h-3.5 w-3.5 text-green-600" /> All {li.quantityReady} Accepted
                                 </span>
-                              ) : (li.quantityReady || 0) > 0 ? (
-                                <span className="text-xs text-green-700 bg-green-50 border border-green-200 px-1.5 py-0.5 rounded-md font-medium">Fully Ready</span>
+                              ) : (li.quantityReceived || 0) > 0 ? (
+                                <span>{li.quantityReceived} Received, {li.quantityAwaitingReceipt} Awaiting Inspection</span>
                               ) : (
-                                <span className="text-xs text-muted-foreground">Will fulfill later</span>
+                                <span className="text-muted-foreground">Awaiting Inspection</span>
                               )}
-                              {(li.reason || li.dispositionReason) && (
-                                <p className="text-xs text-muted-foreground mt-1 max-w-sm">
-                                  <span className="font-medium">Reason:</span> {li.reason || li.dispositionReason}
-                                </p>
+                            </td>
+                            <td className="py-3 text-right">
+                              {itemRejected > 0 ? (
+                                itemResolution ? (
+                                  <div className="flex items-center justify-end gap-1.5">
+                                    {itemResolution.action === "dispute" ? (
+                                      <span className="text-xs px-2.5 py-0.5 rounded-full font-semibold bg-purple-50 text-purple-700 border border-purple-200 inline-flex items-center gap-1">
+                                        <ShieldAlert className="h-3.5 w-3.5 text-purple-600" /> Disputed
+                                      </span>
+                                    ) : itemResolution.action === "backorder" ? (
+                                      <span className="text-xs px-2.5 py-0.5 rounded-full font-semibold bg-[#f0faf8] text-[#00b29a] border border-[#cbf0eb] inline-flex items-center gap-1">
+                                        <Clock className="h-3.5 w-3.5 text-[#00b29a]" /> Backordered{itemResolution.expectedReadyDate ? ` (${formatDate(itemResolution.expectedReadyDate)})` : ""}
+                                      </span>
+                                    ) : (
+                                      <span className="text-xs px-2.5 py-0.5 rounded-full font-semibold bg-rose-50 text-rose-700 border border-rose-200 inline-flex items-center gap-1">
+                                        <XCircle className="h-3.5 w-3.5 text-rose-600" /> Forfeited
+                                      </span>
+                                    )}
+                                    <button
+                                      type="button"
+                                      onClick={() => onOpenResolution(notice, idx, li.purchaseOrderLineItemId, itemResolution.action)}
+                                      className="text-[11px] text-muted-foreground hover:text-foreground underline ml-1 font-medium"
+                                    >
+                                      Edit
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => onOpenResolution(notice, idx, li.purchaseOrderLineItemId, "backorder")}
+                                    className="h-7 px-3 text-xs font-semibold border-[#00b29a] text-[#00b29a] hover:bg-[#00b29a]/10"
+                                  >
+                                    Resolve Item
+                                  </Button>
+                                )
+                              ) : (
+                                <span className="text-xs text-muted-foreground">—</span>
                               )}
-                            </div>
-                          </td>
-                        </tr>
+                            </td>
+                          </tr>
                         );
                       })}
                     </tbody>
@@ -479,9 +561,49 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
 
   const [fulfillmentModalOpen, setFulfillmentModalOpen] = useState(false);
   const [modalDeclaration, setModalDeclaration] = useState<DeliveryType>("full");
-
-  // Item fulfillment drawer state
   const [selectedItemForDrawer, setSelectedItemForDrawer] = useState<OrderLineItem | null>(null);
+
+  // Unified resolution modal state (supports both single-item and multi-item resolutions)
+  const [resolutionModalState, setResolutionModalState] = useState<{
+    open: boolean;
+    fulfillment: Fulfillment | null;
+    fulfillmentIndex: number;
+    targetLineItemId?: string | null;
+    initialAction?: VendorResolutionAction;
+  }>({
+    open: false,
+    fulfillment: null,
+    fulfillmentIndex: 0,
+    targetLineItemId: null,
+    initialAction: "backorder",
+  });
+
+  const [localResolutions, setLocalResolutions] = useState<
+    Record<
+      string,
+      {
+        status: "acknowledged" | "disputed" | "mixed";
+        action?: string;
+        type?: string;
+        itemResolutions?: Record<string, LineItemResolution>;
+      }
+    >
+  >({});
+
+  const handleOpenResolution = (
+    notice: Fulfillment,
+    index: number,
+    targetItemId: string | null = null,
+    initialAction: VendorResolutionAction = "backorder"
+  ) => {
+    setResolutionModalState({
+      open: true,
+      fulfillment: notice,
+      fulfillmentIndex: index,
+      targetLineItemId: targetItemId,
+      initialAction,
+    });
+  };
 
   const { data: invoicesData } = useInvoices({ purchaseOrderId: id });
 
@@ -565,11 +687,26 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
         const remaining = getRemainingToReady(item);
         if (remaining === 0) return false;
         if (li.quantityReady < remaining && !li.remainingDisposition) return true;
+        if (
+          li.quantityReady < remaining &&
+          (li.remainingDisposition === "backordered" || li.remainingDisposition === "cannot_fulfill") &&
+          !li.reason?.trim() &&
+          !li.dispositionReason?.trim()
+        ) {
+          return true;
+        }
+        if (
+          li.quantityReady < remaining &&
+          li.remainingDisposition === "backordered" &&
+          !li.expectedReadyDate
+        ) {
+          return true;
+        }
         return false;
       });
 
       if (invalidItems.length > 0) {
-        toast.error("Please complete all disposition fields for partial quantities.");
+        toast.error("Please complete all disposition fields, including reason, for partial quantities.");
         return;
       }
     }
@@ -605,6 +742,52 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
         },
       }
     );
+  };
+
+  const handleUnifiedResolutionSubmit = (payload: UnifiedResolutionPayload) => {
+    const fId = payload.fulfillmentId;
+    const itemsMap: Record<string, LineItemResolution> = {};
+    for (const r of payload.resolutions) {
+      itemsMap[r.purchaseOrderLineItemId] = r;
+    }
+
+    setLocalResolutions((prev) => {
+      const existingItems = prev[fId]?.itemResolutions || {};
+      const mergedItems = { ...existingItems, ...itemsMap };
+
+      const actions = Object.values(mergedItems).map((i) => i.action);
+      const hasDispute = actions.includes("dispute");
+      const hasBackorder = actions.includes("backorder");
+      const hasForfeit = actions.includes("forfeit");
+
+      let status: "acknowledged" | "disputed" | "mixed" = "acknowledged";
+      if (hasDispute && (hasBackorder || hasForfeit)) status = "mixed";
+      else if (hasDispute) status = "disputed";
+      else status = "acknowledged";
+
+      return {
+        ...prev,
+        [fId]: {
+          status,
+          action: status,
+          type: status,
+          itemResolutions: mergedItems,
+        },
+      };
+    });
+
+    const disputedCount = payload.resolutions.filter((r) => r.action === "dispute").length;
+    const ackCount = payload.resolutions.filter((r) => r.action === "backorder" || r.action === "forfeit").length;
+
+    if (disputedCount > 0 && ackCount > 0) {
+      toast.success(`Resolution recorded: ${disputedCount} disputed, ${ackCount} acknowledged.`);
+    } else if (disputedCount > 0) {
+      toast.success(`Dispute submitted for ${disputedCount} item${disputedCount > 1 ? "s" : ""}.`);
+    } else {
+      toast.success(`Acknowledged resolution for ${ackCount} item${ackCount > 1 ? "s" : ""}.`);
+    }
+
+    setResolutionModalState((prev) => ({ ...prev, open: false }));
   };
 
   const renderCTA = () => {
@@ -670,6 +853,40 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
     return <>{buttons}</>;
   };
 
+  const allNotices: Fulfillment[] = order.fulfillments || order.deliveryNotices || [];
+
+  // Identify fulfillments with buyer rejections awaiting vendor response
+  const activeRejectionNotices = allNotices
+    .map((f, idx) => {
+      const local = localResolutions[f.vendorDeliveryNoticeId];
+      const totalDelivered =
+        f.totalDeliveredQuantity ??
+        f.lineItems.reduce((sum, li) => sum + (li.quantityReady || li.quantityShipped || 0), 0);
+      const totalAccepted =
+        f.totalAcceptedQuantity ??
+        f.lineItems.reduce((sum, li) => sum + (li.quantityAccepted ?? li.quantityReceived ?? 0), 0);
+      let totalRejected = f.totalRejectedQuantity ?? 0;
+      if (!totalRejected && (f.inspectionOutcome === "accepted_with_exceptions" || f.inspectionOutcome === "rejected")) {
+        totalRejected = Math.max(0, totalDelivered - totalAccepted);
+      }
+      const lineItemsWithRejection = f.lineItems.filter((li) => (li.quantityRejected || 0) > 0);
+      if (lineItemsWithRejection.length > 0 && !totalRejected) {
+        totalRejected = lineItemsWithRejection.reduce((sum, li) => sum + (li.quantityRejected || 0), 0);
+      }
+      const unresolvedItems = lineItemsWithRejection.filter(
+        (li) => !local?.itemResolutions?.[li.purchaseOrderLineItemId]
+      );
+      const isAwaiting =
+        (!local || (local.itemResolutions && unresolvedItems.length > 0)) &&
+        (f.resolutionStatus === "awaiting_vendor_response" ||
+          f.inspectionOutcome === "accepted_with_exceptions" ||
+          f.inspectionOutcome === "rejected" ||
+          totalRejected > 0);
+      return { fulfillment: f, index: idx, totalRejected, isAwaiting };
+    })
+    .filter((item) => item.isAwaiting);
+
+  const totalAllRejected = activeRejectionNotices.reduce((acc, item) => acc + item.totalRejected, 0);
   const isEnteringDates = order.status === "issued";
 
   return (
@@ -697,6 +914,130 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
           <div className="flex items-center gap-2">{renderCTA()}</div>
         </div>
       </div>
+
+      {/* ── Single Shipment Rejection Banner ── */}
+      {activeRejectionNotices.length === 1 && (() => {
+        const { fulfillment, index, totalRejected } = activeRejectionNotices[0];
+        return (
+          <div
+            key={fulfillment.vendorDeliveryNoticeId}
+            className="p-4 rounded-xl bg-red-50/90 border border-red-200 flex flex-col md:flex-row md:items-center justify-between gap-3 shadow-xs"
+          >
+            <div className="flex items-start gap-3">
+              <div className="p-2 rounded-lg bg-red-100 text-red-600 shrink-0 mt-0.5">
+                <AlertCircle className="h-5 w-5" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <p className="text-sm font-semibold text-red-900">
+                    Buyer inspection recorded {totalRejected} rejected unit{totalRejected > 1 ? "s" : ""} on Shipment #{index + 1}
+                  </p>
+                  <span className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-red-200/70 text-red-800">
+                    Action Required
+                  </span>
+                </div>
+                <p className="text-xs text-red-700 mt-1">
+                  <span className="font-semibold text-red-800">Reason: </span>
+                  {fulfillment.rejectionReason || "The units are not up to standard, packaging crushed and defective items found during inspection"}
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2.5 shrink-0 self-end md:self-center pl-10 md:pl-0">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => handleOpenResolution(fulfillment, index, null, "dispute")}
+                className="h-8.5 px-4 text-xs font-semibold border-purple-300 text-purple-700 hover:bg-purple-50"
+              >
+                Dispute All
+              </Button>
+              <Button
+                type="button"
+                variant="primary"
+                size="sm"
+                onClick={() => handleOpenResolution(fulfillment, index, null, "backorder")}
+                className="h-8.5 px-4 text-xs font-semibold bg-[#00b29a] hover:bg-[#009b86] text-white shadow-xs"
+              >
+                Review & Resolve
+              </Button>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* ── Consolidated Multi-Shipment Rejection Banner (When 2+ Shipments Have Rejections) ── */}
+      {activeRejectionNotices.length > 1 && (
+        <div className="rounded-2xl bg-red-50/90 border border-red-200 overflow-hidden shadow-xs">
+          {/* Header */}
+          <div className="p-4 bg-red-100/60 border-b border-red-200/80 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <div className="p-2 rounded-xl bg-red-200/80 text-red-700 shrink-0">
+                <AlertCircle className="h-5 w-5" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h3 className="text-sm font-bold text-red-900">
+                    Buyer inspection recorded rejections on {activeRejectionNotices.length} shipments ({totalAllRejected} total rejected units)
+                  </h3>
+                  <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-red-200 text-red-800">
+                    Action Required
+                  </span>
+                </div>
+                <p className="text-xs text-red-700 mt-0.5">
+                  Resolve rejections for each shipment below or click &quot;Review &amp; Resolve&quot; to take action.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Grouped Shipments List */}
+          <div className="divide-y divide-red-200/60 bg-white/70">
+            {activeRejectionNotices.map(({ fulfillment, index, totalRejected }) => (
+              <div
+                key={fulfillment.vendorDeliveryNoticeId}
+                className="p-4 flex flex-col md:flex-row md:items-center justify-between gap-3 hover:bg-white/95 transition-colors"
+              >
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-bold text-foreground">
+                      Shipment #{index + 1}
+                      {fulfillment.fulfillmentReference ? ` (${fulfillment.fulfillmentReference})` : ""}
+                    </span>
+                    <span className="text-[11px] font-bold text-[#e14856] bg-red-50 border border-red-200 px-2 py-0.5 rounded-full">
+                      {totalRejected} units rejected
+                    </span>
+                  </div>
+                  <p className="text-xs text-muted-foreground leading-relaxed">
+                    <span className="font-semibold text-foreground">Reason: </span>
+                    {fulfillment.rejectionReason || "The units are not up to standard, packaging crushed and defective items found"}
+                  </p>
+                </div>
+                <div className="flex items-center gap-2 shrink-0 self-end md:self-center">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => handleOpenResolution(fulfillment, index, null, "dispute")}
+                    className="h-8 px-3.5 text-xs font-semibold border-purple-300 text-purple-700 hover:bg-purple-50"
+                  >
+                    Dispute All
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="primary"
+                    size="sm"
+                    onClick={() => handleOpenResolution(fulfillment, index, null, "backorder")}
+                    className="h-8 px-4 text-xs font-semibold bg-[#00b29a] hover:bg-[#009b86] text-white shadow-xs"
+                  >
+                    Review & Resolve
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {isEnteringDates && (
         <div className="text-xs text-red-600 font-medium bg-red-50 border border-red-100 rounded-lg px-3 py-2">
@@ -866,21 +1207,23 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
 
           {/* ── Fulfillment History ── */}
           <FulfillmentHistorySection
-            notices={order.fulfillments || order.deliveryNotices || []}
+            notices={allNotices}
             onDispatch={(fulfillmentId) => {
               dispatchFulfillmentMutation.mutate({
                 purchaseOrderId: order.purchaseOrderId,
                 fulfillmentId,
                 payload: {
-                    dispatchReference: `DSP-${crypto.randomUUID().slice(0, 8)}`,
-                    dispatchedAt: new Date().toISOString(),
-                  },
+                  dispatchReference: `DSP-${crypto.randomUUID().slice(0, 8)}`,
+                  dispatchedAt: new Date().toISOString(),
+                },
               });
             }}
             isDispatching={(fulfillmentId) =>
               dispatchFulfillmentMutation.isPending &&
               dispatchFulfillmentMutation.variables?.fulfillmentId === fulfillmentId
             }
+            localResolutions={localResolutions}
+            onOpenResolution={handleOpenResolution}
           />
         </div>
 
@@ -985,6 +1328,17 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
         onClose={() => setSelectedItemForDrawer(null)}
         item={selectedItemForDrawer}
         fulfillments={order.fulfillments || order.deliveryNotices || []}
+      />
+
+      {/* ── Unified Spacious Resolution Modal (Supports Mixed Dispute + Acknowledge & Custom UI) ── */}
+      <ResolutionModal
+        open={resolutionModalState.open}
+        onClose={() => setResolutionModalState((prev) => ({ ...prev, open: false }))}
+        onSubmit={handleUnifiedResolutionSubmit}
+        fulfillment={resolutionModalState.fulfillment}
+        fulfillmentIndex={resolutionModalState.fulfillmentIndex}
+        targetLineItemId={resolutionModalState.targetLineItemId}
+        initialAction={resolutionModalState.initialAction}
       />
     </div>
   );

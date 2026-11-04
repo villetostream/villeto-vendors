@@ -35,7 +35,7 @@ export function OnboardingStepper({
   const router = useRouter();
 
   const pendingLabel = isPaymentTermsRejected
-    ? "Terms Rejected"
+    ? "Review Status"
     : isRejected
     ? "Rejected"
     : isPaymentSetup
@@ -50,7 +50,7 @@ export function OnboardingStepper({
           completed: true,
           hasError: isPaymentTermsRejected && s.key === "payment-terms",
         })),
-        { key: "pending", label: pendingLabel, completed: false, hasError: isRejected || isPaymentTermsRejected },
+        { key: "pending", label: pendingLabel, completed: false, hasError: isRejected },
       ]
     : baseSteps;
 
@@ -89,13 +89,15 @@ export function OnboardingStepper({
                   className={cn(
                     "flex h-8 w-8 items-center justify-center rounded-full border-2 text-xs font-semibold transition-all shrink-0",
                     (step as any).hasError && step.key === "payment-terms"
-                      ? "bg-red-500 border-red-500 text-white animate-pulse"
+                      ? "bg-amber-500 border-amber-500 text-white"
                       : isCompleted
                       ? "bg-primary border-primary text-white"
                       : isCurrent
                       ? pendingStep && step.key === "pending"
-                        ? isRejected || isPaymentTermsRejected
+                        ? isRejected
                           ? "bg-red-500 border-red-500 text-white"
+                          : isPaymentTermsRejected
+                          ? "bg-amber-500 border-amber-500 text-white"
                           : isPaymentSetup
                           ? "bg-teal-600 border-teal-600 text-white"
                           : "bg-amber-500 border-amber-500 text-white"
@@ -113,11 +115,13 @@ export function OnboardingStepper({
                   className={cn(
                     "text-xs font-medium whitespace-nowrap text-center hidden sm:inline",
                     (step as any).hasError && step.key === "payment-terms"
-                      ? "text-red-600 font-semibold"
+                      ? "text-amber-700 font-semibold"
                       : isCurrent
                       ? pendingStep && step.key === "pending"
-                        ? isRejected || isPaymentTermsRejected
+                        ? isRejected
                           ? "text-red-600 font-semibold"
+                          : isPaymentTermsRejected
+                          ? "text-amber-700 font-semibold"
                           : isPaymentSetup
                           ? "text-teal-700 font-semibold"
                           : "text-amber-600 font-semibold"

@@ -36,13 +36,17 @@ export default function PaymentTermsPage({
 
   // Fetch current payment term for this specific company to detect rejection
   const { data: companyTermsResponse } = useVendorPaymentTerms({ companyId });
+  const { data: company } = useMyCompany(companyId);
   const currentCompanyTerm = useMemo(() => {
+    // Prefer the term embedded in the company response (always carries status + rejectionReason)
+    if (company?.paymentTerms) {
+      return company.paymentTerms as unknown as NonNullable<typeof companyTermsResponse>["data"][number];
+    }
     const terms = companyTermsResponse?.data || [];
     return terms.find((t) => t.isCurrent) || terms[0] || null;
-  }, [companyTermsResponse]);
+  }, [company, companyTermsResponse]);
 
-  // Fetch company relationship to detect approved+payment_terms_rejected state
-  const { data: company } = useMyCompany(companyId);
+  // Company relationship (also detects approved + payment terms rejected)
   const authUser = useAuthStore((s) => s.user);
   const cookieApproval = typeof window !== "undefined" ? Cookies.get(AUTH_COOKIE_NAMES.approvalStatus) : undefined;
 
@@ -80,6 +84,20 @@ export default function PaymentTermsPage({
 
   const saveMutation = useSaveCompanyPaymentTerm();
 
+  // Prefill with the locally saved terms; if none (e.g. after reload) and the
+  // current term was rejected, start from the rejected term so the vendor edits it.
+  const initialValues = useMemo<Partial<PaymentTermsValues> | null>(() => {
+    if (store.paymentTerms) return store.paymentTerms;
+    if (isPaymentTermRejected && currentCompanyTerm) {
+      return {
+        name: currentCompanyTerm.name,
+        days: currentCompanyTerm.days,
+        arrangement: currentCompanyTerm.name,
+      };
+    }
+    return null;
+  }, [store.paymentTerms, isPaymentTermRejected, currentCompanyTerm]);
+
   const handleContinue = async (values: PaymentTermsValues) => {
     if (isReadOnly) {
       router.push("/pending");
@@ -94,6 +112,7 @@ export default function PaymentTermsPage({
         reusePaymentTermId?: string;
         name?: string;
         days?: number;
+        details?: string;
       } | null = null;
 
       if (values.reusePaymentTermId) {
@@ -103,10 +122,11 @@ export default function PaymentTermsPage({
         // Mode 2: select a company preset option (send ONLY optionId)
         apiPayload = { optionId: values.optionId };
       } else if (values.name || values.days !== undefined) {
-        // Mode 3: custom terms — send ONLY name + days
+        // Mode 3: custom terms — send ONLY name + days (+ details when provided)
         apiPayload = {
           name: values.name || "Custom Net",
           days: values.days ?? 0,
+          ...(values.notes ? { details: values.notes } : {}),
         };
       }
 
@@ -143,7 +163,7 @@ export default function PaymentTermsPage({
       savedSubmissions={savedTerms}
       isLoadingOptions={isLoadingOptions}
       isLoading={saveMutation.isPending}
-      initialValues={store.paymentTerms}
+      initialValues={initialValues}
       onContinue={handleContinue}
       onBack={() => router.back()}
       isResubmit={isResubmit || isFullOnboardingRejected}

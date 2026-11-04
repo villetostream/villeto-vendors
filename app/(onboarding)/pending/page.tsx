@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Send, XCircle, CreditCard } from "lucide-react";
+import { Send, XCircle, CreditCard, CalendarClock } from "lucide-react";
 import { OnboardingStepper } from "@/components/onboarding/OnboardingStepper";
 import { Button } from "@/components/ui/Button";
 import { sendMessage, getVendorProfile, getVendorCompanies } from "@/lib/api/vendor";
@@ -82,7 +82,17 @@ function getPhase(
 }
 
 function PhaseAnimation({ phase }: { phase: PendingPhase }) {
-  if (phase === "rejected" || phase === "payment_terms_rejected") {
+  if (phase === "payment_terms_rejected") {
+    return (
+      <div className="relative h-14 w-14 rounded-full flex items-center justify-center shrink-0 bg-amber-50" aria-hidden="true">
+        <div className="h-10 w-10 rounded-full flex items-center justify-center bg-amber-100">
+          <CalendarClock className="h-5 w-5 text-amber-600" />
+        </div>
+      </div>
+    );
+  }
+
+  if (phase === "rejected") {
     return (
       <div className="relative h-14 w-14 rounded-full flex items-center justify-center shrink-0 bg-red-50" aria-hidden="true">
         <div className="h-10 w-10 rounded-full flex items-center justify-center bg-red-100">
@@ -156,10 +166,10 @@ const PHASE_COPY: Record<PendingPhase, { title: string; subtitle: string; badge:
     badgeClasses: "bg-red-100 text-red-700",
   },
   payment_terms_rejected: {
-    title: "Payment Terms Rejected",
-    subtitle: "Changes were requested for your payment terms.",
-    badge: "Terms Rejected",
-    badgeClasses: "bg-red-100 text-red-700",
+    title: "Payment Terms Need Update",
+    subtitle: "Your credentials are approved, but payment terms need revision.",
+    badge: "Revision Requested",
+    badgeClasses: "bg-amber-100 text-amber-800",
   },
 };
 
@@ -191,9 +201,12 @@ export default function PendingPage() {
   );
 
   const currentPaymentTerm = useMemo(() => {
+    if (company?.paymentTerms) {
+      return company.paymentTerms as unknown as NonNullable<typeof paymentTermsData>["data"][number];
+    }
     const list = paymentTermsData?.data || [];
     return list.find((t) => t.isCurrent) || list[0] || null;
-  }, [paymentTermsData]);
+  }, [company, paymentTermsData]);
 
   const companyName = company?.companyName || user?.companyName;
   const targetRecipient = companyName || "the company";
@@ -300,8 +313,12 @@ export default function PendingPage() {
     register,
     handleSubmit,
     reset,
+    watch,
     formState: { isSubmitting, errors },
   } = useForm<FormData>({ resolver: zodResolver(schema) });
+
+  const messageText = watch("message");
+  const isMessageEmpty = !messageText || !messageText.trim();
 
   const onSubmit = async (data: FormData) => {
     try {
@@ -454,13 +471,21 @@ export default function PendingPage() {
         <div
           className={cn(
             "bg-white rounded-2xl shadow-sm border flex-1 flex flex-col min-h-0 overflow-hidden",
-            isRejected || isPaymentTermsRejected ? "border-red-200" : "border-border/50"
+            isRejected
+              ? "border-red-200"
+              : isPaymentTermsRejected
+              ? "border-amber-200/80"
+              : "border-border/50"
           )}
         >
           <div
             className={cn(
               "shrink-0 px-8 py-5 border-b flex items-center justify-between gap-4",
-              isRejected || isPaymentTermsRejected ? "border-red-100 bg-red-50/40" : "border-border/30"
+              isRejected
+                ? "border-red-100 bg-red-50/40"
+                : isPaymentTermsRejected
+                ? "border-amber-100/70 bg-amber-50/30"
+                : "border-border/30"
             )}
           >
             <div className="flex items-center gap-4">
@@ -469,7 +494,7 @@ export default function PendingPage() {
                 <h2
                   className={cn(
                     "text-2xl font-bold leading-tight",
-                    isRejected || isPaymentTermsRejected ? "text-red-700" : "text-foreground"
+                    isRejected ? "text-red-700" : "text-foreground"
                   )}
                 >
                   {copy.title}
@@ -477,7 +502,7 @@ export default function PendingPage() {
                 <p
                   className={cn(
                     "text-sm mt-0.5",
-                    isRejected || isPaymentTermsRejected ? "text-red-500" : "text-muted-foreground"
+                    isRejected ? "text-red-500" : "text-muted-foreground"
                   )}
                 >
                   {copy.subtitle}
@@ -492,17 +517,13 @@ export default function PendingPage() {
 
           <div className="flex-1 overflow-y-auto px-8 py-6 flex flex-col gap-5">
             {isPaymentTermsRejected ? (
-              <div className="rounded-xl border border-red-200 bg-red-50 p-4.5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shrink-0">
-                <div>
-                  <h3 className="text-sm font-semibold text-red-900 mb-1">
-                    Payment Terms Not Approved
-                  </h3>
-                  <p className="text-xs text-red-700 leading-relaxed min-h-[1.25rem]">
-                    {decisionNote ? (
-                      `Feedback: ${decisionNote}`
-                    ) : (
-                      "Your credentials were approved, but the company requested changes to your payment terms before payments can be processed."
-                    )}
+              <div className="rounded-xl border border-amber-200 bg-amber-50/60 p-4.5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shrink-0">
+                <div className="space-y-1">
+                  <span className="text-[11px] font-semibold uppercase tracking-wider text-amber-800 bg-amber-200/60 px-2 py-0.5 rounded">
+                    Feedback from {companyName || "Organization"}
+                  </span>
+                  <p className="text-sm text-foreground/90 font-medium leading-relaxed">
+                    {decisionNote || "Please review and select updated payment terms."}
                   </p>
                 </div>
                 {activeCompanyId && (
@@ -511,7 +532,7 @@ export default function PendingPage() {
                     variant="primary"
                     size="sm"
                     onClick={() => router.push(`/onboarding/${activeCompanyId}/payment-terms`)}
-                    className="shrink-0 bg-red-600 hover:bg-red-700 text-white shadow-sm"
+                    className="shrink-0 shadow-sm"
                   >
                     Update Payment Terms
                   </Button>
@@ -564,28 +585,25 @@ export default function PendingPage() {
               </p>
             )}
 
-            <div
-              className={cn(
-                "rounded-xl border p-5 flex flex-col shrink-0",
-                isRejected || isPaymentTermsRejected ? "border-red-200 bg-red-50/30" : "border-border/60"
-              )}
-            >
+            <div className="rounded-xl border border-border/70 bg-slate-50/40 p-4.5 flex flex-col shrink-0">
               <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col gap-3">
-                <label className="text-sm font-medium text-foreground">
-                  Send a message to {targetRecipient}
-                </label>
+                <div className="flex items-center justify-between">
+                  <label className="text-sm font-medium text-foreground">
+                    Send a message to {targetRecipient}
+                  </label>
+                  <span className="text-xs text-muted-foreground">Optional</span>
+                </div>
 
                 <textarea
-                  placeholder="Enter your message here…"
-                  rows={4}
+                  placeholder="Need clarification or have notes for the team? Enter your message here…"
+                  rows={3}
                   className={cn(
-                    "w-full min-h-[110px] rounded-xl border bg-white px-4 py-3 text-sm text-foreground",
+                    "w-full rounded-xl border bg-white px-3.5 py-2.5 text-sm text-foreground",
                     "placeholder:text-muted-foreground resize-none focus:outline-none focus:ring-2",
                     "transition-all",
-                    isRejected || isPaymentTermsRejected
-                      ? "border-red-200 focus:ring-red-300/40 focus:border-red-400"
-                      : "border-border focus:ring-primary/30 focus:border-primary",
-                    errors.message && "border-red-400"
+                    errors.message
+                      ? "border-red-400 focus:ring-red-300/40 focus:border-red-400"
+                      : "border-border focus:ring-primary/30 focus:border-primary"
                   )}
                   {...register("message")}
                 />
@@ -594,18 +612,26 @@ export default function PendingPage() {
                   <p className="text-xs text-red-500 -mt-1">{errors.message.message}</p>
                 )}
 
-                <p className="text-xs text-muted-foreground">
-                  The {companyName ? `${companyName} team` : "company team"} will receive your message immediately.
-                </p>
-
                 {sent && (
-                  <p className="text-sm text-green-600 font-medium">✓ Message sent successfully</p>
+                  <p className="text-xs text-green-600 font-medium">✓ Message sent successfully</p>
                 )}
 
-                <Button type="submit" variant="primary" size="lg" loading={isSubmitting} className="w-full gap-2">
-                  <Send className="h-4 w-4" aria-hidden="true" />
-                  Send Message
-                </Button>
+                <div className="flex items-center justify-between pt-1">
+                  <p className="text-[11px] text-muted-foreground">
+                    The {companyName ? `${companyName} team` : "company team"} will receive this directly.
+                  </p>
+                  <Button
+                    type="submit"
+                    variant="outline"
+                    size="sm"
+                    loading={isSubmitting}
+                    disabled={isMessageEmpty || isSubmitting}
+                    className="gap-1.5"
+                  >
+                    <Send className="h-3.5 w-3.5" aria-hidden="true" />
+                    Send Message
+                  </Button>
+                </div>
               </form>
             </div>
           </div>

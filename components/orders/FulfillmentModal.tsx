@@ -146,13 +146,18 @@ export function FulfillmentModal({
       for (const item of fulfillableItems) {
         const remaining = getRemainingToReady(item);
         const rawQty = quantities[item.purchaseOrderLineItemId];
+        if (rawQty === "") return false;
         const qty = rawQty !== undefined ? rawQty : 0;
         if (typeof qty === "number" && qty >= 0 && qty < remaining) {
-           const disp = dispositions[item.purchaseOrderLineItemId];
-           if (!disp) return false;
-           if (disp === "backordered" && !expectedDates[item.purchaseOrderLineItemId]) {
-             return false;
-           }
+          const disp = dispositions[item.purchaseOrderLineItemId];
+          if (!disp) return false;
+          if (disp === "backordered" && !expectedDates[item.purchaseOrderLineItemId]) {
+            return false;
+          }
+          const reason = dispositionReasons[item.purchaseOrderLineItemId]?.trim();
+          if (!reason) {
+            return false;
+          }
         }
       }
     }
@@ -412,7 +417,7 @@ export function FulfillmentModal({
 
                             {disp === "backordered" && (
                               <div className="space-y-2 flex-1">
-                                <Label className="text-xs font-semibold text-blue-700">Expected ready date</Label>
+                                <Label className="text-xs font-semibold text-blue-700" required>Expected ready date</Label>
                                 <DatePicker
                                   date={expectedDates[item.purchaseOrderLineItemId] ? new Date(expectedDates[item.purchaseOrderLineItemId]) : undefined}
                                   onSelect={(d) => setExpectedDates((prev) => ({ ...prev, [item.purchaseOrderLineItemId]: d ? format(d, "yyyy-MM-dd") : "" }))}
@@ -424,11 +429,12 @@ export function FulfillmentModal({
 
                           {disp && (
                             <div className="space-y-2">
-                              <Label className="text-xs font-semibold text-amber-700">
-                                Reason for {disp === "backordered" ? "backorder" : "cancellation"} <span className="text-muted-foreground font-normal">(optional)</span>
+                              <Label className="text-xs font-semibold text-amber-700" required>
+                                Reason for {disp === "backordered" ? "backorder" : "cancellation"}
                               </Label>
                               <input
                                 type="text"
+                                required
                                 value={reason}
                                 onChange={(e) => setDispositionReasons((prev) => ({ ...prev, [item.purchaseOrderLineItemId]: e.target.value }))}
                                 placeholder={disp === "backordered" ? "e.g., Supply chain delay, waiting on materials" : "e.g., Item discontinued, completely out of stock"}
