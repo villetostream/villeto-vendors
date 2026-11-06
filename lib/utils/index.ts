@@ -6,6 +6,8 @@ import {
   InvoiceStatus,
   InvoicePaymentStatus,
   ORDER_STATUS_DISPLAY_LABEL,
+  Fulfillment,
+  FulfillmentExceptionDetail,
 } from "@/lib/types";
 
 // ─────────────────────────────────────────────
@@ -169,6 +171,219 @@ export function formatExceptionReason(raw?: string | null): string {
     return `${category} — ${text}`;
   }
   return category || text;
+}
+
+export function getUniqueLineReasons(
+  lineItems?: Array<{ exceptionReason?: string | null; rejectionReason?: string | null }>
+): string {
+  if (!lineItems || lineItems.length === 0) return "";
+  return Array.from(
+    new Set(
+      lineItems
+        .map((li) => (li.exceptionReason || li.rejectionReason)?.trim())
+        .filter(Boolean)
+    )
+  ).join(" · ");
+}
+
+/**
+ * Merges receipt exception details from GET /vendor-portal/fulfillment-exceptions/:deliveryReceiptId
+ * (or embedded order receipts / receiptConfirmations) onto the order's fulfillments so the UI has full
+ * receipt-level and line-level exception and resolution fields (including finalQuantityAccepted).
+ */
+export function enrichFulfillmentsWithReceipts(
+  fulfillments: Fulfillment[],
+  rawReceipts: FulfillmentExceptionDetail[]
+): Fulfillment[] {
+  if (!rawReceipts || rawReceipts.length === 0) {
+    return fulfillments.map((f) => ({
+      ...f,
+      rejectionReason: f.rejectionReason || getUniqueLineReasons(f.lineItems) || undefined,
+    }));
+  }
+
+  // Deduplicate receipts by deliveryReceiptId (prefer later entries or higher decisionVersion)
+  const receiptMap = new Map<string, FulfillmentExceptionDetail>();
+  for (const r of rawReceipts) {
+    if (!r?.deliveryReceiptId) continue;
+    const existing = receiptMap.get(r.deliveryReceiptId);
+    if (
+      !existing ||
+      (r.decisionVersion ?? 0) >= (existing.decisionVersion ?? 0)
+    ) {
+      receiptMap.set(r.deliveryReceiptId, { ...existing, ...r });
+    }
+  }
+  const receipts = Array.from(receiptMap.values());
+
+  const matchedReceiptIds = new Set<string>();
+
+  const enriched = fulfillments.map((f) => {
+    const matchedReceipt = receipts.find(
+      (r) =>
+        (r.deliveryReceiptId && r.deliveryReceiptId === f.deliveryReceiptId) ||
+        (r.fulfillmentId &&
+          (r.fulfillmentId === f.vendorDeliveryNoticeId || r.fulfillmentId === f.fulfillmentId)) ||
+        (r.fulfillmentReference &&
+          (r.fulfillmentReference === f.fulfillmentReference ||
+            r.fulfillmentReference === f.shipmentReference)) ||
+        (r.receiptNumber && f.receiptNumber && r.receiptNumber === f.receiptNumber)
+    );
+
+    if (!matchedReceipt) {
+      return {
+        ...f,
+        rejectionReason: f.rejectionReason || getUniqueLineReasons(f.lineItems) || undefined,
+      };
+    }
+    matchedReceiptIds.add(matchedReceipt.deliveryReceiptId);
+
+    const mergedLineItems = f.lineItems.map((li) => {
+      const rLi = matchedReceipt.lineItems?.find(
+        (item) =>
+          (item.purchaseOrderLineItemId && item.purchaseOrderLineItemId === li.purchaseOrderLineItemId) ||
+          (item.fulfillmentLineItemId &&
+            (item.fulfillmentLineItemId === li.vendorDeliveryNoticeLineItemId ||
+              item.fulfillmentLineItemId === li.fulfillmentLineItemId))
+      );
+      if (!rLi) return li;
+
+      // Handle dispute acceptance resolution: if dispute was accepted, ensure accepted quantity reflects that
+      const resolvedAccepted =
+        rLi.finalQuantityAccepted ??
+        (matchedReceipt.finalDecision === "accept_vendor_dispute"
+          ? (rLi.quantityOrdered ?? rLi.quantityReceived ?? rLi.quantityAccepted)
+          : rLi.quantityAccepted);
+
+      return {
+        ...li,
+        deliveryReceiptLineItemId: rLi.deliveryReceiptLineItemId ?? li.deliveryReceiptLineItemId,
+        quantityReceived: rLi.quantityReceived ?? li.quantityReceived,
+        quantityAccepted: rLi.quantityAccepted ?? li.quantityAccepted,
+        quantityRejected: rLi.quantityRejected ?? li.quantityRejected,
+        quantityMissing: rLi.quantityMissing ?? li.quantityMissing,
+        exceptionReason: rLi.exceptionReason ?? li.exceptionReason,
+        rejectionReason: rLi.exceptionReason ?? li.rejectionReason,
+        finalQuantityAccepted: resolvedAccepted ?? rLi.finalQuantityAccepted ?? li.finalQuantityAccepted,
+        finalQuantityRejected: rLi.finalQuantityRejected ?? li.finalQuantityRejected,
+        finalQuantityMissing: rLi.finalQuantityMissing ?? li.finalQuantityMissing,
+        resolutionStatus: rLi.resolutionStatus ?? matchedReceipt.resolutionStatus ?? li.resolutionStatus,
+        vendorDisposition: rLi.vendorDisposition ?? matchedReceipt.vendorDisposition ?? li.vendorDisposition,
+        expectedRedeliveryDate: rLi.expectedRedeliveryDate ?? matchedReceipt.expectedRedeliveryDate ?? li.expectedRedeliveryDate,
+        vendorResponseReason: rLi.vendorResponseReason ?? matchedReceipt.vendorResponseReason ?? li.vendorResponseReason,
+      };
+    });
+
+    const lineReasons = Array.from(
+      new Set(
+        (matchedReceipt.lineItems || [])
+          .map((item) => item.exceptionReason?.trim())
+          .filter(Boolean)
+      )
+    ).join(" · ");
+
+    return {
+      ...f,
+      deliveryReceiptId: matchedReceipt.deliveryReceiptId || f.deliveryReceiptId,
+      receiptNumber: matchedReceipt.receiptNumber || matchedReceipt.receiptReference || f.receiptNumber,
+      confirmationOutcome: matchedReceipt.confirmationOutcome ?? f.confirmationOutcome,
+      inspectionOutcome: (matchedReceipt.inspectionOutcome ?? f.inspectionOutcome) as any,
+      resolutionStatus: matchedReceipt.resolutionStatus ?? f.resolutionStatus,
+      vendorActionRequired: matchedReceipt.vendorActionRequired,
+      companyActionRequired: matchedReceipt.companyActionRequired,
+      vendorDisposition: matchedReceipt.vendorDisposition ?? f.vendorDisposition,
+      expectedRedeliveryDate: matchedReceipt.expectedRedeliveryDate ?? f.expectedRedeliveryDate,
+      vendorResponseReason: matchedReceipt.vendorResponseReason ?? f.vendorResponseReason,
+      finalDecision: matchedReceipt.finalDecision ?? f.finalDecision,
+      decisionVersion: matchedReceipt.decisionVersion ?? f.decisionVersion,
+      decisionHistory: matchedReceipt.decisionHistory ?? f.decisionHistory,
+      resolutionNote: matchedReceipt.resolutionNote ?? f.resolutionNote,
+      resolvedAt: matchedReceipt.resolvedAt ?? f.resolvedAt,
+      resolvedByName: matchedReceipt.resolvedByName ?? f.resolvedByName,
+      evidence: matchedReceipt.evidence ?? f.evidence,
+      vendorEvidence: matchedReceipt.vendorEvidence ?? f.vendorEvidence,
+      rejectionReason:
+        matchedReceipt.notes && lineReasons && !matchedReceipt.notes.includes(lineReasons) && !lineReasons.includes(matchedReceipt.notes)
+          ? `${matchedReceipt.notes} · ${lineReasons}`
+          : matchedReceipt.notes || lineReasons || f.rejectionReason,
+      lineItems: mergedLineItems,
+    };
+  });
+
+  // Append any receipt exceptions that did not match an existing fulfillment entry
+  const unmatchedReceipts: Fulfillment[] = receipts
+    .filter((r) => !matchedReceiptIds.has(r.deliveryReceiptId))
+    .map((r) => {
+      const lineReasons = Array.from(
+        new Set(
+          (r.lineItems || [])
+            .map((item) => item.exceptionReason?.trim())
+            .filter(Boolean)
+        )
+      ).join(" · ");
+
+      return {
+        vendorDeliveryNoticeId: r.fulfillmentId || r.deliveryReceiptId,
+        fulfillmentId: r.fulfillmentId,
+        deliveryReceiptId: r.deliveryReceiptId,
+        receiptNumber: r.receiptNumber || r.receiptReference,
+        shipmentReference: r.fulfillmentReference || r.receiptNumber,
+        fulfillmentReference: r.fulfillmentReference,
+        status: "submitted",
+        shippedAt: r.receivedAt || new Date().toISOString(),
+        readyAt: r.receivedAt,
+        dispatchStatus: "dispatched",
+        notes: r.notes,
+        isPartial: false,
+        confirmationOutcome: r.confirmationOutcome,
+        inspectionOutcome: r.inspectionOutcome as any,
+        resolutionStatus: r.resolutionStatus,
+        vendorActionRequired: r.vendorActionRequired,
+        companyActionRequired: r.companyActionRequired,
+        vendorDisposition: r.vendorDisposition,
+        expectedRedeliveryDate: r.expectedRedeliveryDate,
+        vendorResponseReason: r.vendorResponseReason,
+        finalDecision: r.finalDecision,
+        decisionVersion: r.decisionVersion,
+        decisionHistory: r.decisionHistory,
+        resolutionNote: r.resolutionNote,
+        resolvedAt: r.resolvedAt,
+        resolvedByName: r.resolvedByName,
+        evidence: r.evidence,
+        vendorEvidence: r.vendorEvidence,
+        rejectionReason: r.notes || lineReasons,
+        lineItems: (r.lineItems || []).map((li) => ({
+          vendorDeliveryNoticeLineItemId:
+            li.fulfillmentLineItemId || li.deliveryReceiptLineItemId,
+          deliveryReceiptLineItemId: li.deliveryReceiptLineItemId,
+          fulfillmentLineItemId: li.fulfillmentLineItemId,
+          purchaseOrderLineItemId: li.purchaseOrderLineItemId,
+          name: li.name,
+          quantityOrdered: li.quantityOrdered,
+          quantityShipped:
+            (li.quantityAccepted || 0) + (li.quantityRejected || 0) + (li.quantityMissing || 0) ||
+            li.quantityReceived,
+          quantityReady:
+            (li.quantityAccepted || 0) + (li.quantityRejected || 0) + (li.quantityMissing || 0) ||
+            li.quantityReceived,
+          quantityReceived: li.quantityReceived,
+          quantityAccepted: li.quantityAccepted,
+          quantityRejected: li.quantityRejected,
+          quantityMissing: li.quantityMissing,
+          exceptionReason: li.exceptionReason,
+          rejectionReason: li.exceptionReason || undefined,
+          finalQuantityAccepted: li.finalQuantityAccepted,
+          finalQuantityRejected: li.finalQuantityRejected,
+          finalQuantityMissing: li.finalQuantityMissing,
+          resolutionStatus: li.resolutionStatus,
+          vendorDisposition: li.vendorDisposition,
+          expectedRedeliveryDate: li.expectedRedeliveryDate,
+          vendorResponseReason: li.vendorResponseReason,
+        })),
+      };
+    });
+
+  return [...enriched, ...unmatchedReceipts];
 }
 
 // ─────────────────────────────────────────────

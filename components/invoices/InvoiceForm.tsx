@@ -14,10 +14,11 @@ import { FormField } from "@/components/ui/Label";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/Select";
 import { Dialog, DialogContent } from "@/components/ui/Modal";
 import { useCreateInvoice, useUpdateInvoice } from "@/lib/hooks/useInvoices";
-import { formatCurrency, formatDateTime, cn } from "@/lib/utils";
+import { useOrderFulfillmentExceptions } from "@/lib/hooks/useOrders";
+import { formatCurrency, formatDateTime, enrichFulfillmentsWithReceipts, cn } from "@/lib/utils";
 import { Spinner } from "@/components/ui/Spinner";
 import { DatePicker } from "@/components/ui/DatePicker";
-import { InvoiceLineItemInput, OrderLineItem, Fulfillment, FulfillmentLineItem, CreateInvoicePayload } from "@/lib/types";
+import { InvoiceLineItemInput, Order, OrderLineItem, Fulfillment, FulfillmentLineItem, FulfillmentExceptionDetail, CreateInvoicePayload } from "@/lib/types";
 import { format, addDays, isBefore, startOfDay } from "date-fns";
 import { useVendorPaymentTerms } from "@/lib/hooks/useVendorNetwork";
 
@@ -45,6 +46,112 @@ function emptyLineItem(): FormLineItem {
 
 function todayISODate() {
   return new Date().toISOString().slice(0, 10);
+}
+
+function normalizeDateString(dateStr?: string | null): string | null {
+  if (!dateStr || !dateStr.trim()) return null;
+  const match = dateStr.match(/^(\d{4}-\d{2}-\d{2})/);
+  if (match) return match[1];
+  try {
+    const d = new Date(dateStr);
+    if (!isNaN(d.getTime())) {
+      return format(d, "yyyy-MM-dd");
+    }
+  } catch {
+    // ignore
+  }
+  return null;
+}
+
+function parseLocalDate(dateStr?: string | null): Date | undefined {
+  if (!dateStr) return undefined;
+  const match = dateStr.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (match) {
+    const year = parseInt(match[1], 10);
+    const month = parseInt(match[2], 10) - 1;
+    const day = parseInt(match[3], 10);
+    return new Date(year, month, day);
+  }
+  const d = new Date(dateStr);
+  return isNaN(d.getTime()) ? undefined : d;
+}
+
+/**
+ * Automatically derives the most accurate delivery date for an invoice from the purchase order:
+ * 1. Explicit order deliveredAt or deliveryDate
+ * 2. Buyer receipt confirmation received date (when goods were actually confirmed)
+ * 3. Latest fulfillment shipment / dispatch / expected delivery date
+ * 4. Per-line delivery date agreed during order acknowledgment
+ * 5. Fallback confirmation or shipment date
+ * 6. Defaults to today's date if no historical dates are available
+ */
+function extractDeliveryDateFromOrder(
+  po?: Order | null,
+  fulfillmentsList?: Fulfillment[]
+): string {
+  if (!po) return todayISODate();
+
+  // 1. Order-level actual delivered timestamp or target delivery date
+  const explicit =
+    normalizeDateString(po.deliveredAt) || normalizeDateString(po.deliveryDate);
+  if (explicit) return explicit;
+
+  // 2. Receipt confirmation received date (when buyer actually received/accepted the delivery)
+  const receipts = (
+    po.receiptConfirmations ||
+    po.receipts ||
+    po.deliveryReceipts ||
+    []
+  );
+  if (receipts.length > 0) {
+    const latestReceipt = [...receipts].reverse().find(
+      (r) => r.receivedAt || (r as any).confirmedAt || (r as any).createdAt
+    );
+    const receiptDate = normalizeDateString(
+      latestReceipt?.receivedAt ||
+        (latestReceipt as any)?.confirmedAt ||
+        (latestReceipt as any)?.createdAt
+    );
+    if (receiptDate) return receiptDate;
+  }
+
+  // 3. Latest fulfillment shipment / dispatch / expected date
+  const fulfillments =
+    fulfillmentsList && fulfillmentsList.length > 0
+      ? fulfillmentsList
+      : po.fulfillments || po.deliveryNotices || [];
+  if (fulfillments.length > 0) {
+    const latestFulfillment = [...fulfillments].reverse().find(
+      (f) =>
+        f.readyAt ||
+        f.dispatchedAt ||
+        f.shippedAt ||
+        f.expectedDeliveryDate
+    );
+    const fDate = normalizeDateString(
+      latestFulfillment?.readyAt ||
+        latestFulfillment?.dispatchedAt ||
+        latestFulfillment?.shippedAt ||
+        latestFulfillment?.expectedDeliveryDate
+    );
+    if (fDate) return fDate;
+  }
+
+  // 4. Per-line delivery dates
+  if (po.lineItems && po.lineItems.length > 0) {
+    const lineWithDate = po.lineItems.find((li) => li.deliveryDate);
+    const lineDate = normalizeDateString(lineWithDate?.deliveryDate);
+    if (lineDate) return lineDate;
+  }
+
+  // 5. Fallback confirmation date or shipment date
+  const fallback =
+    normalizeDateString(po.confirmationDate) ||
+    normalizeDateString(po.shipmentDate);
+  if (fallback) return fallback;
+
+  // 6. Default to today
+  return todayISODate();
 }
 
 // ── Delivery & Receipt Overview ──────────────────────────────────────
@@ -100,12 +207,25 @@ function DeliveryReceiptOverview({
                     <span className="text-muted-foreground font-normal ml-1.5">
                       · {methodLabel[method] || method} · {fulfillment.declaration === "partial" ? "Partial" : "Full"}
                     </span>
+                    {fulfillment.receiptNumber && (
+                      <span className="text-[11px] font-mono text-muted-foreground bg-muted px-1.5 py-0.5 rounded ml-2">
+                        {fulfillment.receiptNumber}
+                      </span>
+                    )}
                   </p>
                   <p className="text-xs text-muted-foreground">
                     {fulfillment.readyAt ? formatDateTime(fulfillment.readyAt) : "—"}
                   </p>
                 </div>
-                {["carrier", "vendor_truck"].includes(method) && (
+                {fulfillment.resolutionStatus === "resolved_after_dispute" ? (
+                  <span className="text-[10px] px-2 py-0.5 rounded-full font-medium border bg-emerald-50 text-emerald-700 border-emerald-200">
+                    Dispute Resolved
+                  </span>
+                ) : fulfillment.confirmationOutcome === "confirmed" ? (
+                  <span className="text-[10px] px-2 py-0.5 rounded-full font-medium border bg-green-50 text-green-700 border-green-200">
+                    Confirmed
+                  </span>
+                ) : ["carrier", "vendor_truck"].includes(method) && (
                   <span className={cn(
                     "text-[10px] px-2 py-0.5 rounded-full font-medium border",
                     fulfillment.dispatchStatus === "dispatched"
@@ -129,11 +249,14 @@ function DeliveryReceiptOverview({
                   </thead>
                   <tbody>
                     {fulfillment.lineItems.map((li: FulfillmentLineItem) => {
+                      const isLineResolvedDispute =
+                        li.resolutionStatus === "resolved_after_dispute" ||
+                        fulfillment.resolutionStatus === "resolved_after_dispute";
                       const received =
                         li.finalQuantityAccepted ??
-                        li.quantityAccepted ??
-                        li.quantityReceived ??
-                        0;
+                        (isLineResolvedDispute && (li.quantityAccepted === 0 || li.quantityAccepted == null)
+                          ? (li.quantityReady || 0)
+                          : li.quantityAccepted ?? li.quantityReceived ?? 0);
                       const ready = li.quantityReady || 0;
 
                       return (
@@ -182,7 +305,11 @@ function DeliveryReceiptOverview({
             </thead>
             <tbody>
               {lineItems.map((item) => {
-                const confirmed = item.quantityAccepted ?? item.quantityReceived ?? 0;
+                const fulfillmentConfirmed = fulfillments.reduce((sum, f) => {
+                  const match = f.lineItems.find((li) => li.purchaseOrderLineItemId === item.purchaseOrderLineItemId);
+                  return sum + (match?.finalQuantityAccepted ?? match?.quantityAccepted ?? 0);
+                }, 0);
+                const confirmed = Math.max(item.quantityAccepted ?? item.quantityReceived ?? 0, fulfillmentConfirmed);
                 const invoiced = alreadyInvoicedByLine[item.purchaseOrderLineItemId] || 0;
                 const available = Math.max(0, confirmed - invoiced);
 
@@ -266,6 +393,28 @@ export function InvoiceForm({ mode, invoiceId }: InvoiceFormProps) {
     enabled: !!selectedPOId && !!companyId,
   });
 
+  const { data: receiptExceptions } = useOrderFulfillmentExceptions(selectedPOId);
+
+  const rawFulfillments = useMemo(
+    () => selectedOrderDetails?.fulfillments || selectedOrderDetails?.deliveryNotices || [],
+    [selectedOrderDetails]
+  );
+
+  const combinedReceipts = useMemo(
+    () => [
+      ...(selectedOrderDetails?.receiptConfirmations || []),
+      ...(selectedOrderDetails?.receipts || []),
+      ...(selectedOrderDetails?.deliveryReceipts || []),
+      ...(receiptExceptions || []),
+    ],
+    [selectedOrderDetails, receiptExceptions]
+  );
+
+  const fulfillments = useMemo(
+    () => enrichFulfillmentsWithReceipts(rawFulfillments, combinedReceipts),
+    [rawFulfillments, combinedReceipts]
+  );
+
   const paymentTerms = paymentTermsData?.data || [];
   const companyPaymentTerm = useMemo(() => {
     if (selectedOrderDetails?.paymentTerms) {
@@ -314,7 +463,8 @@ export function InvoiceForm({ mode, invoiceId }: InvoiceFormProps) {
       } else if (companyPaymentTerm.days && companyPaymentTerm.days > 0 && invoiceDate) {
         // Net days
         try {
-          const calculated = format(addDays(new Date(invoiceDate), companyPaymentTerm.days), "yyyy-MM-dd");
+          const invDate = parseLocalDate(invoiceDate) || new Date(invoiceDate);
+          const calculated = format(addDays(invDate, companyPaymentTerm.days), "yyyy-MM-dd");
           setDueDate(calculated);
         } catch {
           // ignore invalid date
@@ -366,11 +516,21 @@ export function InvoiceForm({ mode, invoiceId }: InvoiceFormProps) {
       const po = selectedOrderDetails;
       setCurrency(po.currency || "USD");
 
+      // Auto-populate delivery date from the purchase order and its fulfillment history
+      const autoDate = extractDeliveryDateFromOrder(po, fulfillments);
+      if (autoDate) {
+        setDeliveryDate(autoDate);
+      }
+
       if (po.lineItems && po.lineItems.length > 0) {
         const invoiceableLines: FormLineItem[] = [];
 
         for (const line of po.lineItems) {
-          const confirmed = line.quantityAccepted ?? line.quantityReceived ?? 0;
+          const fulfillmentConfirmed = fulfillments.reduce((sum, f) => {
+            const match = f.lineItems.find((li) => li.purchaseOrderLineItemId === line.purchaseOrderLineItemId);
+            return sum + (match?.finalQuantityAccepted ?? match?.quantityAccepted ?? 0);
+          }, 0);
+          const confirmed = Math.max(line.quantityAccepted ?? line.quantityReceived ?? 0, fulfillmentConfirmed);
           const alreadyInvoiced = alreadyInvoicedByLine[line.purchaseOrderLineItemId] || 0;
 
           // Use backend-provided quantityInvoiceable if available, otherwise compute
@@ -415,7 +575,7 @@ export function InvoiceForm({ mode, invoiceId }: InvoiceFormProps) {
       }
       setPrefilledPOId(selectedPOId);
     }
-  }, [selectedPOId, mode, selectedOrderDetails, prefilledPOId, alreadyInvoicedByLine]);
+  }, [selectedPOId, mode, selectedOrderDetails, prefilledPOId, alreadyInvoicedByLine, fulfillments]);
 
   // ── Edit mode: load existing invoice data ──
   useEffect(() => {
@@ -542,7 +702,6 @@ export function InvoiceForm({ mode, invoiceId }: InvoiceFormProps) {
     );
   }
 
-  const fulfillments = selectedOrderDetails?.fulfillments || selectedOrderDetails?.deliveryNotices || [];
   const hasInvoiceableItems = items.length > 0;
 
   return (
@@ -613,13 +772,12 @@ export function InvoiceForm({ mode, invoiceId }: InvoiceFormProps) {
                     value={invoiceNumber}
                     onChange={(e) => setInvoiceNumber(e.target.value)}
                     placeholder="e.g., INV-2024-00123"
-                    required
                   />
                 </FormField>
 
                 <FormField label="Invoice Date">
                   <DatePicker
-                    date={invoiceDate ? new Date(invoiceDate) : undefined}
+                    date={parseLocalDate(invoiceDate)}
                     onSelect={(d) => setInvoiceDate(d ? format(d, "yyyy-MM-dd") : "")}
                   />
                 </FormField>
@@ -633,14 +791,21 @@ export function InvoiceForm({ mode, invoiceId }: InvoiceFormProps) {
                 >
                   <div>
                     <DatePicker
-                      date={dueDate ? new Date(dueDate) : undefined}
+                      date={parseLocalDate(dueDate)}
                       onSelect={(d) => {
                         if (!isVendorSelectsDueDate) return;
                         setDueDate(d ? format(d, "yyyy-MM-dd") : "");
                       }}
                       disabled={(d) => isBefore(startOfDay(d), startOfDay(new Date()))}
                       isDisabled={!isVendorSelectsDueDate}
-                      error={isVendorSelectsDueDate && (!dueDate || isBefore(startOfDay(new Date(dueDate)), startOfDay(new Date())))}
+                      error={
+                        isVendorSelectsDueDate &&
+                        (!dueDate ||
+                          isBefore(
+                            startOfDay(parseLocalDate(dueDate) || new Date()),
+                            startOfDay(new Date())
+                          ))
+                      }
                     />
                     {isVendorSelectsDueDate ? (
                       <p className="text-[11px] text-teal-700 mt-1">
@@ -656,7 +821,7 @@ export function InvoiceForm({ mode, invoiceId }: InvoiceFormProps) {
 
                 <FormField label="Delivery Date">
                   <DatePicker
-                    date={deliveryDate ? new Date(deliveryDate) : undefined}
+                    date={parseLocalDate(deliveryDate)}
                     onSelect={(d) => setDeliveryDate(d ? format(d, "yyyy-MM-dd") : "")}
                   />
                 </FormField>
@@ -813,7 +978,7 @@ export function InvoiceForm({ mode, invoiceId }: InvoiceFormProps) {
           </div>
 
           {/* ── Invoice Summary Sidebar ── */}
-          <div className="bg-navy rounded-2xl p-5 text-navy-foreground lg:sticky lg:top-20">
+          <div className="bg-navy rounded-2xl p-5 text-navy-foreground lg:sticky lg:top-20 h-fit">
             <h3 className="text-base font-semibold mb-5">Invoice Summary</h3>
             <div className="space-y-3 mb-5">
               <div className="flex items-center justify-between text-sm">
