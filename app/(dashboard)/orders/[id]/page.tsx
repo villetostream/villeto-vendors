@@ -98,6 +98,19 @@ function formatFinalDecisionLabel(decision?: string | null): string {
   }
 }
 
+function getUniqueLineReasons(
+  lineItems?: Array<{ exceptionReason?: string | null; rejectionReason?: string | null }>
+): string {
+  if (!lineItems || lineItems.length === 0) return "";
+  return Array.from(
+    new Set(
+      lineItems
+        .map((li) => (li.exceptionReason || li.rejectionReason)?.trim())
+        .filter(Boolean)
+    )
+  ).join(" · ");
+}
+
 /**
  * Merges receipt exception details from GET /vendor-portal/fulfillment-exceptions/:deliveryReceiptId
  * (or embedded order receipts) onto the order's fulfillments so the UI has full receipt-level
@@ -107,7 +120,12 @@ function enrichFulfillmentsWithReceipts(
   fulfillments: Fulfillment[],
   rawReceipts: FulfillmentExceptionDetail[]
 ): Fulfillment[] {
-  if (!rawReceipts || rawReceipts.length === 0) return fulfillments;
+  if (!rawReceipts || rawReceipts.length === 0) {
+    return fulfillments.map((f) => ({
+      ...f,
+      rejectionReason: f.rejectionReason || getUniqueLineReasons(f.lineItems) || undefined,
+    }));
+  }
 
   // Deduplicate receipts by deliveryReceiptId (prefer later entries or higher decisionVersion)
   const receiptMap = new Map<string, FulfillmentExceptionDetail>();
@@ -136,7 +154,12 @@ function enrichFulfillmentsWithReceipts(
             r.fulfillmentReference === f.shipmentReference))
     );
 
-    if (!matchedReceipt) return f;
+    if (!matchedReceipt) {
+      return {
+        ...f,
+        rejectionReason: f.rejectionReason || getUniqueLineReasons(f.lineItems) || undefined,
+      };
+    }
     matchedReceiptIds.add(matchedReceipt.deliveryReceiptId);
 
     const mergedLineItems = f.lineItems.map((li) => {
@@ -167,10 +190,13 @@ function enrichFulfillmentsWithReceipts(
       };
     });
 
-    const lineReasons = matchedReceipt.lineItems
-      .map((item) => item.exceptionReason)
-      .filter(Boolean)
-      .join(" · ");
+    const lineReasons = Array.from(
+      new Set(
+        matchedReceipt.lineItems
+          .map((item) => item.exceptionReason?.trim())
+          .filter(Boolean)
+      )
+    ).join(" · ");
 
     return {
       ...f,
@@ -192,7 +218,10 @@ function enrichFulfillmentsWithReceipts(
       resolvedByName: matchedReceipt.resolvedByName ?? f.resolvedByName,
       evidence: matchedReceipt.evidence ?? f.evidence,
       vendorEvidence: matchedReceipt.vendorEvidence ?? f.vendorEvidence,
-      rejectionReason: matchedReceipt.notes || lineReasons || f.rejectionReason,
+      rejectionReason:
+        matchedReceipt.notes && lineReasons && !matchedReceipt.notes.includes(lineReasons) && !lineReasons.includes(matchedReceipt.notes)
+          ? `${matchedReceipt.notes} · ${lineReasons}`
+          : matchedReceipt.notes || lineReasons || f.rejectionReason,
       lineItems: mergedLineItems,
     };
   });
@@ -201,10 +230,13 @@ function enrichFulfillmentsWithReceipts(
   const unmatchedReceipts: Fulfillment[] = receipts
     .filter((r) => !matchedReceiptIds.has(r.deliveryReceiptId))
     .map((r) => {
-      const lineReasons = r.lineItems
-        .map((item) => item.exceptionReason)
-        .filter(Boolean)
-        .join(" · ");
+      const lineReasons = Array.from(
+        new Set(
+          r.lineItems
+            .map((item) => item.exceptionReason?.trim())
+            .filter(Boolean)
+        )
+      ).join(" · ");
 
       return {
         vendorDeliveryNoticeId: r.fulfillmentId || r.deliveryReceiptId,
@@ -393,10 +425,13 @@ function FulfillmentHistorySection({
             .filter(Boolean)
             .join(" and ");
 
-          const lineReasons = notice.lineItems
-            .map((li) => li.exceptionReason || li.rejectionReason)
-            .filter(Boolean)
-            .join(" · ");
+          const lineReasons = Array.from(
+            new Set(
+              notice.lineItems
+                .map((li) => (li.exceptionReason || li.rejectionReason)?.trim())
+                .filter(Boolean)
+            )
+          ).join(" · ");
 
           return (
             <div key={notice.vendorDeliveryNoticeId}>
@@ -474,11 +509,20 @@ function FulfillmentHistorySection({
                             <span>
                               Buyer reported {exceptionSummaryText || `${totalExceptionUnits} exception units`}
                             </span>
-                            {parsedReason.category && (
+                            {parsedReason.categories && parsedReason.categories.length > 0 ? (
+                              parsedReason.categories.map((cat, i) => (
+                                <span
+                                  key={i}
+                                  className="text-[11px] font-semibold bg-red-200/70 text-red-900 px-2 py-0.5 rounded-full"
+                                >
+                                  {cat}
+                                </span>
+                              ))
+                            ) : parsedReason.category ? (
                               <span className="text-[11px] font-semibold bg-red-200/70 text-red-900 px-2 py-0.5 rounded-full">
                                 {parsedReason.category}
                               </span>
-                            )}
+                            ) : null}
                           </div>
                           {parsedReason.text && (
                             <p className="text-red-600 leading-relaxed pl-5.5">
@@ -1441,7 +1485,9 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
         const summaryLabel =
           summaryParts.join(" and ") ||
           `${totalExceptionUnits} exception unit${totalExceptionUnits > 1 ? "s" : ""}`;
-        const parsedReason = parseExceptionReason(fulfillment.rejectionReason);
+        const parsedReason = parseExceptionReason(
+          fulfillment.rejectionReason || getUniqueLineReasons(fulfillment.lineItems)
+        );
 
         return (
           <div
@@ -1471,11 +1517,20 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
                     {(parsedReason.category || parsedReason.text) && (
                       <>
                         <span className="font-semibold text-red-800">Reason:</span>
-                        {parsedReason.category && (
+                        {parsedReason.categories && parsedReason.categories.length > 0 ? (
+                          parsedReason.categories.map((cat, i) => (
+                            <span
+                              key={i}
+                              className="font-semibold text-[11px] bg-red-200/60 text-red-900 px-2 py-0.5 rounded-md"
+                            >
+                              {cat}
+                            </span>
+                          ))
+                        ) : parsedReason.category ? (
                           <span className="font-semibold text-[11px] bg-red-200/60 text-red-900 px-2 py-0.5 rounded-md">
                             {parsedReason.category}
                           </span>
-                        )}
+                        ) : null}
                         {parsedReason.text && <span>{parsedReason.text}</span>}
                       </>
                     )}
@@ -1577,7 +1632,9 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
             <div className="divide-y divide-red-200/60 bg-white/70 border-t border-red-200/80">
               {activeRejectionNotices.map(
                 ({ fulfillment, index, totalRejected, totalMissing, totalExceptionUnits }) => {
-                  const parsedReason = parseExceptionReason(fulfillment.rejectionReason);
+                  const parsedReason = parseExceptionReason(
+          fulfillment.rejectionReason || getUniqueLineReasons(fulfillment.lineItems)
+        );
                   return (
                     <div
                       key={fulfillment.vendorDeliveryNoticeId}
@@ -1618,11 +1675,20 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
                         {(parsedReason.category || parsedReason.text) && (
                           <div className="flex items-center gap-1.5 flex-wrap text-xs text-muted-foreground leading-relaxed">
                             <span className="font-semibold text-foreground">Reason:</span>
-                            {parsedReason.category && (
+                            {parsedReason.categories && parsedReason.categories.length > 0 ? (
+                              parsedReason.categories.map((cat, i) => (
+                                <span
+                                  key={i}
+                                  className="font-semibold text-[11px] bg-red-100 text-red-900 px-2 py-0.5 rounded-md"
+                                >
+                                  {cat}
+                                </span>
+                              ))
+                            ) : parsedReason.category ? (
                               <span className="font-semibold text-[11px] bg-red-100 text-red-900 px-2 py-0.5 rounded-md">
                                 {parsedReason.category}
                               </span>
-                            )}
+                            ) : null}
                             {parsedReason.text && <span>{parsedReason.text}</span>}
                           </div>
                         )}

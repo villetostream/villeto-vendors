@@ -33,42 +33,134 @@ export function isStatusActive(status?: string | null): boolean {
 }
 
 /**
- * Parses a raw buyer exception/rejection reason string.
- * - If the buyer selected "Other (specify below): <custom note>", strips the form prompt
- *   so only "<custom note>" is shown.
- * - If the buyer selected a named category with details (e.g. "Damaged in transit: 3 boxes crushed"),
- *   returns both `category` ("Damaged in transit") and `text` ("3 boxes crushed").
- * - If the buyer selected only a category or wrote a plain sentence, preserves it as-is.
+ * Parses a single exception/rejection reason segment.
  */
-export function parseExceptionReason(raw?: string | null): {
-  category: string | null;
-  text: string;
-} {
-  if (!raw || !raw.trim()) {
-    return { category: null, text: "" };
-  }
-  const trimmed = raw.trim();
+function parseSingleReason(str: string): { category: string | null; text: string } {
+  const trimmed = str.trim();
+  if (!trimmed) return { category: null, text: "" };
 
   // Case 1: "Other (specify below): <detail>" or "Other: <detail>"
   const otherMatch = trimmed.match(/^other\s*(?:\([^)]*\))?\s*:\s*(.*)$/i);
   if (otherMatch) {
+    const detail = otherMatch[1].trim();
     return {
       category: null,
-      text: otherMatch[1].trim() || "Other",
+      text: detail && detail.toLowerCase() !== "other" ? detail : "Other",
     };
   }
 
-  // Case 2: "<Category Name>: <Detail>" (e.g., "Damaged Goods: 4 units cracked")
-  const categoryMatch = trimmed.match(/^([^:.]{2,45}):\s+(.+)$/);
+  // Case 2: "<Category Name>: <Detail>"
+  // Restrict category to 2-45 chars without delimiters like '·', '\n'
+  const categoryMatch = trimmed.match(/^([^:.·\n]{2,45}):\s+(.+)$/);
   if (categoryMatch) {
+    const cat = categoryMatch[1].trim();
+    const detail = categoryMatch[2].trim();
+    // If the detail is identical to category, don't repeat it
+    if (detail.toLowerCase() === cat.toLowerCase()) {
+      return { category: cat, text: "" };
+    }
     return {
-      category: categoryMatch[1].trim(),
-      text: categoryMatch[2].trim(),
+      category: cat,
+      text: detail,
     };
   }
 
-  // Case 3: Plain category or sentence
   return { category: null, text: trimmed };
+}
+
+/**
+ * Parses a raw buyer exception/rejection reason string.
+ *
+ * Automatically handles:
+ * - Deduplication of repeated reasons sent from company side (e.g. repeated per line item).
+ * - Delimiters like ' · ', ' - ', ';', and newlines.
+ * - Merging of notes that lack a category with line items that have a category for the same text.
+ * - Stripping of form prompts like "Other (specify below):".
+ */
+export function parseExceptionReason(raw?: string | null): {
+  category: string | null;
+  categories: string[];
+  text: string;
+} {
+  if (!raw || !raw.trim()) {
+    return { category: null, categories: [], text: "" };
+  }
+
+  // Split on common concatenation delimiters: ' · ', ' • ', ' - ', '; ', or newlines
+  const rawSegments = raw
+    .split(/\s*[·•]\s*|\s+-\s+|;\s*|\n+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+  if (rawSegments.length === 0) {
+    return { category: null, categories: [], text: "" };
+  }
+
+  // Parse each segment
+  const parsedSegments = rawSegments.map(parseSingleReason);
+
+  // Group and deduplicate by normalized text and category
+  // Map normalized text -> preferred category and display text
+  const textToCategoryMap = new Map<string, { category: string | null; displayText: string }>();
+  const standaloneCategories = new Set<string>();
+
+  for (const seg of parsedSegments) {
+    const normText = seg.text.toLowerCase().trim();
+
+    if (!normText && seg.category) {
+      standaloneCategories.add(seg.category);
+      continue;
+    }
+
+    if (!normText) continue;
+
+    const existing = textToCategoryMap.get(normText);
+    if (!existing) {
+      textToCategoryMap.set(normText, {
+        category: seg.category,
+        displayText: seg.text,
+      });
+    } else if (!existing.category && seg.category) {
+      // Category-enriched entry takes precedence over bare text
+      existing.category = seg.category;
+    }
+  }
+
+  // Collect unique categories and unique text items
+  const uniqueCategories: string[] = [];
+  const categorySet = new Set<string>();
+
+  for (const cat of standaloneCategories) {
+    const norm = cat.toLowerCase();
+    if (!categorySet.has(norm)) {
+      categorySet.add(norm);
+      uniqueCategories.push(cat);
+    }
+  }
+
+  const uniqueTexts: string[] = [];
+  for (const [, item] of textToCategoryMap) {
+    if (item.category) {
+      const normCat = item.category.toLowerCase();
+      if (!categorySet.has(normCat)) {
+        categorySet.add(normCat);
+        uniqueCategories.push(item.category);
+      }
+    }
+    // Only add to text if it's not identical to an extracted category
+    if (item.displayText && !categorySet.has(item.displayText.toLowerCase())) {
+      uniqueTexts.push(item.displayText);
+    }
+  }
+
+  const primaryCategory = uniqueCategories.length > 0 ? uniqueCategories.join(", ") : null;
+  const primaryText = uniqueTexts.join(" · ");
+
+  return {
+    category: primaryCategory,
+    categories: uniqueCategories,
+    text: primaryText,
+  };
 }
 
 export function formatExceptionReason(raw?: string | null): string {
@@ -76,7 +168,7 @@ export function formatExceptionReason(raw?: string | null): string {
   if (category && text) {
     return `${category} — ${text}`;
   }
-  return text;
+  return category || text;
 }
 
 // ─────────────────────────────────────────────
