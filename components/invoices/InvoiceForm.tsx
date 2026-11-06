@@ -129,7 +129,11 @@ function DeliveryReceiptOverview({
                   </thead>
                   <tbody>
                     {fulfillment.lineItems.map((li: FulfillmentLineItem) => {
-                      const received = li.quantityReceived || 0;
+                      const received =
+                        li.finalQuantityAccepted ??
+                        li.quantityAccepted ??
+                        li.quantityReceived ??
+                        0;
                       const ready = li.quantityReady || 0;
 
                       return (
@@ -178,7 +182,7 @@ function DeliveryReceiptOverview({
             </thead>
             <tbody>
               {lineItems.map((item) => {
-                const confirmed = item.quantityReceived || 0;
+                const confirmed = item.quantityAccepted ?? item.quantityReceived ?? 0;
                 const invoiced = alreadyInvoicedByLine[item.purchaseOrderLineItemId] || 0;
                 const available = Math.max(0, confirmed - invoiced);
 
@@ -248,15 +252,32 @@ export function InvoiceForm({ mode, invoiceId }: InvoiceFormProps) {
     { enabled: !!companyId }
   );
 
+  // ── Queries ──
+
+  const { data: orders = [], isError: ordersError } = useQuery({
+    queryKey: queryKeys.orders(companyId, { limit: 100 }),
+    queryFn: () => getOrders({ limit: 100 }),
+    enabled: !!companyId,
+  });
+
+  const { data: selectedOrderDetails } = useQuery({
+    queryKey: queryKeys.order(companyId, selectedPOId),
+    queryFn: () => getOrder(selectedPOId),
+    enabled: !!selectedPOId && !!companyId,
+  });
+
   const paymentTerms = paymentTermsData?.data || [];
   const companyPaymentTerm = useMemo(() => {
+    if (selectedOrderDetails?.paymentTerms) {
+      return selectedOrderDetails.paymentTerms;
+    }
     if (!companyId || paymentTerms.length === 0) return null;
     return (
       paymentTerms.find((t) => t.companyId === companyId && t.isCurrent) ||
       paymentTerms.find((t) => t.companyId === companyId) ||
       paymentTerms[0]
     );
-  }, [paymentTerms, companyId]);
+  }, [selectedOrderDetails?.paymentTerms, paymentTerms, companyId]);
 
   const isVendorSelectsDueDate = useMemo(() => {
     if (!companyPaymentTerm) return false;
@@ -301,20 +322,6 @@ export function InvoiceForm({ mode, invoiceId }: InvoiceFormProps) {
       }
     }
   }, [invoiceDate, deliveryDate, companyPaymentTerm, isVendorSelectsDueDate, mode]);
-
-  // ── Queries ──
-
-  const { data: orders = [], isError: ordersError } = useQuery({
-    queryKey: queryKeys.orders(companyId, { limit: 100 }),
-    queryFn: () => getOrders({ limit: 100 }),
-    enabled: !!companyId,
-  });
-
-  const { data: selectedOrderDetails } = useQuery({
-    queryKey: queryKeys.order(companyId, selectedPOId),
-    queryFn: () => getOrder(selectedPOId),
-    enabled: !!selectedPOId && !!companyId,
-  });
 
   // Fetch existing invoices for this PO so we can subtract already-invoiced quantities
   const { data: existingPOInvoices = [] } = useQuery({
@@ -363,7 +370,7 @@ export function InvoiceForm({ mode, invoiceId }: InvoiceFormProps) {
         const invoiceableLines: FormLineItem[] = [];
 
         for (const line of po.lineItems) {
-          const confirmed = line.quantityReceived || 0;
+          const confirmed = line.quantityAccepted ?? line.quantityReceived ?? 0;
           const alreadyInvoiced = alreadyInvoicedByLine[line.purchaseOrderLineItemId] || 0;
 
           // Use backend-provided quantityInvoiceable if available, otherwise compute
@@ -395,7 +402,10 @@ export function InvoiceForm({ mode, invoiceId }: InvoiceFormProps) {
           setItems(invoiceableLines);
         } else {
           setItems([]);
-          const totalConfirmed = po.lineItems.reduce((s, l) => s + (l.quantityReceived || 0), 0);
+          const totalConfirmed = po.lineItems.reduce(
+            (s, l) => s + (l.quantityAccepted ?? l.quantityReceived ?? 0),
+            0
+          );
           if (totalConfirmed === 0) {
             toast.error("No deliveries have been confirmed by the buyer yet. You can only invoice for confirmed quantities.");
           } else {

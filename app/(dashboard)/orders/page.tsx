@@ -3,15 +3,15 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Search, ChevronLeft, ChevronRight, MoreVertical } from "lucide-react";
+import { Search, ChevronLeft, ChevronRight, MoreVertical, AlertCircle } from "lucide-react";
 import { useDebounce } from "use-debounce";
 import { useOrders } from "@/lib/hooks/useOrders";
 import { useCompany } from "@/lib/hooks/useCompany";
-import { OrderStatusBadge, DeliveryStatusBadge } from "@/components/ui/StatusBadge";
+import { OrderStatusBadge, DeliveryStatusBadge, ExceptionResolutionBadge } from "@/components/ui/StatusBadge";
 import { TableSkeleton } from "@/components/ui/Skeleton";
 import { EmptyState, ErrorState } from "@/components/ui/Spinner";
 import { formatCurrency, cn } from "@/lib/utils";
-import { OrderStatus } from "@/lib/types";
+import { DeliveryOutcome, ExceptionResolutionStatus, OrderStatus } from "@/lib/types";
 
 const STATUS_TABS: { label: string; value: OrderStatus | "all" }[] = [
   { label: "All Orders", value: "all" },
@@ -19,11 +19,36 @@ const STATUS_TABS: { label: string; value: OrderStatus | "all" }[] = [
   { label: "Acknowledged", value: "acknowledged" },
   { label: "Ready for delivery", value: "ready_for_delivery" },
   { label: "Partially delivered", value: "partially_delivered" },
+  { label: "Partial (Exceptions)", value: "partially_delivered_with_exceptions" },
   { label: "Delivered", value: "delivered" },
+  { label: "Delivered (Exceptions)", value: "delivered_with_exceptions" },
   { label: "Closed", value: "closed" },
   // Display label reads "Withdrawn" — filter value stays "cancelled",
   // the backend value, unchanged. See ORDER_STATUS_DISPLAY_LABEL.
   { label: "Withdrawn", value: "cancelled" },
+];
+
+const DELIVERY_OUTCOME_FILTER_OPTIONS: { label: string; value: DeliveryOutcome | "all" }[] = [
+  { label: "All Delivery Outcomes", value: "all" },
+  { label: "Not Delivered", value: "not_delivered" },
+  { label: "Fully Delivered", value: "fully_delivered" },
+  { label: "Full Delivery w/ Exceptions", value: "full_delivery_with_exceptions" },
+  { label: "Partially Delivered", value: "partially_delivered" },
+  { label: "Partial Delivery w/ Exceptions", value: "partial_delivery_with_exceptions" },
+];
+
+const RESOLUTION_FILTER_OPTIONS: { label: string; value: ExceptionResolutionStatus | "all" }[] = [
+  { label: "All Resolution Statuses", value: "all" },
+  { label: "Awaiting My Response", value: "awaiting_vendor_response" },
+  { label: "Under Company Review", value: "under_company_review" },
+  { label: "Backordered", value: "backordered" },
+  { label: "Forfeited", value: "forfeited" },
+  { label: "Resolved After Dispute", value: "resolved_after_dispute" },
+  { label: "Acknowledged", value: "acknowledged" },
+  { label: "Disputed", value: "disputed" },
+  { label: "Corrective Action Pending", value: "corrective_action_pending" },
+  { label: "Resolved", value: "resolved" },
+  { label: "Not Required", value: "not_required" },
 ];
 
 const ORDERS_COLUMNS = ["PO Number", "Line Items", "Currency", "Total Amount", "Status", "Action"];
@@ -34,6 +59,8 @@ export default function OrdersPage() {
   const router = useRouter();
   const { activeCompany } = useCompany();
   const [activeTab, setActiveTab] = useState<OrderStatus | "all">("all");
+  const [deliveryOutcomeFilter, setDeliveryOutcomeFilter] = useState<DeliveryOutcome | "all">("all");
+  const [resolutionFilter, setResolutionFilter] = useState<ExceptionResolutionStatus | "all">("all");
   const [search, setSearch] = useState("");
   const [debouncedSearch] = useDebounce(search, 400);
   const [page, setPage] = useState(1);
@@ -41,10 +68,12 @@ export default function OrdersPage() {
 
   useEffect(() => {
     setPage(1);
-  }, [activeTab, debouncedSearch, limit]);
+  }, [activeTab, deliveryOutcomeFilter, resolutionFilter, debouncedSearch, limit]);
 
   const filters = {
     status: activeTab === "all" ? undefined : activeTab,
+    deliveryOutcome: deliveryOutcomeFilter === "all" ? undefined : deliveryOutcomeFilter,
+    resolutionStatus: resolutionFilter === "all" ? undefined : resolutionFilter,
     page,
     limit,
   };
@@ -94,7 +123,41 @@ export default function OrdersPage() {
               </button>
             ))}
           </div>
-          <div className="flex items-center gap-2 shrink-0 pb-2">
+          <div className="flex items-center gap-2 shrink-0 pb-2 flex-wrap">
+            <label htmlFor="delivery-outcome-filter" className="sr-only">
+              Filter by delivery outcome
+            </label>
+            <select
+              id="delivery-outcome-filter"
+              value={deliveryOutcomeFilter}
+              onChange={(e) =>
+                setDeliveryOutcomeFilter(e.target.value as DeliveryOutcome | "all")
+              }
+              className="h-9 px-3 rounded-xl border border-border text-xs font-medium bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+            >
+              {DELIVERY_OUTCOME_FILTER_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+            <label htmlFor="resolution-filter" className="sr-only">
+              Filter by exception resolution status
+            </label>
+            <select
+              id="resolution-filter"
+              value={resolutionFilter}
+              onChange={(e) =>
+                setResolutionFilter(e.target.value as ExceptionResolutionStatus | "all")
+              }
+              className="h-9 px-3 rounded-xl border border-border text-xs font-medium bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+            >
+              {RESOLUTION_FILTER_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
             <div className="relative flex-1 sm:flex-initial">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" aria-hidden="true" />
               <label htmlFor="order-search" className="sr-only">Search orders on this page</label>
@@ -116,9 +179,13 @@ export default function OrdersPage() {
           <ErrorState message="Couldn't load orders. Please check your connection and try again." onRetry={() => refetch()} />
         ) : visibleOrders.length === 0 ? (
           <EmptyState
-            title={debouncedSearch || activeTab !== "all" ? "No matching orders" : "No orders yet"}
+            title={
+              debouncedSearch || activeTab !== "all" || deliveryOutcomeFilter !== "all" || resolutionFilter !== "all"
+                ? "No matching orders"
+                : "No orders yet"
+            }
             description={
-              debouncedSearch || activeTab !== "all"
+              debouncedSearch || activeTab !== "all" || deliveryOutcomeFilter !== "all" || resolutionFilter !== "all"
                 ? "Try adjusting your search or filter."
                 : "Orders assigned to you will appear here."
             }
@@ -136,27 +203,58 @@ export default function OrdersPage() {
                 </tr>
               </thead>
               <tbody>
-                {visibleOrders.map((order) => (
-                  <tr 
-                    key={order.purchaseOrderId} 
-                    onClick={() => router.push(`/orders/${order.purchaseOrderId}`)}
-                    className="border-b border-dashboard-border/60 hover:bg-muted/30 transition-colors cursor-pointer"
-                  >
-                    <td className="px-5 py-3.5 text-sm font-semibold whitespace-nowrap">{order.poNumber}</td>
-                    <td className="px-5 py-3.5 text-sm text-muted-foreground whitespace-nowrap">{order.lineItemCount}</td>
-                    <td className="px-5 py-3.5 text-sm text-muted-foreground whitespace-nowrap">{order.currency}</td>
-                    <td className="px-5 py-3.5 text-sm text-muted-foreground whitespace-nowrap">
-                      {formatCurrency(order.totalAmount, order.currency)}
-                    </td>
-                    <td className="px-5 py-3.5">
-                      {order.deliveryState &&
-                      order.deliveryState !== "not_started" &&
-                      !["cancelled", "closed"].includes(order.status) ? (
+                {visibleOrders.map((order) => {
+                  const needsVendorAction =
+                    order.vendorResponseRequired === true ||
+                    order.vendorActionRequired === true ||
+                    order.resolutionStatus === "awaiting_vendor_response";
+                  const deliveryLabelStatus =
+                    order.deliveryOutcome && order.deliveryOutcome !== "not_delivered"
+                      ? order.deliveryOutcome
+                      : order.deliveryState && order.deliveryState !== "not_started"
+                      ? order.deliveryState
+                      : null;
+
+                  return (
+                    <tr 
+                      key={order.purchaseOrderId} 
+                      onClick={() => router.push(`/orders/${order.purchaseOrderId}`)}
+                      className="border-b border-dashboard-border/60 hover:bg-muted/30 transition-colors cursor-pointer"
+                    >
+                      <td className="px-5 py-3.5 text-sm font-semibold whitespace-nowrap">{order.poNumber}</td>
+                      <td className="px-5 py-3.5 text-sm text-muted-foreground whitespace-nowrap">{order.lineItemCount}</td>
+                      <td className="px-5 py-3.5 text-sm text-muted-foreground whitespace-nowrap">{order.currency}</td>
+                      <td className="px-5 py-3.5 text-sm text-muted-foreground whitespace-nowrap">
+                        {formatCurrency(order.totalAmount, order.currency)}
+                      </td>
+                      <td className="px-5 py-3.5">
                         <div className="flex flex-col items-start gap-1">
-                          <DeliveryStatusBadge
-                            status={order.deliveryState}
-                            transportScope={order.fulfillmentTransportScope}
-                          />
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            {deliveryLabelStatus && !["cancelled", "closed"].includes(order.status) ? (
+                              <DeliveryStatusBadge
+                                status={deliveryLabelStatus}
+                                transportScope={order.fulfillmentTransportScope}
+                              />
+                            ) : (
+                              <OrderStatusBadge status={order.status} />
+                            )}
+                            {needsVendorAction ? (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-red-50 text-red-700 border border-red-200">
+                                <AlertCircle className="h-3 w-3 text-red-500" />
+                                Action Required
+                                {order.openExceptionCount && order.openExceptionCount > 0
+                                  ? ` (${order.openExceptionCount})`
+                                  : ""}
+                              </span>
+                            ) : order.companyActionRequired === true ? (
+                              <ExceptionResolutionBadge
+                                status={order.resolutionStatus || "under_company_review"}
+                              />
+                            ) : order.resolutionStatus &&
+                              order.resolutionStatus !== "not_required" ? (
+                              <ExceptionResolutionBadge status={order.resolutionStatus} />
+                            ) : null}
+                          </div>
                           {order.fulfillmentState === "backordered" && (
                             <span className="text-[11px] text-amber-700">
                               Contains backordered items
@@ -168,21 +266,19 @@ export default function OrdersPage() {
                             </span>
                           )}
                         </div>
-                      ) : (
-                        <OrderStatusBadge status={order.status} />
-                      )}
-                    </td>
-                    <td className="px-5 py-3.5" onClick={(e) => e.stopPropagation()}>
-                      <Link
-                        href={`/orders/${order.purchaseOrderId}`}
-                        aria-label={`View order ${order.poNumber}`}
-                        className="p-1.5 rounded-lg hover:bg-muted inline-flex transition-colors"
-                      >
-                        <MoreVertical className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
-                      </Link>
-                    </td>
-                  </tr>
-                ))}
+                      </td>
+                      <td className="px-5 py-3.5" onClick={(e) => e.stopPropagation()}>
+                        <Link
+                          href={`/orders/${order.purchaseOrderId}`}
+                          aria-label={`View order ${order.poNumber}`}
+                          className="p-1.5 rounded-lg hover:bg-muted inline-flex transition-colors"
+                        >
+                          <MoreVertical className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
+                        </Link>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

@@ -33,6 +33,8 @@ function getNotificationHref(notification: VendorNotification): string | null {
     case "vendor_account_deactivated":
       return "/profile";
     default:
+      if (purchaseOrderId) return `/orders/${purchaseOrderId}`;
+      if (invoiceId) return `/invoices/${invoiceId}`;
       return null;
   }
 }
@@ -58,12 +60,12 @@ export function NotificationBell() {
         <button
           type="button"
           aria-label={unreadCount > 0 ? `Notifications, ${unreadCount} unread` : "Notifications"}
-          className="relative p-2 rounded-xl hover:bg-muted transition-colors"
+          className="relative h-9 w-9 inline-flex items-center justify-center rounded-xl border border-border/80 bg-white hover:bg-muted/60 transition-colors cursor-pointer"
         >
-          <Bell className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
+          <Bell className="h-[18px] w-[18px] text-foreground/80" aria-hidden="true" />
           {unreadCount > 0 && (
-            <span className="absolute top-1 right-1 min-w-[14px] h-3.5 px-0.5 rounded-full bg-red-500 text-white text-[9px] font-bold flex items-center justify-center leading-none">
-              {unreadCount > 9 ? "9+" : unreadCount}
+            <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center leading-none ring-2 ring-white shadow-xs">
+              {unreadCount > 99 ? "99+" : unreadCount > 9 ? "9+" : unreadCount}
             </span>
           )}
         </button>

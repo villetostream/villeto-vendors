@@ -175,11 +175,21 @@ export function DeliveryStatusBadge({
 
   type StateConfig = { label: string; bg: string; color: string; border: string };
   const stateMap: Record<string, StateConfig> = {
-    partially_dispatched: { label: "Partially Fulfilled", bg: "bg-blue-50",    color: "text-blue-700",    border: "border-blue-200" },
-    dispatched:           { label: "Fully Fulfilled",     bg: "bg-green-50",   color: "text-green-700",   border: "border-green-200" },
-    partially_received:   { label: "Partially Received",  bg: "bg-emerald-50", color: "text-emerald-700", border: "border-emerald-200" },
-    received:             { label: "Fully Received",       bg: "bg-teal-50",    color: "text-teal-700",    border: "border-teal-200" },
-    ready:                { label: "Fulfilled",            bg: "bg-indigo-50",  color: "text-indigo-700",  border: "border-indigo-200" },
+    partially_dispatched:                { label: "Partially Fulfilled",              bg: "bg-blue-50",    color: "text-blue-700",    border: "border-blue-200" },
+    dispatched:                          { label: "Fully Fulfilled",                  bg: "bg-green-50",   color: "text-green-700",   border: "border-green-200" },
+    partially_received:                  { label: "Partially Received",               bg: "bg-emerald-50", color: "text-emerald-700", border: "border-emerald-200" },
+    received:                            { label: "Fully Received",                   bg: "bg-teal-50",    color: "text-teal-700",    border: "border-teal-200" },
+    ready:                               { label: "Fulfilled",                        bg: "bg-indigo-50",  color: "text-indigo-700",  border: "border-indigo-200" },
+    not_delivered:                       { label: "Not Delivered",                    bg: "bg-slate-50",   color: "text-slate-600",   border: "border-slate-200" },
+    partially_delivered:                 { label: "Partially Delivered",              bg: "bg-blue-50",    color: "text-blue-700",    border: "border-blue-200" },
+    partial_delivery_with_exceptions:    { label: "Partially Delivered (Exceptions)", bg: "bg-amber-50",   color: "text-amber-800",   border: "border-amber-200" },
+    partially_delivered_with_exceptions: { label: "Partially Delivered (Exceptions)", bg: "bg-amber-50",   color: "text-amber-800",   border: "border-amber-200" },
+    fully_delivered:                     { label: "Fully Delivered",                  bg: "bg-teal-50",    color: "text-teal-700",    border: "border-teal-200" },
+    delivered:                           { label: "Delivered",                        bg: "bg-teal-50",    color: "text-teal-700",    border: "border-teal-200" },
+    delivered_with_exceptions:           { label: "Delivered (Exceptions)",           bg: "bg-amber-50",   color: "text-amber-800",   border: "border-amber-200" },
+    full_delivery_with_exceptions:       { label: "Delivered (Exceptions)",           bg: "bg-amber-50",   color: "text-amber-800",   border: "border-amber-200" },
+    confirmed:                           { label: "Confirmed",                        bg: "bg-green-50",   color: "text-green-700",   border: "border-green-200" },
+    confirmed_with_exceptions:           { label: "Confirmed with Exceptions",        bg: "bg-amber-50",   color: "text-amber-800",   border: "border-amber-200" },
   };
 
   const cfg = stateMap[status] ?? {
@@ -204,6 +214,47 @@ export function DeliveryStatusBadge({
       )}
     >
       {label}
+    </span>
+  );
+}
+
+export function ExceptionResolutionBadge({
+  status,
+  className,
+}: BadgeProps & { status?: string | null }) {
+  if (!status || status === "not_required") return null;
+
+  type StateConfig = { label: string; bg: string; color: string; border: string };
+  const map: Record<string, StateConfig> = {
+    awaiting_vendor_response:  { label: "Awaiting Vendor Response", bg: "bg-red-50",     color: "text-red-700",     border: "border-red-200" },
+    backordered:               { label: "Backordered",              bg: "bg-[#f0faf8]",  color: "text-[#00b29a]",   border: "border-[#cbf0eb]" },
+    forfeited:                 { label: "Forfeited",                bg: "bg-rose-50",    color: "text-rose-700",    border: "border-rose-200" },
+    acknowledged:              { label: "Acknowledged",             bg: "bg-blue-50",    color: "text-blue-700",    border: "border-blue-200" },
+    under_company_review:      { label: "Under Company Review",     bg: "bg-purple-50",  color: "text-purple-700",  border: "border-purple-200" },
+    disputed:                  { label: "Disputed (Under Review)",  bg: "bg-purple-50",  color: "text-purple-700",  border: "border-purple-200" },
+    resolved_after_dispute:    { label: "Resolved After Dispute",   bg: "bg-emerald-50", color: "text-emerald-700", border: "border-emerald-200" },
+    resolved:                  { label: "Resolved",                 bg: "bg-emerald-50", color: "text-emerald-700", border: "border-emerald-200" },
+    corrective_action_pending: { label: "Corrective Action Pending",bg: "bg-amber-50",   color: "text-amber-700",   border: "border-amber-200" },
+  };
+
+  const cfg = map[status] ?? {
+    label: status.replace(/_/g, " ").replace(/^\w/, (c) => c.toUpperCase()),
+    bg: "bg-slate-50",
+    color: "text-slate-700",
+    border: "border-slate-200",
+  };
+
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border",
+        cfg.color,
+        cfg.bg,
+        cfg.border,
+        className
+      )}
+    >
+      {cfg.label}
     </span>
   );
 }

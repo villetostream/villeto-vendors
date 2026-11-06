@@ -3,18 +3,24 @@
  * Vendor-portal endpoints for purchase orders.
  */
 
-import { apiClient } from "./client";
+import { apiClient, uploadClient } from "./client";
 import {
   AcknowledgeOrderPayload,
+  AcknowledgeReceiptPayload,
   ApiEnvelope,
   CreateFulfillmentPayload,
   DispatchFulfillmentPayload,
   CreateFulfillmentResponse,
+  DisputeReceiptPayload,
   Fulfillment,
+  FulfillmentExceptionDetail,
+  FulfillmentExceptionFilters,
+  FulfillmentExceptionListItem,
   Order,
   OrderFilters,
   OrderLineItem,
   OrderListItem,
+  ReceiptEvidenceItem,
 } from "@/lib/types";
 
 // ============================================================================
@@ -90,4 +96,95 @@ export async function dispatchFulfillment(
     payload
   );
   return data.data;
+}
+
+// ============================================================================
+// FULFILLMENT EXCEPTIONS & DELIVERY RECEIPT RESOLUTION
+// ============================================================================
+
+/**
+ * GET /vendor-portal/fulfillment-exceptions
+ * List receipt exceptions requiring or showing a vendor response.
+ */
+export async function getFulfillmentExceptions(
+  filters: FulfillmentExceptionFilters = {}
+): Promise<FulfillmentExceptionListItem[]> {
+  const params = {
+    ...filters,
+    resolutionStatus: filters.resolutionStatus === "all" ? undefined : filters.resolutionStatus,
+  };
+  const { data } = await apiClient.get<
+    ApiEnvelope<FulfillmentExceptionListItem[]> | FulfillmentExceptionListItem[]
+  >("/vendor-portal/fulfillment-exceptions", { params });
+  if (Array.isArray(data)) return data;
+  return data?.data ?? [];
+}
+
+/**
+ * GET /vendor-portal/fulfillment-exceptions/:deliveryReceiptId
+ * Get one vendor fulfillment exception / dispute detail.
+ */
+export async function getFulfillmentException(
+  deliveryReceiptId: string
+): Promise<FulfillmentExceptionDetail> {
+  const { data } = await apiClient.get<
+    ApiEnvelope<FulfillmentExceptionDetail> | FulfillmentExceptionDetail
+  >(`/vendor-portal/fulfillment-exceptions/${deliveryReceiptId}`);
+  return (data as ApiEnvelope<FulfillmentExceptionDetail>)?.data ?? (data as FulfillmentExceptionDetail);
+}
+
+/**
+ * POST /vendor-portal/orders/:purchaseOrderId/receipts/:deliveryReceiptId/acknowledge
+ * Accept a buyer finding and backorder or forfeit rejected/missing units.
+ */
+export async function acknowledgeReceiptException(
+  purchaseOrderId: string,
+  deliveryReceiptId: string,
+  payload: AcknowledgeReceiptPayload
+): Promise<FulfillmentExceptionDetail> {
+  const { data } = await apiClient.post<
+    ApiEnvelope<FulfillmentExceptionDetail> | FulfillmentExceptionDetail
+  >(
+    `/vendor-portal/orders/${purchaseOrderId}/receipts/${deliveryReceiptId}/acknowledge`,
+    payload
+  );
+  return (data as ApiEnvelope<FulfillmentExceptionDetail>)?.data ?? (data as FulfillmentExceptionDetail);
+}
+
+/**
+ * POST /vendor-portal/orders/:purchaseOrderId/receipts/:deliveryReceiptId/dispute
+ * Submit the vendor one-time receipt dispute.
+ */
+export async function disputeReceiptException(
+  purchaseOrderId: string,
+  deliveryReceiptId: string,
+  payload: DisputeReceiptPayload
+): Promise<FulfillmentExceptionDetail> {
+  const { data } = await apiClient.post<
+    ApiEnvelope<FulfillmentExceptionDetail> | FulfillmentExceptionDetail
+  >(
+    `/vendor-portal/orders/${purchaseOrderId}/receipts/${deliveryReceiptId}/dispute`,
+    payload
+  );
+  return (data as ApiEnvelope<FulfillmentExceptionDetail>)?.data ?? (data as FulfillmentExceptionDetail);
+}
+
+/**
+ * POST /vendor-portal/orders/:purchaseOrderId/receipts/:deliveryReceiptId/evidence
+ * Upload optional evidence image (JPEG, PNG, or WebP up to 5 MB) for a vendor dispute.
+ */
+export async function uploadReceiptEvidence(
+  purchaseOrderId: string,
+  deliveryReceiptId: string,
+  file: File
+): Promise<ReceiptEvidenceItem> {
+  const formData = new FormData();
+  formData.append("file", file);
+  const { data } = await uploadClient.post<
+    ApiEnvelope<ReceiptEvidenceItem> | ReceiptEvidenceItem
+  >(
+    `/vendor-portal/orders/${purchaseOrderId}/receipts/${deliveryReceiptId}/evidence`,
+    formData
+  );
+  return (data as ApiEnvelope<ReceiptEvidenceItem>)?.data ?? (data as ReceiptEvidenceItem);
 }
