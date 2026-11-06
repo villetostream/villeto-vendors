@@ -25,7 +25,7 @@ import { EvidenceGallery } from "@/components/orders/EvidenceGallery";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/Modal";
 import { DatePicker } from "@/components/ui/DatePicker";
 import { ErrorState, EmptyState } from "@/components/ui/Spinner";
-import { formatCurrency, formatDate, formatDateTime, parseExceptionReason, formatExceptionReason, getUniqueLineReasons, enrichFulfillmentsWithReceipts, cn } from "@/lib/utils";
+import { formatCurrency, formatDate, formatDateTime, parseLocalDate, parseExceptionReason, formatExceptionReason, getUniqueLineReasons, enrichFulfillmentsWithReceipts, cn } from "@/lib/utils";
 import { format } from "date-fns";
 import {
   Fulfillment,
@@ -901,11 +901,36 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
 
   useEffect(() => {
     if (!order) return;
+
+    // PO-level expected delivery date formatted as yyyy-MM-dd
+    const defaultOrderDate = (() => {
+      const raw = order.deliveryDate;
+      if (!raw) return "";
+      const match = raw.match(/^(\d{4}-\d{2}-\d{2})/);
+      if (match) return match[1];
+      const parsed = new Date(raw);
+      if (!isNaN(parsed.getTime())) {
+        return format(parsed, "yyyy-MM-dd");
+      }
+      return "";
+    })();
+
     setDraftDates((prev) => {
       const next = { ...prev };
       for (const item of order.lineItems) {
-        if (!(item.purchaseOrderLineItemId in next)) {
-          next[item.purchaseOrderLineItemId] = item.deliveryDate ?? "";
+        // If date has not been set or is empty, automatically select the expected delivery date
+        if (!(item.purchaseOrderLineItemId in next) || !next[item.purchaseOrderLineItemId]) {
+          const itemDate = item.deliveryDate
+            ? (() => {
+                const match = item.deliveryDate.match(/^(\d{4}-\d{2}-\d{2})/);
+                if (match) return match[1];
+                const p = new Date(item.deliveryDate);
+                return !isNaN(p.getTime()) ? format(p, "yyyy-MM-dd") : item.deliveryDate;
+              })()
+            : null;
+
+          next[item.purchaseOrderLineItemId] =
+            itemDate || defaultOrderDate || format(new Date(), "yyyy-MM-dd");
         }
       }
       return next;
@@ -1558,8 +1583,15 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
       )}
 
       {isEnteringDates && (
-        <div className="text-xs text-red-600 font-medium bg-red-50 border border-red-100 rounded-lg px-3 py-2">
-          Enter the delivery date for every item below before acknowledging.
+        <div className={cn(
+          "text-xs font-medium rounded-lg px-3 py-2 border",
+          allDatesEntered
+            ? "bg-blue-50 text-blue-700 border-blue-100"
+            : "text-amber-700 bg-amber-50 border-amber-100"
+        )}>
+          {allDatesEntered
+            ? "Delivery dates are pre-filled with the expected delivery schedule. You can adjust dates if needed before acknowledging."
+            : "Please verify or select the delivery date for every item below before acknowledging."}
         </div>
       )}
 
@@ -1681,7 +1713,7 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
                               Delivery date for {item.name}
                             </label>
                             <DatePicker
-                              date={draftDates[item.purchaseOrderLineItemId] ? new Date(draftDates[item.purchaseOrderLineItemId]) : undefined}
+                              date={parseLocalDate(draftDates[item.purchaseOrderLineItemId])}
                               onSelect={(d) =>
                                 setDraftDates((prev) => ({ ...prev, [item.purchaseOrderLineItemId]: d ? format(d, "yyyy-MM-dd") : "" }))
                               }
