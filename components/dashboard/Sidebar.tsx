@@ -108,11 +108,11 @@ export function Sidebar({ isMobileOpen = false, onMobileClose }: SidebarProps) {
         aria-modal={isMobileOpen ? true : undefined}
         aria-label="Main navigation"
         className={cn(
-          "flex flex-col w-[210px] shrink-0 h-screen bg-white border-r border-dashboard-border",
-          // Desktop: always visible, part of the flex layout.
-          "lg:sticky lg:top-0 lg:translate-x-0",
+          "flex flex-col w-[210px] shrink-0 bg-white border-r border-dashboard-border",
+          // Desktop: static flex child filling the height of DashboardShell.
+          "lg:static lg:h-full lg:z-auto lg:translate-x-0",
           // Mobile: fixed overlay drawer that slides in/out.
-          "fixed top-0 left-0 z-50 transition-transform duration-200 ease-out",
+          "fixed inset-y-0 left-0 z-50 transition-transform duration-200 ease-out",
           isMobileOpen ? "translate-x-0" : "-translate-x-full"
         )}
       >

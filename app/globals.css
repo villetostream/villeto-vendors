@@ -110,6 +110,11 @@
   --flagged: #ef4444;
 }
 
+html,
+body {
+  height: 100%;
+}
+
 body {
   font-family: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
