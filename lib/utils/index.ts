@@ -558,6 +558,19 @@ export function formatCurrency(amount: number, currency: string): string {
 // DATE FORMATTING
 // ─────────────────────────────────────────────
 
+export function parseLocalDate(dateStr?: string | null): Date | undefined {
+  if (!dateStr) return undefined;
+  const match = dateStr.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (match) {
+    const year = parseInt(match[1], 10);
+    const month = parseInt(match[2], 10) - 1;
+    const day = parseInt(match[3], 10);
+    return new Date(year, month, day);
+  }
+  const d = new Date(dateStr);
+  return isNaN(d.getTime()) ? undefined : d;
+}
+
 export function formatDate(dateStr?: string | null): string {
   if (!dateStr) return "—";
   const date = new Date(dateStr);

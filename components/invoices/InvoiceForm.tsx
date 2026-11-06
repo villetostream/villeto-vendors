@@ -628,9 +628,9 @@ export function InvoiceForm({ mode, invoiceId }: InvoiceFormProps) {
       if (isBefore(startOfDay(new Date(dueDate)), startOfDay(new Date()))) {
         return "Due date must be today or in the future.";
       }
-    }
-    if (dueDate && invoiceDate && isBefore(startOfDay(new Date(dueDate)), startOfDay(new Date(invoiceDate)))) {
-      return "Due date cannot be earlier than the invoice date.";
+      if (invoiceDate && isBefore(startOfDay(new Date(dueDate)), startOfDay(new Date(invoiceDate)))) {
+        return "Due date cannot be earlier than the invoice date.";
+      }
     }
     if (items.length === 0) return "No invoiceable items. The buyer must confirm receipt of deliveries before you can invoice.";
     const invalidItem = items.find((i) => !i.purchaseOrderLineItemId || !i.name.trim() || i.quantity <= 0 || i.unitPrice <= 0);
@@ -667,7 +667,7 @@ export function InvoiceForm({ mode, invoiceId }: InvoiceFormProps) {
       purchaseOrderId: selectedPOId,
       invoiceNumber: invoiceNumber.trim(),
       invoiceDate,
-      dueDate: dueDate || undefined,
+      ...(isVendorSelectsDueDate && dueDate ? { dueDate } : {}),
       deliveryDate: deliveryDate || undefined,
       currency,
       notes: notes.trim() || undefined,
