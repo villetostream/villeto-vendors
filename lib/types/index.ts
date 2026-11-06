@@ -219,7 +219,9 @@ export type OrderStatus =
   | "acknowledged"
   | "ready_for_delivery"
   | "partially_delivered"
+  | "partially_delivered_with_exceptions"
   | "delivered"
+  | "delivered_with_exceptions"
   | "closed"
   | "cancelled";
 
@@ -255,6 +257,13 @@ export interface OrderVendorRef {
   email: string;
 }
 
+export interface OrderPaymentTermRef {
+  paymentTermId: string;
+  code: string;
+  name: string;
+  days: number;
+}
+
 export interface OrderLineItem {
   purchaseOrderLineItemId: string;
   purchaseRequestLineItemId?: string;
@@ -274,6 +283,7 @@ export interface OrderLineItem {
   sku?: string;
   unitOfMeasure?: string;
   categoryId?: string;
+  categoryName?: string;
   departmentId?: string;
   accountingResolutionStatus?: string;
   deliveryDate?: string;
@@ -284,6 +294,10 @@ export interface OrderLineItem {
   quantityReady?: number;
   quantityRemainingToReady?: number;
   quantityReceived?: number;
+  quantityPhysicallyReceived?: number;
+  quantityAccepted?: number;
+  quantityForfeited?: number;
+  invoiceableSubtotal?: number;
   quantityDispatched?: number;
   quantityAwaitingDispatch?: number;
   quantityAwaitingReceipt?: number;
@@ -294,34 +308,181 @@ export interface OrderLineItem {
   dispositionReason?: string;
   reason?: string;
   fulfillmentState?: FulfillmentState;
+  fulfillmentTransportScope?: "physical" | "non_physical" | "mixed" | "unknown" | string;
 }
 
-// ── Delivery Notice / Fulfillment record ──
+// ── Delivery Notice / Fulfillment & Receipt Exception records ──
 
 export type InspectionOutcome =
   | "awaiting_inspection"
   | "accepted"
   | "accepted_with_exceptions"
-  | "rejected";
+  | "rejected"
+  | "confirmed"
+  | "confirmed_with_exceptions";
 
 export type ExceptionResolutionStatus =
   | "not_required"
   | "awaiting_vendor_response"
   | "acknowledged"
   | "disputed"
-  | "resolved";
+  | "corrective_action_pending"
+  | "resolved"
+  | "backordered"
+  | "forfeited"
+  | "under_company_review"
+  | "resolved_after_dispute";
+
+export type DeliveryOutcome =
+  | "not_delivered"
+  | "fully_delivered"
+  | "full_delivery_with_exceptions"
+  | "partially_delivered"
+  | "partial_delivery_with_exceptions"
+  | "partially_delivered_with_exceptions"
+  | "delivered"
+  | "delivered_with_exceptions";
+
+export type FinalDecisionType =
+  | "uphold_buyer_finding"
+  | "accept_vendor_dispute"
+  | "revise_buyer_finding";
 
 export type VendorResolutionAction = "backorder" | "forfeit" | "dispute";
 
+export interface ReceiptEvidenceItem {
+  url: string;
+  publicId: string;
+  mimeType: string;
+  originalName?: string;
+  size?: number;
+  purchaseOrderLineItemIds?: string[];
+}
+
+export interface DeliveryReceiptLineItem {
+  deliveryReceiptLineItemId: string;
+  purchaseOrderLineItemId: string;
+  fulfillmentLineItemId?: string;
+  name: string;
+  quantityOrdered: number;
+  quantityReceived: number;
+  quantityAccepted: number;
+  quantityRejected: number;
+  quantityMissing: number;
+  exceptionReason?: string | null;
+  finalQuantityAccepted?: number | null;
+  finalQuantityRejected?: number | null;
+  finalQuantityMissing?: number | null;
+  resolutionStatus?: ExceptionResolutionStatus;
+  vendorDisposition?: VendorResolutionAction | null;
+  expectedRedeliveryDate?: string | null;
+  vendorResponseReason?: string | null;
+  notes?: string | null;
+}
+
+export interface FulfillmentExceptionListItem {
+  deliveryReceiptId: string;
+  receiptNumber: string;
+  purchaseOrderId: string;
+  poNumber: string;
+  vendorId: string;
+  vendorName: string;
+  fulfillmentId?: string;
+  fulfillmentReference: string;
+  inspectionOutcome: string;
+  resolutionStatus: ExceptionResolutionStatus;
+  finalDecision?: FinalDecisionType | null;
+  vendorActionRequired: boolean;
+  companyActionRequired: boolean;
+  receivedAt: string;
+  resolvedAt?: string | null;
+  updatedAt: string;
+}
+
+export interface FulfillmentExceptionDetail {
+  deliveryReceiptId: string;
+  receiptNumber: string;
+  receiptReference?: string;
+  status: string;
+  confirmationOutcome: string;
+  inspectionOutcome: string;
+  resolutionStatus: ExceptionResolutionStatus;
+  vendorResponse?: string | null;
+  vendorResponseReason?: string | null;
+  vendorRespondedAt?: string | null;
+  vendorDisposition?: VendorResolutionAction | null;
+  expectedRedeliveryDate?: string | null;
+  finalDecision?: FinalDecisionType | null;
+  decisionVersion?: number;
+  decisionHistory?: Record<string, unknown>[];
+  vendorActionRequired: boolean;
+  companyActionRequired: boolean;
+  resolutionNote?: string | null;
+  resolvedAt?: string | null;
+  resolvedByName?: string | null;
+  receivedAt?: string | null;
+  notes?: string | null;
+  evidence?: ReceiptEvidenceItem[];
+  vendorEvidence?: ReceiptEvidenceItem[];
+  purchaseOrderId: string;
+  poNumber: string;
+  confirmedByName?: string | null;
+  confirmedById?: string | null;
+  fulfillmentId: string;
+  fulfillmentReference?: string | null;
+  lineItems: DeliveryReceiptLineItem[];
+}
+
+export interface AcknowledgeReceiptLineItemPayload {
+  deliveryReceiptLineItemId: string;
+  disposition: "backorder" | "forfeit";
+  expectedRedeliveryDate?: string;
+  reason?: string;
+}
+
+export interface AcknowledgeReceiptPayload {
+  disposition?: "backorder" | "forfeit";
+  expectedRedeliveryDate?: string;
+  reason?: string;
+  lineItems?: AcknowledgeReceiptLineItemPayload[];
+}
+
+export interface DisputeReceiptLineItemPayload {
+  deliveryReceiptLineItemId: string;
+  quantityAccepted: number;
+  quantityRejected: number;
+  quantityMissing: number;
+  reason?: string;
+}
+
+export interface DisputeReceiptPayload {
+  reason: string;
+  lineItems: DisputeReceiptLineItemPayload[];
+  evidence?: ReceiptEvidenceItem[];
+}
+
+export interface FulfillmentExceptionFilters {
+  page?: number;
+  limit?: number;
+  resolutionStatus?: ExceptionResolutionStatus | "all";
+}
+
 export interface LineItemResolution {
   purchaseOrderLineItemId: string;
+  deliveryReceiptLineItemId?: string;
   vendorDeliveryNoticeLineItemId?: string;
   name: string;
   quantityRejected: number;
+  quantityMissing?: number;
+  quantityAccepted?: number;
+  proposedQuantityAccepted?: number;
+  proposedQuantityRejected?: number;
+  proposedQuantityMissing?: number;
   buyerReason?: string;
   buyerCategory?: string;
   action: VendorResolutionAction;
   expectedReadyDate?: string;
+  reason?: string;
   disputeReason?: string;
   attachmentName?: string;
   attachmentFile?: File;
@@ -329,9 +490,11 @@ export interface LineItemResolution {
 
 export interface UnifiedResolutionPayload {
   fulfillmentId: string;
+  deliveryReceiptId?: string;
   shipmentReference?: string;
   overallStatus: "acknowledged" | "disputed" | "mixed";
   resolutions: LineItemResolution[];
+  globalAttachmentFile?: File;
   notes?: string;
 }
 
@@ -355,6 +518,8 @@ export interface DisputeResolutionPayload {
 
 export interface FulfillmentLineItem {
   vendorDeliveryNoticeLineItemId: string;
+  deliveryReceiptLineItemId?: string;
+  fulfillmentLineItemId?: string;
   purchaseOrderLineItemId: string;
   name: string;
   quantityOrdered: number;
@@ -370,14 +535,26 @@ export interface FulfillmentLineItem {
   // ── Line-level Inspection & Resolution ──
   quantityAccepted?: number;
   quantityRejected?: number;
+  quantityMissing?: number;
+  exceptionReason?: string | null;
   rejectionReason?: string;
   rejectionCategory?: string;
+  finalQuantityAccepted?: number | null;
+  finalQuantityRejected?: number | null;
+  finalQuantityMissing?: number | null;
   inspectionOutcome?: InspectionOutcome;
+  resolutionStatus?: ExceptionResolutionStatus;
+  vendorDisposition?: VendorResolutionAction | null;
+  expectedRedeliveryDate?: string | null;
+  vendorResponseReason?: string | null;
   resolutionAction?: VendorResolutionAction;
 }
 
 export interface Fulfillment {
   vendorDeliveryNoticeId: string;
+  fulfillmentId?: string;
+  deliveryReceiptId?: string;
+  receiptNumber?: string;
   shipmentReference: string;
   fulfillmentReference?: string | null;
   declaration?: FulfillmentDeclaration | null;
@@ -396,17 +573,40 @@ export interface Fulfillment {
   isPartial: boolean;
   lineItems: FulfillmentLineItem[];
 
-  // ── Inspection & Exception Resolution Fields (US-04 to US-13) ──
+  // ── Inspection & Exception Resolution Fields ──
+  confirmationOutcome?: string;
   inspectionOutcome?: InspectionOutcome;
   resolutionStatus?: ExceptionResolutionStatus;
+  vendorActionRequired?: boolean;
+  companyActionRequired?: boolean;
+  vendorDisposition?: VendorResolutionAction | null;
+  expectedRedeliveryDate?: string | null;
+  vendorResponseReason?: string | null;
+  finalDecision?: FinalDecisionType | null;
+  decisionVersion?: number;
+  decisionHistory?: Record<string, unknown>[];
+  resolutionNote?: string | null;
+  resolvedAt?: string | null;
+  resolvedByName?: string | null;
+  evidence?: ReceiptEvidenceItem[];
+  vendorEvidence?: ReceiptEvidenceItem[];
   totalDeliveredQuantity?: number;
   totalAcceptedQuantity?: number;
   totalRejectedQuantity?: number;
+  totalMissingQuantity?: number;
   rejectionReason?: string;
   rejectionCategory?: string;
   buyerNotes?: string;
   buyerAttachmentName?: string;
   buyerAttachmentUrl?: string;
+}
+
+export interface OrderLegalEntityRef {
+  legalEntityId: string;
+  code: string;
+  legalName: string;
+  baseCurrency: string;
+  readinessStatus?: "provisional" | string;
 }
 
 /** Row shape from the list endpoint — lighter than the detail shape. */
@@ -415,12 +615,23 @@ export interface OrderListItem {
   poNumber: string;
   status: OrderStatus;
   deliveryState?: FulfillmentDeliveryState;
+  deliveryOutcome?: DeliveryOutcome | string;
+  resolutionStatus?: ExceptionResolutionStatus;
+  openExceptionCount?: number;
+  vendorResponseRequired?: boolean;
+  vendorActionRequired?: boolean;
+  companyActionRequired?: boolean;
   fulfillmentState?: FulfillmentState;
   fulfillmentTransportScope?: "physical" | "non_physical" | "mixed" | "unknown";
   quantityOrdered?: number;
   quantityReady?: number;
   quantityDispatched?: number;
   quantityReceived?: number;
+  quantityPhysicallyReceived?: number;
+  quantityAccepted?: number;
+  quantityForfeited?: number;
+  quantityOutstanding?: number;
+  invoiceableSubtotal?: number;
   quantityAwaitingDispatch?: number;
   quantityAwaitingReceipt?: number;
   quantityRemainingToReady?: number;
@@ -428,6 +639,7 @@ export interface OrderListItem {
   lineItemCount: number;
   sourcePurchaseRequestLineItemIds: string[];
   currency: string;
+  legalEntity?: OrderLegalEntityRef | null;
   totalAmount: number;
 }
 
@@ -436,7 +648,12 @@ export interface TimelineEvent {
   timestamp: string;
   performedBy: {
     actorId?: string;
-    actorType: "company_user" | "vendor" | "system";
+    actorType: "company_user" | "vendor" | "system" | Record<string, unknown> | string;
+    firstName?: string;
+    lastName?: string;
+    roleName?: string;
+    roleNames?: string[];
+    vendorId?: string;
     email?: string;
     vendorName?: string;
     [key: string]: unknown;
@@ -446,17 +663,50 @@ export interface TimelineEvent {
 
 export interface Order {
   purchaseOrderId: string;
+  createdAt?: string;
+  updatedAt?: string;
   poNumber: string;
   status: OrderStatus;
+  deliveryOutcome?: DeliveryOutcome | string;
+  resolutionStatus?: ExceptionResolutionStatus;
+  openExceptionCount?: number;
+  vendorResponseRequired?: boolean;
+  vendorActionRequired?: boolean;
+  companyActionRequired?: boolean;
+  deliveryState?: FulfillmentDeliveryState;
   fulfillmentState?: FulfillmentState;
   fulfillmentActionRequired?: boolean;
+  canClose?: boolean;
+  closeBlockers?: string[];
+  finalBillingConfirmedAt?: string | null;
+  finalBillingConfirmationReason?: string | null;
+  quantityOrdered?: number;
+  quantityReady?: number;
+  quantityDispatched?: number;
+  quantityReceived?: number;
+  quantityPhysicallyReceived?: number;
+  quantityAccepted?: number;
+  quantityForfeited?: number;
+  quantityOutstanding?: number;
+  invoiceableSubtotal?: number;
+  quantityAwaitingDispatch?: number;
+  quantityAwaitingReceipt?: number;
+  quantityRemainingToReady?: number;
   vendorReadinessStatus?: string;
   issueBlockers?: string[];
+  vendorEntityRelationshipId?: string;
+  vendorSiteId?: string;
+  vendorRelationshipConfigurationVersion?: number;
+  paymentTerms?: OrderPaymentTermRef | null;
   priority: OrderPriority;
   issueDate: string;
   issuedAt?: string;
   submittedForApprovalAt?: string;
   approvedAt?: string;
+  approvalDate?: string;
+  shipmentDate?: string;
+  digitalDeliveryDate?: string;
+  confirmationDate?: string;
   rejectedAt?: string;
   rejectionReason?: string;
   acknowledgedAt?: string;
@@ -467,10 +717,13 @@ export interface Order {
   cancellationReason?: string;
   deliveryDate?: string;
   currency: string;
+  legalEntity?: OrderLegalEntityRef | null;
   subtotal: number;
   taxAmount: number;
   totalAmount: number;
   notes?: string;
+  policyJustification?: string;
+  policyEvaluationResult?: Record<string, unknown> | null;
   requesterName?: string;
   departmentName?: string;
   vendor: OrderVendorRef;
@@ -480,10 +733,16 @@ export interface Order {
   /** Historical fulfillment shipment records */
   deliveryNotices?: Fulfillment[];
   fulfillments?: Fulfillment[];
+  /** Delivery receipt confirmations & exception records returned on GET /vendor-portal/orders/{id} */
+  receiptConfirmations?: FulfillmentExceptionDetail[];
+  receipts?: FulfillmentExceptionDetail[];
+  deliveryReceipts?: FulfillmentExceptionDetail[];
 }
 
 export interface OrderFilters {
   status?: OrderStatus | "all";
+  deliveryOutcome?: DeliveryOutcome | string;
+  resolutionStatus?: ExceptionResolutionStatus | "all";
   startDate?: string;
   endDate?: string;
   page?: number;
@@ -598,7 +857,9 @@ export const ORDER_STATUS_DISPLAY_LABEL: Record<OrderStatus, string> = {
   acknowledged: "Acknowledged",
   ready_for_delivery: "Ready for delivery",
   partially_delivered: "Partially delivered",
+  partially_delivered_with_exceptions: "Partially delivered (Exceptions)",
   delivered: "Delivered",
+  delivered_with_exceptions: "Delivered (Exceptions)",
   closed: "Closed",
   cancelled: "Withdrawn",
 };

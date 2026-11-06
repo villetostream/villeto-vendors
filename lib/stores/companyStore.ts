@@ -85,6 +85,12 @@ export const queryKeys = {
   ordersList: (companyId: string) => ["vendor-portal", "orders", companyId, "list"] as const,
   orders: (companyId: string, filters = {}) => ["vendor-portal", "orders", companyId, "list", filters] as const,
   order: (companyId: string, id: string) => ["vendor-portal", "orders", companyId, "detail", id] as const,
+  fulfillmentExceptionsList: (companyId: string) =>
+    ["vendor-portal", "fulfillment-exceptions", companyId, "list"] as const,
+  fulfillmentExceptions: (companyId: string, filters = {}) =>
+    ["vendor-portal", "fulfillment-exceptions", companyId, "list", filters] as const,
+  fulfillmentException: (companyId: string, deliveryReceiptId: string) =>
+    ["vendor-portal", "fulfillment-exceptions", companyId, "detail", deliveryReceiptId] as const,
   invoices: (companyId: string, filters = {}) => ["vendor-portal", "invoices", companyId, filters] as const,
   invoice: (companyId: string, id: string) => ["vendor-portal", "invoices", companyId, id] as const,
   profile: (companyId?: string) =>

@@ -32,6 +32,53 @@ export function isStatusActive(status?: string | null): boolean {
   return normalizeStatus(status) === "active";
 }
 
+/**
+ * Parses a raw buyer exception/rejection reason string.
+ * - If the buyer selected "Other (specify below): <custom note>", strips the form prompt
+ *   so only "<custom note>" is shown.
+ * - If the buyer selected a named category with details (e.g. "Damaged in transit: 3 boxes crushed"),
+ *   returns both `category` ("Damaged in transit") and `text` ("3 boxes crushed").
+ * - If the buyer selected only a category or wrote a plain sentence, preserves it as-is.
+ */
+export function parseExceptionReason(raw?: string | null): {
+  category: string | null;
+  text: string;
+} {
+  if (!raw || !raw.trim()) {
+    return { category: null, text: "" };
+  }
+  const trimmed = raw.trim();
+
+  // Case 1: "Other (specify below): <detail>" or "Other: <detail>"
+  const otherMatch = trimmed.match(/^other\s*(?:\([^)]*\))?\s*:\s*(.*)$/i);
+  if (otherMatch) {
+    return {
+      category: null,
+      text: otherMatch[1].trim() || "Other",
+    };
+  }
+
+  // Case 2: "<Category Name>: <Detail>" (e.g., "Damaged Goods: 4 units cracked")
+  const categoryMatch = trimmed.match(/^([^:.]{2,45}):\s+(.+)$/);
+  if (categoryMatch) {
+    return {
+      category: categoryMatch[1].trim(),
+      text: categoryMatch[2].trim(),
+    };
+  }
+
+  // Case 3: Plain category or sentence
+  return { category: null, text: trimmed };
+}
+
+export function formatExceptionReason(raw?: string | null): string {
+  const { category, text } = parseExceptionReason(raw);
+  if (category && text) {
+    return `${category} — ${text}`;
+  }
+  return text;
+}
+
 // ─────────────────────────────────────────────
 // STATUS HELPERS — PURCHASE ORDERS
 // ─────────────────────────────────────────────
@@ -46,7 +93,19 @@ export function getOrderStatusConfig(status: OrderStatus) {
     acknowledged: { label: "Acknowledged", color: "text-amber-700", bg: "bg-amber-50", border: "border-amber-200" },
     ready_for_delivery: { label: "Ready for delivery", color: "text-purple-700", bg: "bg-purple-50", border: "border-purple-200" },
     partially_delivered: { label: "Partially delivered", color: "text-orange-700", bg: "bg-orange-50", border: "border-orange-200" },
+    partially_delivered_with_exceptions: {
+      label: "Partially delivered (Exceptions)",
+      color: "text-amber-800",
+      bg: "bg-amber-50",
+      border: "border-amber-200",
+    },
     delivered: { label: "Delivered", color: "text-teal-700", bg: "bg-teal-50", border: "border-teal-200" },
+    delivered_with_exceptions: {
+      label: "Delivered (Exceptions)",
+      color: "text-amber-800",
+      bg: "bg-amber-50",
+      border: "border-amber-200",
+    },
     closed: { label: "Closed", color: "text-green-700", bg: "bg-green-50", border: "border-green-200" },
     // Display copy only — backend value/status filter param stays "cancelled".
     cancelled: { label: ORDER_STATUS_DISPLAY_LABEL.cancelled, color: "text-red-700", bg: "bg-red-50", border: "border-red-200" },

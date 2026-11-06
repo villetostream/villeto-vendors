@@ -58,7 +58,11 @@ export interface FulfillmentFormData {
 
 function getRemainingToReady(item: OrderLineItem): number {
   if (item.remainingDisposition === "cannot_fulfill") return 0;
-  return item.quantityRemainingToReady ?? (item.quantity - (item.quantityReady || 0));
+  return (
+    item.quantityRemainingToReady ??
+    item.quantityOutstanding ??
+    Math.max(0, item.quantity - (item.quantityReady || 0) - (item.quantityForfeited || 0))
+  );
 }
 
 // ── Component ──
