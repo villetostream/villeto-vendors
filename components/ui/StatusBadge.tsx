@@ -14,19 +14,40 @@ interface BadgeProps {
 
 export function OrderStatusBadge({
   status,
+  isResolved = false,
   className,
-}: BadgeProps & { status: OrderStatus }) {
+}: BadgeProps & { status: OrderStatus; isResolved?: boolean }) {
   const cfg = getOrderStatusConfig(status);
+  let label = cfg.label;
+  let color = cfg.color;
+  let bg = cfg.bg;
+  let border = cfg.border;
+
+  if (
+    isResolved &&
+    (status === "partially_delivered_with_exceptions" ||
+      status === "delivered_with_exceptions")
+  ) {
+    label =
+      status === "partially_delivered_with_exceptions"
+        ? "Partially delivered (Exceptions Settled)"
+        : "Delivered (Exceptions Settled)";
+    color = "text-emerald-800";
+    bg = "bg-emerald-50";
+    border = "border-emerald-200";
+  }
+
   return (
     <span
       className={cn(
-        "inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium",
-        cfg.color,
-        cfg.bg,
+        "inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border",
+        color,
+        bg,
+        border,
         className
       )}
     >
-      {cfg.label}
+      {label}
     </span>
   );
 }
@@ -170,8 +191,9 @@ export function VendorStatusBadge({
 export function DeliveryStatusBadge({
   status,
   transportScope,
+  isResolved = false,
   className,
-}: BadgeProps & { status: string; transportScope?: string }) {
+}: BadgeProps & { status: string; transportScope?: string; isResolved?: boolean }) {
 
   type StateConfig = { label: string; bg: string; color: string; border: string };
   const stateMap: Record<string, StateConfig> = {
@@ -182,14 +204,24 @@ export function DeliveryStatusBadge({
     ready:                               { label: "Fulfilled",                        bg: "bg-indigo-50",  color: "text-indigo-700",  border: "border-indigo-200" },
     not_delivered:                       { label: "Not Delivered",                    bg: "bg-slate-50",   color: "text-slate-600",   border: "border-slate-200" },
     partially_delivered:                 { label: "Partially Delivered",              bg: "bg-blue-50",    color: "text-blue-700",    border: "border-blue-200" },
-    partial_delivery_with_exceptions:    { label: "Partially Delivered (Exceptions)", bg: "bg-amber-50",   color: "text-amber-800",   border: "border-amber-200" },
-    partially_delivered_with_exceptions: { label: "Partially Delivered (Exceptions)", bg: "bg-amber-50",   color: "text-amber-800",   border: "border-amber-200" },
+    partial_delivery_with_exceptions:    isResolved
+      ? { label: "Partially Delivered (Exceptions Settled)", bg: "bg-emerald-50", color: "text-emerald-800", border: "border-emerald-200" }
+      : { label: "Partially Delivered (Exceptions)", bg: "bg-amber-50",   color: "text-amber-800",   border: "border-amber-200" },
+    partially_delivered_with_exceptions: isResolved
+      ? { label: "Partially Delivered (Exceptions Settled)", bg: "bg-emerald-50", color: "text-emerald-800", border: "border-emerald-200" }
+      : { label: "Partially Delivered (Exceptions)", bg: "bg-amber-50",   color: "text-amber-800",   border: "border-amber-200" },
     fully_delivered:                     { label: "Fully Delivered",                  bg: "bg-teal-50",    color: "text-teal-700",    border: "border-teal-200" },
     delivered:                           { label: "Delivered",                        bg: "bg-teal-50",    color: "text-teal-700",    border: "border-teal-200" },
-    delivered_with_exceptions:           { label: "Delivered (Exceptions)",           bg: "bg-amber-50",   color: "text-amber-800",   border: "border-amber-200" },
-    full_delivery_with_exceptions:       { label: "Delivered (Exceptions)",           bg: "bg-amber-50",   color: "text-amber-800",   border: "border-amber-200" },
+    delivered_with_exceptions:           isResolved
+      ? { label: "Delivered (Exceptions Settled)", bg: "bg-emerald-50", color: "text-emerald-800", border: "border-emerald-200" }
+      : { label: "Delivered (Exceptions)",           bg: "bg-amber-50",   color: "text-amber-800",   border: "border-amber-200" },
+    full_delivery_with_exceptions:       isResolved
+      ? { label: "Delivered (Exceptions Settled)", bg: "bg-emerald-50", color: "text-emerald-800", border: "border-emerald-200" }
+      : { label: "Delivered (Exceptions)",           bg: "bg-amber-50",   color: "text-amber-800",   border: "border-amber-200" },
     confirmed:                           { label: "Confirmed",                        bg: "bg-green-50",   color: "text-green-700",   border: "border-green-200" },
-    confirmed_with_exceptions:           { label: "Confirmed with Exceptions",        bg: "bg-amber-50",   color: "text-amber-800",   border: "border-amber-200" },
+    confirmed_with_exceptions:           isResolved
+      ? { label: "Confirmed (Exceptions Settled)", bg: "bg-emerald-50", color: "text-emerald-800", border: "border-emerald-200" }
+      : { label: "Confirmed with Exceptions",        bg: "bg-amber-50",   color: "text-amber-800",   border: "border-amber-200" },
   };
 
   const cfg = stateMap[status] ?? {
@@ -226,8 +258,9 @@ export function ExceptionResolutionBadge({
 
   type StateConfig = { label: string; bg: string; color: string; border: string };
   const map: Record<string, StateConfig> = {
-    awaiting_vendor_response:  { label: "Awaiting Vendor Response", bg: "bg-red-50",     color: "text-red-700",     border: "border-red-200" },
-    backordered:               { label: "Backordered",              bg: "bg-[#f0faf8]",  color: "text-[#00b29a]",   border: "border-[#cbf0eb]" },
+    awaiting_vendor_response:    { label: "Awaiting Vendor Response", bg: "bg-red-50",     color: "text-red-700",     border: "border-red-200" },
+    awaiting_vendor_disposition: { label: "Awaiting Allocation",      bg: "bg-amber-50",   color: "text-amber-800",   border: "border-amber-300" },
+    backordered:                 { label: "Backordered",              bg: "bg-[#f0faf8]",  color: "text-[#00b29a]",   border: "border-[#cbf0eb]" },
     forfeited:                 { label: "Forfeited",                bg: "bg-rose-50",    color: "text-rose-700",    border: "border-rose-200" },
     acknowledged:              { label: "Acknowledged",             bg: "bg-blue-50",    color: "text-blue-700",    border: "border-blue-200" },
     under_company_review:      { label: "Under Company Review",     bg: "bg-purple-50",  color: "text-purple-700",  border: "border-purple-200" },

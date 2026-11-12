@@ -20,6 +20,8 @@ interface DatePickerProps {
   placeholder?: string;
   className?: string;
   error?: boolean;
+  fromYear?: number;
+  toYear?: number;
 }
 
 export function DatePicker({
@@ -30,6 +32,8 @@ export function DatePicker({
   placeholder = "dd/mm/yyyy",
   className,
   error,
+  fromYear,
+  toYear,
 }: DatePickerProps) {
   const [calendarOpen, setCalendarOpen] = React.useState(false);
 
@@ -56,6 +60,7 @@ export function DatePicker({
       <PopoverContent className="w-auto p-0" align="start">
         <Calendar
           mode="single"
+          defaultMonth={date}
           selected={date}
           onSelect={(d) => {
             if (d && disabled && disabled(d)) return;
@@ -63,6 +68,8 @@ export function DatePicker({
             setCalendarOpen(false);
           }}
           disabled={disabled}
+          fromYear={fromYear}
+          toYear={toYear}
           initialFocus
         />
       </PopoverContent>

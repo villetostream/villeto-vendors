@@ -51,14 +51,20 @@ function parseSingleReason(str: string): { category: string | null; text: string
     };
   }
 
-  // Case 2: "<Category Name>: <Detail>"
+  // Case 2: "<Category Name>: <Detail>" or "<Category Name> — <Detail>"
   // Restrict category to 2-45 chars without delimiters like '·', '\n'
-  const categoryMatch = trimmed.match(/^([^:.·\n]{2,45}):\s+(.+)$/);
+  const categoryMatch = trimmed.match(/^([^:.·\n—–]{2,45})\s*(?::\s*|—\s*|–\s*|\s+-\s+)(.+)$/);
   if (categoryMatch) {
     const cat = categoryMatch[1].trim();
     const detail = categoryMatch[2].trim();
-    // If the detail is identical to category, don't repeat it
-    if (detail.toLowerCase() === cat.toLowerCase()) {
+    // If the detail is identical to category or contained within it, don't repeat it
+    const normCat = cat.toLowerCase();
+    const normDetail = detail.toLowerCase();
+    if (
+      normDetail === normCat ||
+      normCat.includes(normDetail) ||
+      normDetail.includes(normCat)
+    ) {
       return { category: cat, text: "" };
     }
     return {
@@ -149,9 +155,17 @@ export function parseExceptionReason(raw?: string | null): {
         uniqueCategories.push(item.category);
       }
     }
-    // Only add to text if it's not identical to an extracted category
-    if (item.displayText && !categorySet.has(item.displayText.toLowerCase())) {
-      uniqueTexts.push(item.displayText);
+    // Only add to text if it's not identical to or already encompassed by an extracted category
+    if (item.displayText) {
+      const normDisplay = item.displayText.toLowerCase();
+      const isDuplicateOfCategory =
+        categorySet.has(normDisplay) ||
+        Array.from(categorySet).some(
+          (cat) => cat.includes(normDisplay) || normDisplay.includes(cat)
+        );
+      if (!isDuplicateOfCategory) {
+        uniqueTexts.push(item.displayText);
+      }
     }
   }
 
@@ -238,6 +252,11 @@ export function enrichFulfillmentsWithReceipts(
     }
     matchedReceiptIds.add(matchedReceipt.deliveryReceiptId);
 
+    const exceptionLinesCount = (matchedReceipt.lineItems || []).filter(
+      (item) => (item.quantityRejected || 0) + (item.quantityMissing || 0) > 0
+    ).length;
+    const isSingleExceptionLine = exceptionLinesCount <= 1;
+
     const mergedLineItems = f.lineItems.map((li) => {
       const rLi = matchedReceipt.lineItems?.find(
         (item) =>
@@ -248,29 +267,135 @@ export function enrichFulfillmentsWithReceipts(
       );
       if (!rLi) return li;
 
-      // Handle dispute acceptance resolution: if dispute was accepted, ensure accepted quantity reflects that
+      // Handle dispute acceptance resolution: if dispute was accepted, ensure accepted quantity reflects that.
+      // NOTE: If no final decision has been rendered by the buyer yet (finalDecision == null),
+      // finalQuantityAccepted MUST NOT fall back to quantityAccepted, otherwise the pending dispute/rejection
+      // is prematurely treated as already resolved and closed.
       const resolvedAccepted =
         rLi.finalQuantityAccepted ??
         (matchedReceipt.finalDecision === "accept_vendor_dispute"
           ? (rLi.quantityOrdered ?? rLi.quantityReceived ?? rLi.quantityAccepted)
-          : rLi.quantityAccepted);
+          : matchedReceipt.finalDecision === "uphold_buyer_finding"
+          ? rLi.quantityAccepted
+          : undefined);
+
+      const resolvedRejected =
+        rLi.finalQuantityRejected ??
+        (matchedReceipt.finalDecision === "accept_vendor_dispute"
+          ? 0
+          : matchedReceipt.finalDecision === "uphold_buyer_finding"
+          ? rLi.quantityRejected
+          : undefined);
+
+      const resolvedMissing =
+        rLi.finalQuantityMissing ??
+        (matchedReceipt.finalDecision === "accept_vendor_dispute"
+          ? 0
+          : matchedReceipt.finalDecision === "uphold_buyer_finding"
+          ? rLi.quantityMissing
+          : undefined);
+
+      // Extract allocations from decisionHistory if rLi.dispositionAllocations is missing
+      const historyAllocations = (() => {
+        if (rLi.dispositionAllocations && rLi.dispositionAllocations.length > 0) {
+          return rLi.dispositionAllocations;
+        }
+        if (!matchedReceipt.decisionHistory) return undefined;
+        for (const dh of matchedReceipt.decisionHistory) {
+          const decisions = (dh as any)?.lineDecisions;
+          if (Array.isArray(decisions)) {
+            const match = decisions.find(
+              (ld: any) =>
+                ld.deliveryReceiptLineItemId === rLi.deliveryReceiptLineItemId ||
+                ld.purchaseOrderLineItemId === rLi.purchaseOrderLineItemId
+            );
+            if (match?.allocations && match.allocations.length > 0) {
+              return match.allocations;
+            }
+          }
+        }
+        return undefined;
+      })();
+
+      // Extract recommendedDisposition from decisionHistory if rLi.recommendedDisposition is missing
+      const historyRecommendedDisposition = (() => {
+        if (rLi.recommendedDisposition) return rLi.recommendedDisposition;
+        if (!matchedReceipt.decisionHistory) return undefined;
+        for (const dh of [...matchedReceipt.decisionHistory].reverse()) {
+          if (dh.lineItems && Array.isArray(dh.lineItems)) {
+            const match = dh.lineItems.find(
+              (dhl: any) =>
+                dhl.deliveryReceiptLineItemId === rLi.deliveryReceiptLineItemId ||
+                dhl.purchaseOrderLineItemId === rLi.purchaseOrderLineItemId ||
+                (dhl.name && dhl.name.trim().toLowerCase() === li.name?.trim().toLowerCase())
+            );
+            if (match?.recommendedDisposition) {
+              return match.recommendedDisposition;
+            }
+          }
+        }
+        return undefined;
+      })();
+
+      // Only fall back to receipt-level disposition/status when there is a single exception line,
+      // so acknowledging (backordering/forfeiting) some lines does not falsely mark remaining lines as resolved.
+      const lineDisposition =
+        rLi.vendorDisposition !== undefined
+          ? rLi.vendorDisposition ?? (isSingleExceptionLine ? matchedReceipt.vendorDisposition : null)
+          : li.vendorDisposition ?? (isSingleExceptionLine ? matchedReceipt.vendorDisposition : undefined);
+
+      const lineResolutionStatus =
+        rLi.resolutionStatus ??
+        (lineDisposition === "backorder"
+          ? "backordered"
+          : lineDisposition === "forfeit"
+          ? "forfeited"
+          : lineDisposition === "dispute"
+          ? "under_company_review"
+          : isSingleExceptionLine
+          ? matchedReceipt.resolutionStatus
+          : matchedReceipt.resolutionStatus === "resolved_after_dispute"
+          ? "resolved_after_dispute"
+          : li.resolutionStatus);
 
       return {
         ...li,
-        deliveryReceiptLineItemId: rLi.deliveryReceiptLineItemId ?? li.deliveryReceiptLineItemId,
+        deliveryReceiptLineItemId:
+          rLi.deliveryReceiptLineItemId ?? (rLi as any).id ?? li.deliveryReceiptLineItemId,
         quantityReceived: rLi.quantityReceived ?? li.quantityReceived,
         quantityAccepted: rLi.quantityAccepted ?? li.quantityAccepted,
         quantityRejected: rLi.quantityRejected ?? li.quantityRejected,
         quantityMissing: rLi.quantityMissing ?? li.quantityMissing,
-        exceptionReason: rLi.exceptionReason ?? li.exceptionReason,
-        rejectionReason: rLi.exceptionReason ?? li.rejectionReason,
+        exceptionReason:
+          rLi.exceptionReason ??
+          (rLi as any).rejectionReason ??
+          (rLi as any).notes ??
+          li.exceptionReason,
+        rejectionReason:
+          rLi.exceptionReason ??
+          (rLi as any).rejectionReason ??
+          (rLi as any).notes ??
+          li.rejectionReason,
+        rejectionCategory:
+          (rLi as any).rejectionCategory ??
+          (rLi as any).category ??
+          (li as any).rejectionCategory,
         finalQuantityAccepted: resolvedAccepted ?? rLi.finalQuantityAccepted ?? li.finalQuantityAccepted,
-        finalQuantityRejected: rLi.finalQuantityRejected ?? li.finalQuantityRejected,
-        finalQuantityMissing: rLi.finalQuantityMissing ?? li.finalQuantityMissing,
-        resolutionStatus: rLi.resolutionStatus ?? matchedReceipt.resolutionStatus ?? li.resolutionStatus,
-        vendorDisposition: rLi.vendorDisposition ?? matchedReceipt.vendorDisposition ?? li.vendorDisposition,
-        expectedRedeliveryDate: rLi.expectedRedeliveryDate ?? matchedReceipt.expectedRedeliveryDate ?? li.expectedRedeliveryDate,
-        vendorResponseReason: rLi.vendorResponseReason ?? matchedReceipt.vendorResponseReason ?? li.vendorResponseReason,
+        finalQuantityRejected: resolvedRejected ?? rLi.finalQuantityRejected ?? li.finalQuantityRejected,
+        finalQuantityMissing: resolvedMissing ?? rLi.finalQuantityMissing ?? li.finalQuantityMissing,
+        resolutionStatus: lineResolutionStatus,
+        vendorDisposition: lineDisposition,
+        recommendedDisposition:
+          historyRecommendedDisposition ?? rLi.recommendedDisposition ?? li.recommendedDisposition,
+        dispositionAllocations: historyAllocations ?? rLi.dispositionAllocations ?? li.dispositionAllocations,
+        expectedRedeliveryDate:
+          rLi.expectedRedeliveryDate ??
+          (lineDisposition === "backorder" ? matchedReceipt.expectedRedeliveryDate : undefined) ??
+          li.expectedRedeliveryDate,
+        vendorResponseReason:
+          rLi.vendorResponseReason ??
+          (isSingleExceptionLine ? matchedReceipt.vendorResponseReason : undefined) ??
+          li.vendorResponseReason,
       };
     });
 
@@ -377,6 +502,25 @@ export function enrichFulfillmentsWithReceipts(
           finalQuantityMissing: li.finalQuantityMissing,
           resolutionStatus: li.resolutionStatus,
           vendorDisposition: li.vendorDisposition,
+          recommendedDisposition: (() => {
+            if (li.recommendedDisposition) return li.recommendedDisposition;
+            if (!r.decisionHistory) return undefined;
+            for (const dh of [...r.decisionHistory].reverse()) {
+              if (dh.lineItems && Array.isArray(dh.lineItems)) {
+                const match = dh.lineItems.find(
+                  (dhl: any) =>
+                    dhl.deliveryReceiptLineItemId === li.deliveryReceiptLineItemId ||
+                    dhl.purchaseOrderLineItemId === li.purchaseOrderLineItemId ||
+                    (dhl.name && dhl.name.trim().toLowerCase() === li.name?.trim().toLowerCase())
+                );
+                if (match?.recommendedDisposition) {
+                  return match.recommendedDisposition;
+                }
+              }
+            }
+            return undefined;
+          })(),
+          dispositionAllocations: li.dispositionAllocations,
           expectedRedeliveryDate: li.expectedRedeliveryDate,
           vendorResponseReason: li.vendorResponseReason,
         })),
@@ -670,3 +814,99 @@ export function sleep(ms: number) {
 export function truncate(str: string, max: number = 30): string {
   return str.length > max ? str.slice(0, max) + "…" : str;
 }
+
+const INVARIANT_UOMS = new Set([
+  "kg",
+  "g",
+  "mg",
+  "lbs",
+  "oz",
+  "ml",
+  "cl",
+  "m",
+  "cm",
+  "mm",
+  "km",
+  "ft",
+  "sqm",
+  "sqft",
+  "lot",
+  "dozen",
+  "gb",
+  "tb",
+  "mb",
+  "kb",
+  "kwh",
+]);
+
+const COUNTABLE_SINGULAR_UOMS = new Set([
+  "unit",
+  "piece",
+  "item",
+  "set",
+  "pair",
+  "pack",
+  "package",
+  "carton",
+  "case",
+  "pallet",
+  "bundle",
+  "roll",
+  "sheet",
+  "bag",
+  "bottle",
+  "can",
+  "drum",
+  "container",
+  "kit",
+  "ton",
+  "liter",
+  "gallon",
+  "barrel",
+  "meter",
+  "yard",
+  "hour",
+  "day",
+  "week",
+  "month",
+  "year",
+  "service",
+  "license",
+  "session",
+  "project",
+  "ream",
+  "spool",
+  "man-day",
+  "metric-ton",
+]);
+
+/**
+ * Returns the unit of measure label for a given quantity (e.g., "unit" / "units",
+ * "license" / "licenses", "kg" / "kg", or any custom unit string).
+ */
+export function formatUomLabel(count: number, uom?: string | null): string {
+  const raw = (uom ?? "").trim();
+  if (!raw) return count === 1 ? "unit" : "units";
+  const lower = raw.toLowerCase();
+  if (count === 1 || INVARIANT_UOMS.has(lower)) return raw;
+  if (lower === "box") return raw[0] === "B" ? "Boxes" : "boxes";
+  if (lower === "inch") return raw[0] === "I" ? "Inches" : "inches";
+  if (COUNTABLE_SINGULAR_UOMS.has(lower)) return `${raw}s`;
+  return raw;
+}
+
+/**
+ * Formats a quantity alongside its unit of measure (e.g., "10 units", "25 licenses", "1 service", "50 kg").
+ */
+export function formatQtyWithUom(count: number, uom?: string | null): string {
+  return `${count} ${formatUomLabel(count, uom)}`;
+}
+
+/**
+ * Returns a human-friendly string for a count of units (e.g. "1 unit", "4 units").
+ */
+export function pluralizeUnits(count: number, unit = "unit"): string {
+  const safeCount = Number.isFinite(count) ? count : 0;
+  return `${safeCount} ${unit}${safeCount === 1 ? "" : "s"}`;
+}
+

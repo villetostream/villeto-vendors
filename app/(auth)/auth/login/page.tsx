@@ -88,13 +88,19 @@ function LoginContent() {
   const {
     register,
     handleSubmit,
+    watch,
     formState: { errors, isSubmitting },
   } = useForm<FormData>({ 
     resolver: zodResolver(schema),
     defaultValues: {
       email: inviteEmail ?? "",
+      password: "",
     }
   });
+
+  const emailValue = watch("email");
+  const passwordValue = watch("password");
+  const isFormIncomplete = !emailValue?.trim() || !passwordValue?.trim();
 
   const onSubmit = async (data: FormData) => {
     try {
@@ -230,7 +236,14 @@ function LoginContent() {
               </div>
             </FormField>
 
-            <Button type="submit" variant="primary" size="lg" loading={isSubmitting || loginMutation.isPending || isNavigating} className="w-full mt-2">
+            <Button
+              type="submit"
+              variant="primary"
+              size="lg"
+              disabled={isFormIncomplete || isSubmitting || loginMutation.isPending || isNavigating}
+              loading={isSubmitting || loginMutation.isPending || isNavigating}
+              className="w-full mt-2"
+            >
               Login
               <ArrowRight className="h-4 w-4" aria-hidden="true" />
             </Button>

@@ -3,13 +3,13 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
-import { FilePlus2, ClipboardList, Clock, CheckCircle2, MoreVertical } from "lucide-react";
+import { FilePlus2, ClipboardList, Clock, CheckCircle2, MoreVertical, AlertCircle } from "lucide-react";
 import { useState, useEffect } from "react";
 import { getVendorSummary } from "@/lib/api/vendor";
 import { useCompanyStore, queryKeys } from "@/lib/stores/companyStore";
 import { useCompany } from "@/lib/hooks/useCompany";
 import { Button } from "@/components/ui/Button";
-import { OrderStatusBadge } from "@/components/ui/StatusBadge";
+import { OrderStatusBadge, DeliveryStatusBadge, ExceptionResolutionBadge } from "@/components/ui/StatusBadge";
 import { StatCardSkeleton, TableSkeleton } from "@/components/ui/Skeleton";
 import { EmptyState, ErrorState } from "@/components/ui/Spinner";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/Select";
@@ -75,6 +75,10 @@ export default function DashboardPage() {
   });
 
   const orders = summary?.recentOrders ?? [];
+  const activeRecentCount = orders.filter(
+    (o) => !["closed", "cancelled"].includes(o.status)
+  ).length;
+  const activePOsCount = Math.max(summary?.activePurchaseOrders ?? 0, activeRecentCount);
 
   // Fallback to update currency to the first order's currency if NGN is just a default
   // This is a UX fallback since vendor's preferred currency isn't saved yet
@@ -135,7 +139,7 @@ export default function DashboardPage() {
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           <StatCard
             label="Active POs"
-            value={summary?.activePurchaseOrders ?? 0}
+            value={activePOsCount}
             icon={ClipboardList}
             iconBg="bg-blue-50 text-blue-600"
             linkHref="/orders"
@@ -192,32 +196,90 @@ export default function DashboardPage() {
                 </tr>
               </thead>
               <tbody>
-                {orders.map((order) => (
-                  <tr 
-                    key={order.purchaseOrderId} 
-                    onClick={() => router.push(`/orders/${order.purchaseOrderId}`)}
-                    className="border-b border-dashboard-border/60 hover:bg-muted/30 transition-colors cursor-pointer"
-                  >
-                    <td className="px-5 py-3.5 text-sm font-semibold text-foreground">{order.poNumber}</td>
-                    <td className="px-5 py-3.5 text-sm text-muted-foreground">{order.lineItemCount}</td>
-                    <td className="px-5 py-3.5 text-sm text-muted-foreground">{order.currency}</td>
-                    <td className="px-5 py-3.5 text-sm text-muted-foreground">
-                      {formatCurrency(order.totalAmount, order.currency)}
-                    </td>
-                    <td className="px-5 py-3.5">
-                      <OrderStatusBadge status={order.status} />
-                    </td>
-                    <td className="px-5 py-3.5" onClick={(e) => e.stopPropagation()}>
-                      <Link
-                        href={`/orders/${order.purchaseOrderId}`}
-                        aria-label={`View order ${order.poNumber}`}
-                        className="p-1.5 rounded-lg hover:bg-muted inline-flex transition-colors"
-                      >
-                        <MoreVertical className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
-                      </Link>
-                    </td>
-                  </tr>
-                ))}
+                {orders.map((order) => {
+                  const needsVendorAction =
+                    order.vendorResponseRequired === true ||
+                    order.vendorActionRequired === true ||
+                    order.resolutionStatus === "awaiting_vendor_response";
+                  const deliveryLabelStatus =
+                    order.deliveryOutcome && order.deliveryOutcome !== "not_delivered"
+                      ? order.deliveryOutcome
+                      : order.deliveryState && order.deliveryState !== "not_started"
+                      ? order.deliveryState
+                      : null;
+                  const isExceptionsResolved =
+                    order.vendorResponseRequired === false &&
+                    !order.companyActionRequired &&
+                    !needsVendorAction;
+
+                  return (
+                    <tr 
+                      key={order.purchaseOrderId} 
+                      onClick={() => router.push(`/orders/${order.purchaseOrderId}`)}
+                      className="border-b border-dashboard-border/60 hover:bg-muted/30 transition-colors cursor-pointer"
+                    >
+                      <td className="px-5 py-3.5 text-sm font-semibold text-foreground">{order.poNumber}</td>
+                      <td className="px-5 py-3.5 text-sm text-muted-foreground">{order.lineItemCount}</td>
+                      <td className="px-5 py-3.5 text-sm text-muted-foreground">{order.currency}</td>
+                      <td className="px-5 py-3.5 text-sm text-muted-foreground">
+                        {formatCurrency(order.totalAmount, order.currency)}
+                      </td>
+                      <td className="px-5 py-3.5">
+                        <div className="flex flex-col items-start gap-1">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            {deliveryLabelStatus && !["cancelled", "closed"].includes(order.status) ? (
+                              <DeliveryStatusBadge
+                                status={deliveryLabelStatus}
+                                transportScope={order.fulfillmentTransportScope}
+                                isResolved={isExceptionsResolved}
+                              />
+                            ) : (
+                              <OrderStatusBadge
+                                status={order.status}
+                                isResolved={isExceptionsResolved}
+                              />
+                            )}
+                            {needsVendorAction ? (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-red-50 text-red-700 border border-red-200">
+                                <AlertCircle className="h-3 w-3 text-red-500" />
+                                Action Required
+                                {order.openExceptionCount && order.openExceptionCount > 0
+                                  ? ` (${order.openExceptionCount})`
+                                  : ""}
+                              </span>
+                            ) : order.companyActionRequired === true ? (
+                              <ExceptionResolutionBadge
+                                status={order.resolutionStatus || "under_company_review"}
+                              />
+                            ) : order.resolutionStatus &&
+                              order.resolutionStatus !== "not_required" ? (
+                              <ExceptionResolutionBadge status={order.resolutionStatus} />
+                            ) : null}
+                          </div>
+                          {order.fulfillmentState === "backordered" && (
+                            <span className="text-[11px] text-amber-700">
+                              Contains backordered items
+                            </span>
+                          )}
+                          {order.fulfillmentState === "cannot_fulfill" && (
+                            <span className="text-[11px] text-red-700">
+                              Contains items that have not been fulfilled
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-5 py-3.5" onClick={(e) => e.stopPropagation()}>
+                        <Link
+                          href={`/orders/${order.purchaseOrderId}`}
+                          aria-label={`View order ${order.poNumber}`}
+                          className="p-1.5 rounded-lg hover:bg-muted inline-flex transition-colors"
+                        >
+                          <MoreVertical className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
+                        </Link>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

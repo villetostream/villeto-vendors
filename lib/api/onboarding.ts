@@ -110,6 +110,11 @@ export async function saveBankingDetails(
 export interface UploadDocumentOptions {
   /** ISO-8601 expiration date — included only for document types that carry one. */
   expiresAt?: string;
+  /** ISO-8601 issue date / date of incorporation — for document types that carry one. */
+  issuedAt?: string;
+  /** For government IDs that do not expire */
+  noExpiry?: boolean;
+  notApplicable?: boolean;
   /**
    * Secondary screenshot / back-side image — included only for document types
    * that support a companion image (e.g. government_id).
@@ -122,7 +127,7 @@ export interface UploadDocumentOptions {
  * PATCH /vendors/onboarding/documents
  * Content-Type: multipart/form-data
  *
- * Optional fields (`expiresAt`, `screenshot`) are appended to the payload only
+ * Optional fields (`expiresAt`, `issuedAt`, `screenshot`) are appended to the payload only
  * when provided — callers should omit them for document types that don't apply.
  *
  * Returns presigned URL or stored document reference.
@@ -137,8 +142,14 @@ export async function uploadDocument(
   formData.append("documentType", type);
   formData.append("file", file);
 
-  if (options?.expiresAt) {
+  if (options?.issuedAt) {
+    formData.append("issuedAt", options.issuedAt);
+  }
+  if (options?.expiresAt && !options.noExpiry && !options.notApplicable) {
     formData.append("expiresAt", options.expiresAt);
+  }
+  if (options?.noExpiry || options?.notApplicable) {
+    formData.append("notApplicable", "true");
   }
   if (options?.screenshotFile) {
     formData.append("screenshot", options.screenshotFile);

@@ -1,8 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Edit2, Lock, X, Check } from "lucide-react";
+import { Edit2, Lock, X, Check, Settings } from "lucide-react";
+import { Button } from "@/components/ui/Button";
 import { toast } from "sonner";
 import { getVendorProfile, getVendorCompanies, updateVendorProfile } from "@/lib/api/vendor";
 import { queryKeys, useCompanyStore } from "@/lib/stores/companyStore";
@@ -121,7 +123,15 @@ export default function ProfilePage() {
 
   return (
     <div className="space-y-5">
-      <h1 className="text-2xl font-bold text-foreground">Profile</h1>
+      <div className="flex items-center justify-between gap-4">
+        <h1 className="text-2xl font-bold text-foreground">Profile</h1>
+        <Link href="/settings">
+          <Button variant="outline" size="sm">
+            <Settings className="h-3.5 w-3.5 mr-1.5" />
+            Organization Settings
+          </Button>
+        </Link>
+      </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_300px] gap-5 items-start">
         <div className="space-y-4">

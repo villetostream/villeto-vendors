@@ -45,6 +45,90 @@ export function MessagingWidget() {
   const [showTagError, setShowTagError] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
+  // Movable / draggable widget position (stored as right/bottom offsets in px so it adapts cleanly to viewport resizes)
+  const [offset, setOffset] = useState<{ right: number; bottom: number }>({
+    right: 24,
+    bottom: 24,
+  });
+  const [isDragging, setIsDragging] = useState(false);
+  const dragRef = useRef<{
+    startX: number;
+    startY: number;
+    startRight: number;
+    startBottom: number;
+    moved: boolean;
+  } | null>(null);
+
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem("villeto_chat_widget_offset");
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (typeof parsed?.right === "number" && typeof parsed?.bottom === "number") {
+          const maxRight = Math.max(16, window.innerWidth - 72);
+          const maxBottom = Math.max(16, window.innerHeight - 72);
+          setOffset({
+            right: Math.min(maxRight, Math.max(12, parsed.right)),
+            bottom: Math.min(maxBottom, Math.max(12, parsed.bottom)),
+          });
+        }
+      }
+    } catch {
+      // Ignore storage errors
+    }
+  }, []);
+
+  const handlePointerDown = (e: React.PointerEvent<HTMLElement>) => {
+    // Only drag with primary mouse button or touch
+    if (e.button !== 0 && e.pointerType === "mouse") return;
+    e.currentTarget.setPointerCapture(e.pointerId);
+    dragRef.current = {
+      startX: e.clientX,
+      startY: e.clientY,
+      startRight: offset.right,
+      startBottom: offset.bottom,
+      moved: false,
+    };
+  };
+
+  const handlePointerMove = (e: React.PointerEvent<HTMLElement>) => {
+    if (!dragRef.current) return;
+    const dx = e.clientX - dragRef.current.startX;
+    const dy = e.clientY - dragRef.current.startY;
+    if (Math.abs(dx) > 5 || Math.abs(dy) > 5) {
+      dragRef.current.moved = true;
+      setIsDragging(true);
+    }
+    if (!dragRef.current.moved) return;
+
+    const maxRight = Math.max(12, window.innerWidth - 68);
+    const maxBottom = Math.max(12, window.innerHeight - 68);
+    const nextRight = Math.min(maxRight, Math.max(12, dragRef.current.startRight - dx));
+    const nextBottom = Math.min(maxBottom, Math.max(12, dragRef.current.startBottom - dy));
+    setOffset({ right: nextRight, bottom: nextBottom });
+  };
+
+  const handlePointerUp = (e: React.PointerEvent<HTMLElement>, onClickAction?: () => void) => {
+    if (!dragRef.current) return;
+    const wasMoved = dragRef.current.moved;
+    dragRef.current = null;
+    setIsDragging(false);
+    try {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    } catch {
+      // Ignore if not captured
+    }
+    if (wasMoved) {
+      try {
+        localStorage.setItem("villeto_chat_widget_offset", JSON.stringify(offset));
+      } catch {
+        // Ignore storage errors
+      }
+    } else if (onClickAction) {
+      onClickAction();
+    }
+  };
+
   // Available "attach this message to" tags — real POs/invoices for this
   // company plus a fixed "General" option. No fabricated "Delivery
   // Confirmation" tags since that's not a real backend entity here.
@@ -115,32 +199,60 @@ export function MessagingWidget() {
 
   return (
     <>
-      {/* Launcher bubble */}
+      {/* Draggable Launcher Bubble */}
       {!store.isOpen && (
         <button
           type="button"
-          onClick={store.open}
+          onPointerDown={handlePointerDown}
+          onPointerMove={handlePointerMove}
+          onPointerUp={(e) => handlePointerUp(e, store.open)}
+          style={{
+            right: `${offset.right}px`,
+            bottom: `${offset.bottom}px`,
+            touchAction: "none",
+          }}
+          title="Drag to move · Click to open messages"
           aria-label={unreadCount > 0 ? `Open messages, ${unreadCount} unread` : "Open messages"}
-          className="fixed bottom-4 right-4 sm:bottom-6 sm:right-6 z-40 h-12 w-12 sm:h-14 sm:w-14 rounded-full bg-primary text-white shadow-lg flex items-center justify-center hover:bg-primary/90 transition-colors cursor-pointer"
+          className={cn(
+            "fixed z-40 h-12 w-12 sm:h-14 sm:w-14 rounded-full bg-primary text-white shadow-lg flex items-center justify-center hover:bg-primary/90 transition-colors select-none",
+            isDragging ? "cursor-grabbing scale-105 shadow-2xl" : "cursor-grab"
+          )}
         >
-          <ChatWidgetIcon className="h-5 w-5 sm:h-6 sm:w-6" />
+          <ChatWidgetIcon className="h-5 w-5 sm:h-6 sm:w-6 pointer-events-none" />
           {unreadCount > 0 && (
-            <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center leading-none border-2 border-white">
+            <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center leading-none border-2 border-white pointer-events-none">
               {unreadCount > 9 ? "9+" : unreadCount}
             </span>
           )}
         </button>
       )}
 
-      {/* Panel */}
+      {/* Panel (anchored to movable offset on desktop) */}
       {store.isOpen && (
         <div
+          style={{
+            right: `${Math.min(Math.max(12, (typeof window !== "undefined" ? window.innerWidth : 1200) - 396), offset.right)}px`,
+            bottom: `${Math.min(Math.max(12, (typeof window !== "undefined" ? window.innerHeight : 800) - 576), offset.bottom)}px`,
+          }}
           className={cn(
             "fixed z-40 bg-white flex flex-col shadow-xl border border-border overflow-hidden",
-            // Mobile: full-screen sheet. sm+: floating card anchored bottom-right.
-            "inset-0 sm:inset-auto sm:bottom-6 sm:right-6 sm:h-[560px] sm:w-[380px] sm:rounded-2xl"
+            "inset-0 sm:inset-auto sm:h-[560px] sm:w-[380px] sm:rounded-2xl"
           )}
         >
+          {/* Desktop Drag Handle Bar for Open Chat Panel */}
+          <div
+            onPointerDown={handlePointerDown}
+            onPointerMove={handlePointerMove}
+            onPointerUp={(e) => handlePointerUp(e)}
+            style={{ touchAction: "none" }}
+            title="Drag to move chat panel"
+            className={cn(
+              "hidden sm:flex items-center justify-center py-1.5 bg-slate-50 border-b border-border/60 shrink-0 select-none",
+              isDragging ? "cursor-grabbing" : "cursor-grab"
+            )}
+          >
+            <span className="h-1 w-10 rounded-full bg-slate-300" />
+          </div>
           {store.view === "conversation" && activeThread ? (
             <ConversationView
               companyName={activeCompany?.companyName ?? "Company"}

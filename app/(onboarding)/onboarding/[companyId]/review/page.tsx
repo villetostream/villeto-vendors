@@ -7,14 +7,14 @@ import { useSubmitV2Onboarding, useMyCompany } from "@/lib/hooks/useVendorNetwor
 import { Button } from "@/components/ui/Button";
 import { CheckCircle2, Check, ArrowRight, Edit3, AlertCircle, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
-import { cn } from "@/lib/utils";
+import { cn, formatDate } from "@/lib/utils";
 import { useAuthStore } from "@/lib/stores/authStore";
 import Cookies from "js-cookie";
 import { AUTH_COOKIE_NAMES, AUTH_COOKIE_OPTIONS } from "@/lib/constants/auth";
 
 const DOC_LABELS: Record<string, string> = {
   "certificate_of_incorporation": "Certificate of Incorporation",
-  "tax_certificate": "Tax Certificate",
+  "tax_certificate": "Tax Clearance Certificate (TCC)",
   "government_id": "Government ID",
   "bank_document": "Bank Document",
 };
@@ -272,12 +272,33 @@ export default function V2ReviewPage({ params }: { params: Promise<{ companyId: 
                 <div className="flex flex-col gap-4">
                   {store.uploadedDocuments.map((doc) => {
                     const label = DOC_LABELS[doc.id] || "Document";
+                    const backendDoc = company?.documents?.find((d: any) => d.documentType === doc.id) as any;
+                    const rawIssue = backendDoc?.issueDate || backendDoc?.issuedAt;
+                    const rawExpiry = backendDoc?.expiryDate || backendDoc?.expiresAt;
+                    const dateDetails = [
+                      rawIssue
+                        ? doc.id === "certificate_of_incorporation"
+                          ? `Date of Incorporation: ${formatDate(rawIssue)}`
+                          : `Issued: ${formatDate(rawIssue)}`
+                        : null,
+                      backendDoc?.notApplicable
+                        ? "No expiry date"
+                        : rawExpiry
+                        ? `Expires: ${formatDate(rawExpiry)}`
+                        : null,
+                    ]
+                      .filter(Boolean)
+                      .join(" · ");
+
                     return (
                       <div key={doc.id} className="flex items-center gap-3">
                         <CheckCircle2 className="h-5 w-5 text-primary shrink-0" />
                         <div className="min-w-0">
                           <p className="text-sm font-semibold text-foreground truncate">{doc.name}</p>
-                          <p className="text-xs text-muted-foreground">{label}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {label}
+                            {dateDetails ? ` · ${dateDetails}` : ""}
+                          </p>
                         </div>
                       </div>
                     );

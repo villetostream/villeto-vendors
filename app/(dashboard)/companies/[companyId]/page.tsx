@@ -29,6 +29,7 @@ import {
   Edit3,
   Sparkles,
   RefreshCw,
+  Settings,
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
@@ -292,6 +293,14 @@ export default function CompanyDetailPage({
                 <LayoutDashboard className="h-4 w-4 mr-2" />
                 Go to Dashboard
               </Button>
+            )}
+            {isActive && (
+              <Link href="/settings">
+                <Button variant="outline" size="sm">
+                  <Settings className="h-4 w-4 mr-2" />
+                  Organization Settings
+                </Button>
+              </Link>
             )}
             {isActive && activeCompanyId === company.companyId && (
               <Link href="/dashboard">

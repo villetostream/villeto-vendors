@@ -5,7 +5,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
-  LayoutDashboard, ShoppingCart, FileText, User, LogOut, Building2,
+  LayoutDashboard, ShoppingCart, FileText, User, LogOut, Building2, Settings,
 } from "lucide-react";
 import { VilletoLogo } from "@/components/shared/VilletoLogo";
 import { useAuthStore } from "@/lib/stores/authStore";
@@ -28,6 +28,7 @@ const NAV_ITEMS = [
   { href: "/orders", label: "Orders", icon: ShoppingCart },
   { href: "/invoices", label: "Invoices", icon: FileText },
   { href: "/companies", label: "Organizations", icon: Building2 },
+  { href: "/settings", label: "Settings", icon: Settings },
   { href: "/profile", label: "Profile", icon: User },
 ];
 
