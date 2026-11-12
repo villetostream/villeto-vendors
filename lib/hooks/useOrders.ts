@@ -11,6 +11,7 @@ import {
   getFulfillmentExceptions,
   getFulfillmentException,
   acknowledgeReceiptException,
+  acceptFinalDecision,
   disputeReceiptException,
   uploadReceiptEvidence,
 } from "@/lib/api/orders";
@@ -18,6 +19,8 @@ import { useCompanyStore, queryKeys } from "@/lib/stores/companyStore";
 import {
   AcknowledgeOrderPayload,
   AcknowledgeReceiptPayload,
+  AcknowledgeReceiptLineItemPayload,
+  ReceiptDispositionAllocation,
   CreateFulfillmentPayload,
   DispatchFulfillmentPayload,
   DisputeReceiptPayload,
@@ -284,9 +287,14 @@ export function useUploadReceiptEvidence() {
 }
 
 /**
- * Unified mutation that handles Events 2A, 2B, 2C, and 2D:
- * - If backorder/forfeit lines exist: calls POST .../acknowledge first (leaving disputed lines out).
- * - If disputed lines exist: uploads optional evidence files via POST .../evidence, then calls POST .../dispute.
+ * Unified mutation that handles all acknowledge tiers and dispute (Events 2A–2D):
+ *
+ * Tier selection for acknowledge:
+ *   - Tier 1: All ack items have same action, no split  → top-level `disposition`
+ *   - Tier 3: Multiple items, each with one action       → `lineItems[].disposition`
+ *   - Tier 4: Any item has both backorder + forfeit      → `lineItems[].allocations[]`
+ *
+ * Dispute is always a separate POST to .../dispute after acknowledge (if any ack items exist).
  */
 export function useResolveReceiptException() {
   const queryClient = useQueryClient();
@@ -303,53 +311,122 @@ export function useResolveReceiptException() {
       resolution: UnifiedResolutionPayload;
     }) => {
       const ackItems = resolution.resolutions.filter(
-        (r) => r.action === "backorder" || r.action === "forfeit"
+        (r) => r.action === "backorder" || r.action === "forfeit" || r.action === "mixed" as string
       );
       const disputeItems = resolution.resolutions.filter((r) => r.action === "dispute");
 
       let latestResult: FulfillmentExceptionDetail | null = null;
 
-      // Step 1: Acknowledge backorder / forfeit lines first (Events 2A, 2B, 2C)
+      // ── STEP 1: Acknowledge (backorder / forfeit) ──
       if (ackItems.length > 0) {
-        const allBackorder =
-          disputeItems.length === 0 && ackItems.every((r) => r.action === "backorder");
-        const allForfeit =
-          disputeItems.length === 0 && ackItems.every((r) => r.action === "forfeit");
+        // Build per-line items payload (Tier 3 / 4) targeting each specific line item by deliveryReceiptLineItemId,
+        // so the backend never re-evaluates or conflicts with previously acknowledged items on the same receipt.
+        const lineItems: AcknowledgeReceiptLineItemPayload[] = [];
 
-        const ackPayload: AcknowledgeReceiptPayload = {
-          ...(allBackorder
-            ? {
+        for (const item of ackItems) {
+          const lineId =
+            item.deliveryReceiptLineItemId ||
+            item.vendorDeliveryNoticeLineItemId ||
+            item.purchaseOrderLineItemId;
+
+          const isSplit =
+            (item.backorderQuantity ?? 0) > 0 && (item.forfeitQuantity ?? 0) > 0;
+
+          if (isSplit) {
+            // ── Tier 4: Split line — use `allocations[]` ──
+            const allocations: ReceiptDispositionAllocation[] = [];
+
+            if ((item.backorderQuantity ?? 0) > 0) {
+              allocations.push({
                 disposition: "backorder",
-                expectedRedeliveryDate: ackItems[0]?.expectedReadyDate,
+                quantity: item.backorderQuantity!,
+                ...(item.expectedReadyDate
+                  ? { expectedRedeliveryDate: item.expectedReadyDate }
+                  : {}),
                 reason:
-                  ackItems[0]?.reason ||
-                  resolution.notes ||
-                  "Replacement units will be delivered on the stated date.",
-              }
-            : allForfeit
-            ? {
+                  item.backorderReason?.trim() ||
+                  item.reason?.trim() ||
+                  "We will replace the rejected units.",
+              });
+            }
+
+            if ((item.forfeitQuantity ?? 0) > 0) {
+              allocations.push({
                 disposition: "forfeit",
+                quantity: item.forfeitQuantity!,
                 reason:
-                  ackItems[0]?.reason ||
-                  resolution.notes ||
+                  item.forfeitReason?.trim() ||
+                  item.reason?.trim() ||
                   "We cannot replace the remaining units.",
-              }
-            : {}),
-          lineItems: ackItems.map((item) => {
-            const lineId =
-              item.deliveryReceiptLineItemId ||
-              item.vendorDeliveryNoticeLineItemId ||
-              item.purchaseOrderLineItemId;
-            return {
+              });
+            }
+
+            lineItems.push({
               deliveryReceiptLineItemId: lineId,
-              disposition: item.action as "backorder" | "forfeit",
-              ...(item.action === "backorder" && item.expectedReadyDate
-                ? { expectedRedeliveryDate: item.expectedReadyDate }
+              allocations,
+            });
+          } else {
+            // ── Tier 3: Single action per line ──
+            const action = item.action as "backorder" | "forfeit";
+            const totalLineExceptions =
+              (item.quantityRejected ?? 0) + (item.quantityMissing ?? 0);
+            const isPartialQty =
+              item.actionQuantity != null &&
+              totalLineExceptions > 0 &&
+              item.actionQuantity < totalLineExceptions;
+
+            if (isPartialQty) {
+              // If only a partial quantity of this line is being acknowledged (e.g. 1 of 2 units),
+              // use explicit allocations array with quantity so backend doesn't assume whole line.
+              lineItems.push({
+                deliveryReceiptLineItemId: lineId,
+                allocations: [
+                  {
+                    disposition: action,
+                    quantity: item.actionQuantity!,
+                    ...(action === "backorder" && item.expectedReadyDate
+                      ? { expectedRedeliveryDate: item.expectedReadyDate }
+                      : {}),
+                    reason:
+                      item.reason?.trim() ||
+                      resolution.notes?.trim() ||
+                      (action === "backorder"
+                        ? "We will replace the rejected units."
+                        : "We cannot replace the remaining units."),
+                  },
+                ],
+              });
+            } else {
+              lineItems.push({
+                deliveryReceiptLineItemId: lineId,
+                disposition: action,
+                ...(action === "backorder" && item.expectedReadyDate
+                  ? { expectedRedeliveryDate: item.expectedReadyDate }
+                  : {}),
+                reason:
+                  item.reason?.trim() ||
+                  resolution.notes?.trim() ||
+                  (action === "backorder"
+                    ? "We will replace the rejected units."
+                    : "We cannot replace the remaining units."),
+              });
+            }
+          }
+        }
+
+        const hasValidLineIds = lineItems.length > 0 && lineItems.every((li) => !!li.deliveryReceiptLineItemId);
+        const ackPayload: AcknowledgeReceiptPayload = hasValidLineIds
+          ? { lineItems }
+          : {
+              disposition: ackItems[0].action as "backorder" | "forfeit",
+              ...(ackItems[0].action === "backorder" && ackItems[0].expectedReadyDate
+                ? { expectedRedeliveryDate: ackItems[0].expectedReadyDate }
                 : {}),
-              ...(item.reason ? { reason: item.reason } : {}),
+              reason:
+                ackItems[0].reason?.trim() ||
+                resolution.notes?.trim() ||
+                "We will replace the rejected units.",
             };
-          }),
-        };
 
         latestResult = await acknowledgeReceiptException(
           purchaseOrderId,
@@ -358,7 +435,7 @@ export function useResolveReceiptException() {
         );
       }
 
-      // Step 2: Upload evidence (if any) and submit dispute for disputed lines (Event 2D)
+      // ── STEP 2: Upload evidence + dispute (if any disputed lines) ──
       if (disputeItems.length > 0) {
         const evidenceList: ReceiptEvidenceItem[] = [];
 
@@ -466,6 +543,181 @@ export function useResolveReceiptException() {
         toast.error(err.message || "A vendor response has already been submitted for this receipt.");
       } else {
         toast.error(err.message || "Failed to submit receipt resolution");
+      }
+    },
+  });
+}
+
+/**
+ * useAcceptFinalDecision
+ *
+ * Accepts the company's final decision after a dispute and allocates any remaining
+ * rejected/missing units to backorder or forfeit.
+ *
+ * Uses the same 4-tier payload selection logic as useResolveReceiptException, but
+ * calls POST .../accept-final-decision instead of POST .../acknowledge.
+ *
+ * Trigger condition:
+ *   - receipt.finalDecision is set (company reviewed the dispute), AND
+ *   - Vendor still has unresolved quantities after company decision
+ *     (e.g. finalQuantityRejected > 0 or finalQuantityMissing > 0 on line items).
+ */
+export function useAcceptFinalDecision() {
+  const queryClient = useQueryClient();
+  const companyId = useCompanyStore((s) => s.activeCompanyId) ?? "";
+
+  return useMutation({
+    mutationFn: async ({
+      purchaseOrderId,
+      deliveryReceiptId,
+      resolution,
+    }: {
+      purchaseOrderId: string;
+      deliveryReceiptId: string;
+      resolution: UnifiedResolutionPayload;
+    }) => {
+      // Only backorder / forfeit allocations are valid here — disputes are not sent
+      const ackItems = resolution.resolutions.filter(
+        (r) => r.action === "backorder" || r.action === "forfeit" || r.action === ("mixed" as string)
+      );
+
+      if (ackItems.length === 0) {
+        throw new Error("No backorder or forfeit allocations provided for final decision acceptance.");
+      }
+
+      // Build per-line items payload (Tier 3 / 4) targeting each specific line item by deliveryReceiptLineItemId,
+      // so the backend updates ONLY the specified line item and never re-validates or conflicts with
+      // previously acknowledged items on the same receipt (e.g. Business Laptop).
+      const lineItems: AcknowledgeReceiptLineItemPayload[] = [];
+
+      for (const item of ackItems) {
+        const lineId =
+          item.deliveryReceiptLineItemId ||
+          item.vendorDeliveryNoticeLineItemId ||
+          item.purchaseOrderLineItemId;
+
+        const isSplit =
+          (item.backorderQuantity ?? 0) > 0 && (item.forfeitQuantity ?? 0) > 0;
+
+        if (isSplit) {
+          // ── Tier 4: Split — use `allocations[]` ──
+          const allocations: ReceiptDispositionAllocation[] = [];
+
+          if ((item.backorderQuantity ?? 0) > 0) {
+            allocations.push({
+              disposition: "backorder",
+              quantity: item.backorderQuantity!,
+              ...(item.expectedReadyDate
+                ? { expectedRedeliveryDate: item.expectedReadyDate }
+                : {}),
+              reason:
+                item.backorderReason?.trim() ||
+                item.reason?.trim() ||
+                "We will replace the rejected units.",
+            });
+          }
+
+          if ((item.forfeitQuantity ?? 0) > 0) {
+            allocations.push({
+              disposition: "forfeit",
+              quantity: item.forfeitQuantity!,
+              reason:
+                item.forfeitReason?.trim() ||
+                item.reason?.trim() ||
+                "We cannot replace the remaining units.",
+            });
+          }
+
+          lineItems.push({
+            deliveryReceiptLineItemId: lineId,
+            allocations,
+          });
+        } else {
+          // ── Tier 3: Single action per line ──
+          const action = item.action as "backorder" | "forfeit";
+          const totalLineExceptions =
+            (item.quantityRejected ?? 0) + (item.quantityMissing ?? 0);
+          const isPartialQty =
+            item.actionQuantity != null &&
+            totalLineExceptions > 0 &&
+            item.actionQuantity < totalLineExceptions;
+
+          if (isPartialQty) {
+            lineItems.push({
+              deliveryReceiptLineItemId: lineId,
+              allocations: [
+                {
+                  disposition: action,
+                  quantity: item.actionQuantity!,
+                  ...(action === "backorder" && item.expectedReadyDate
+                    ? { expectedRedeliveryDate: item.expectedReadyDate }
+                    : {}),
+                  reason:
+                    item.reason?.trim() ||
+                    resolution.notes?.trim() ||
+                    (action === "backorder"
+                      ? "We will replace the rejected units."
+                      : "We cannot replace the remaining units."),
+                },
+              ],
+            });
+          } else {
+            lineItems.push({
+              deliveryReceiptLineItemId: lineId,
+              disposition: action,
+              ...(action === "backorder" && item.expectedReadyDate
+                ? { expectedRedeliveryDate: item.expectedReadyDate }
+                : {}),
+              reason:
+                item.reason?.trim() ||
+                resolution.notes?.trim() ||
+                (action === "backorder"
+                  ? "We will replace the rejected units."
+                  : "We cannot replace the remaining units."),
+            });
+          }
+        }
+      }
+
+      const hasValidLineIds = lineItems.length > 0 && lineItems.every((li) => !!li.deliveryReceiptLineItemId);
+      const payload: AcknowledgeReceiptPayload = hasValidLineIds
+        ? { lineItems }
+        : {
+            disposition: ackItems[0].action as "backorder" | "forfeit",
+            ...(ackItems[0].action === "backorder" && ackItems[0].expectedReadyDate
+              ? { expectedRedeliveryDate: ackItems[0].expectedReadyDate }
+              : {}),
+            reason:
+              ackItems[0].reason?.trim() ||
+              resolution.notes?.trim() ||
+              "We will replace the rejected units.",
+          };
+
+      return acceptFinalDecision(purchaseOrderId, deliveryReceiptId, payload);
+    },
+
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.ordersList(companyId) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.order(companyId, variables.purchaseOrderId) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.fulfillmentExceptionsList(companyId) });
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.fulfillmentException(companyId, variables.deliveryReceiptId),
+      });
+
+      const ackCount = variables.resolution.resolutions.filter(
+        (r) => r.action === "backorder" || r.action === "forfeit"
+      ).length;
+      toast.success(
+        `Final decision accepted and ${ackCount} item${ackCount > 1 ? "s" : ""} allocated.`
+      );
+    },
+
+    onError: (error) => {
+      const err = error as { message?: string; status?: number };
+      if (err.status === 409) {
+        toast.error(err.message || "Final decision has already been accepted for this receipt.");
+      } else {
+        toast.error(err.message || "Failed to accept final decision");
       }
     },
   });

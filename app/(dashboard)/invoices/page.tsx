@@ -59,8 +59,8 @@ export default function InvoicesPage() {
     : invoices;
 
   return (
-    <div className="space-y-5">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+    <div className="flex flex-col h-[calc(100vh-5.5rem)] sm:h-[calc(100vh-6.75rem)] gap-4 overflow-hidden">
+      <div className="shrink-0 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold text-foreground">Invoices</h1>
           <p className="text-sm text-muted-foreground mt-0.5">
@@ -76,8 +76,8 @@ export default function InvoicesPage() {
         </Button>
       </div>
 
-      <div className="bg-white rounded-2xl border border-dashboard-border overflow-hidden">
-        <div className="flex flex-col gap-3 px-5 pt-4 pb-3 border-b border-dashboard-border sm:flex-row sm:items-center sm:justify-between sm:gap-4 sm:pb-0">
+      <div className="flex-1 min-h-0 flex flex-col bg-white rounded-2xl border border-dashboard-border overflow-hidden">
+        <div className="shrink-0 flex flex-col gap-3 px-5 pt-4 pb-3 border-b border-dashboard-border sm:flex-row sm:items-center sm:justify-between sm:gap-4 sm:pb-0 bg-white">
           <div className="flex items-center gap-1 overflow-x-auto scrollbar-none">
             {STATUS_TABS.map((tab) => (
               <button
@@ -111,38 +111,39 @@ export default function InvoicesPage() {
           </div>
         </div>
 
-        {isLoading ? (
-          <TableSkeleton rows={limit} columns={INVOICES_COLUMNS.length} />
-        ) : isError ? (
-          <ErrorState message="Couldn't load invoices. Please check your connection and try again." onRetry={() => refetch()} />
-        ) : visibleInvoices.length === 0 ? (
-          <EmptyState
-            title={debouncedSearch || activeTab !== "all" ? "No matching invoices" : "No invoices yet"}
-            description={
-              debouncedSearch || activeTab !== "all"
-                ? "Try adjusting your search or filter."
-                : "Invoices you create will appear here."
-            }
-            action={
-              !debouncedSearch && activeTab === "all" ? (
-                <Button asChild variant="primary" size="sm">
-                  <Link href="/invoices/create">Create Invoice</Link>
-                </Button>
-              ) : undefined
-            }
-          />
-        ) : (
-          <div className={cn("overflow-x-auto transition-opacity", isFetching && "opacity-60")}>
-            <table className="w-full">
-              <thead>
-                <tr className="border-b border-dashboard-border">
-                  {INVOICES_COLUMNS.map((col) => (
-                    <th key={col} className="px-5 py-3 text-left text-xs font-medium text-muted-foreground whitespace-nowrap">
-                      {col}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
+        <div className="flex-1 min-h-0 overflow-auto">
+          {isLoading ? (
+            <TableSkeleton rows={limit} columns={INVOICES_COLUMNS.length} />
+          ) : isError ? (
+            <ErrorState message="Couldn't load invoices. Please check your connection and try again." onRetry={() => refetch()} />
+          ) : visibleInvoices.length === 0 ? (
+            <EmptyState
+              title={debouncedSearch || activeTab !== "all" ? "No matching invoices" : "No invoices yet"}
+              description={
+                debouncedSearch || activeTab !== "all"
+                  ? "Try adjusting your search or filter."
+                  : "Invoices you create will appear here."
+              }
+              action={
+                !debouncedSearch && activeTab === "all" ? (
+                  <Button asChild variant="primary" size="sm">
+                    <Link href="/invoices/create">Create Invoice</Link>
+                  </Button>
+                ) : undefined
+              }
+            />
+          ) : (
+            <div className={cn("transition-opacity", isFetching && "opacity-60")}>
+              <table className="w-full">
+                <thead className="sticky top-0 z-10 bg-white shadow-[0_1px_0_0_var(--color-dashboard-border,#e2e8f0)]">
+                  <tr className="border-b border-dashboard-border">
+                    {INVOICES_COLUMNS.map((col) => (
+                      <th key={col} className="px-5 py-3 text-left text-xs font-medium text-muted-foreground whitespace-nowrap bg-white">
+                        {col}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
               <tbody>
                 {visibleInvoices.map((invoice) => (
                   <tr 
@@ -169,10 +170,11 @@ export default function InvoicesPage() {
               </tbody>
             </table>
           </div>
-        )}
+          )}
+        </div>
 
         {!isLoading && !isError && invoices.length > 0 && (
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between px-5 py-3.5 border-t border-dashboard-border gap-4">
+          <div className="shrink-0 flex flex-col sm:flex-row sm:items-center justify-between px-5 py-3.5 border-t border-dashboard-border bg-white gap-4">
             <div className="flex items-center gap-3">
               <span className="text-sm text-muted-foreground">Page {page}</span>
               <div className="flex items-center gap-2">

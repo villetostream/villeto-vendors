@@ -244,11 +244,16 @@ export type FulfillmentDispatchStatus = "ready" | "dispatched" | "not_applicable
 
 export type FulfillmentDeliveryState =
   | "not_started"
+  | "submitted"
   | "ready"
+  | "awaiting_dispatch"
   | "partially_dispatched"
   | "dispatched"
+  | "awaiting_receipt"
   | "partially_received"
-  | "received";
+  | "received"
+  | "disputed"
+  | "cancelled";
 
 export interface OrderVendorRef {
   vendorId: string;
@@ -324,6 +329,7 @@ export type InspectionOutcome =
 export type ExceptionResolutionStatus =
   | "not_required"
   | "awaiting_vendor_response"
+  | "awaiting_vendor_disposition"
   | "acknowledged"
   | "disputed"
   | "corrective_action_pending"
@@ -350,6 +356,12 @@ export type FinalDecisionType =
 
 export type VendorResolutionAction = "backorder" | "forfeit" | "dispute";
 
+/**
+ * The buyer's non-binding suggestion for how rejected/missing units should be handled.
+ * Omitted when the buyer accepts every unit. The vendor's chosen disposition is the final action.
+ */
+export type RecommendedDisposition = "backorder" | "forfeit";
+
 export interface ReceiptEvidenceItem {
   url: string;
   publicId: string;
@@ -375,6 +387,10 @@ export interface DeliveryReceiptLineItem {
   finalQuantityMissing?: number | null;
   resolutionStatus?: ExceptionResolutionStatus;
   vendorDisposition?: VendorResolutionAction | null;
+  /** Buyer's suggested handling for the rejected/missing units on this line (non-binding) */
+  recommendedDisposition?: RecommendedDisposition | null;
+  /** Split allocations returned by the backend after a split backorder/forfeit submission */
+  dispositionAllocations?: ReceiptDispositionAllocation[];
   expectedRedeliveryDate?: string | null;
   vendorResponseReason?: string | null;
   notes?: string | null;
@@ -433,17 +449,52 @@ export interface FulfillmentExceptionDetail {
   lineItems: DeliveryReceiptLineItem[];
 }
 
-export interface AcknowledgeReceiptLineItemPayload {
-  deliveryReceiptLineItemId: string;
+/**
+ * A single allocation bucket within an acknowledge payload.
+ * Used at receipt-level (top `allocations[]`) or per-line-item (`lineItems[].allocations[]`).
+ */
+export interface ReceiptDispositionAllocation {
   disposition: "backorder" | "forfeit";
+  quantity: number;
   expectedRedeliveryDate?: string;
   reason?: string;
 }
 
-export interface AcknowledgeReceiptPayload {
+/**
+ * Per-line-item entry in the acknowledge payload.
+ *
+ * Two modes are mutually exclusive:
+ *   1. `disposition` — apply one action to ALL rejected units on this line.
+ *   2. `allocations` — split rejected units across backorder/forfeit with explicit quantities.
+ */
+export interface AcknowledgeReceiptLineItemPayload {
+  deliveryReceiptLineItemId: string;
+  /** Simple mode: applies one action to all rejected units on this line (omit `allocations`) */
   disposition?: "backorder" | "forfeit";
   expectedRedeliveryDate?: string;
   reason?: string;
+  /** Split mode: explicit quantity buckets for this line (omit `disposition`) */
+  allocations?: ReceiptDispositionAllocation[];
+}
+
+/**
+ * Payload for POST .../acknowledge.
+ *
+ * Three mutually exclusive modes:
+ *   1. Top-level `disposition` only  — backorder/forfeit ALL rejected items in the receipt.
+ *   2. Top-level `allocations` only  — split the total receipt across backorder/forfeit with quantities.
+ *   3. `lineItems` only              — per-line actions (each line uses either `disposition` or `allocations`).
+ *
+ * Never send top-level `disposition` together with `allocations` or `lineItems`.
+ */
+export interface AcknowledgeReceiptPayload {
+  /** Tier 1: apply one action to every rejected unit in the receipt */
+  disposition?: "backorder" | "forfeit";
+  expectedRedeliveryDate?: string;
+  reason?: string;
+  /** Tier 2: split total receipt units across backorder/forfeit (omit top-level disposition) */
+  allocations?: ReceiptDispositionAllocation[];
+  /** Tier 3 & 4: per-line-item resolution (omit top-level disposition) */
   lineItems?: AcknowledgeReceiptLineItemPayload[];
 }
 
@@ -481,7 +532,18 @@ export interface LineItemResolution {
   buyerReason?: string;
   buyerCategory?: string;
   action: VendorResolutionAction;
+  /**
+   * For pure backorder or forfeit actions: the total quantity allocated to this action.
+   * For split lines (backorder + forfeit), use `backorderQuantity` + `forfeitQuantity` instead.
+   */
+  actionQuantity?: number;
+  /** Split mode — quantity to backorder on this line (use alongside forfeitQuantity) */
+  backorderQuantity?: number;
+  /** Split mode — quantity to forfeit on this line (use alongside backorderQuantity) */
+  forfeitQuantity?: number;
   expectedReadyDate?: string;
+  backorderReason?: string;
+  forfeitReason?: string;
   reason?: string;
   disputeReason?: string;
   attachmentName?: string;
@@ -545,8 +607,13 @@ export interface FulfillmentLineItem {
   inspectionOutcome?: InspectionOutcome;
   resolutionStatus?: ExceptionResolutionStatus;
   vendorDisposition?: VendorResolutionAction | null;
+  /** Buyer's suggested handling for the rejected/missing units on this line (non-binding) */
+  recommendedDisposition?: RecommendedDisposition | null;
+  /** Split allocations returned by the backend (e.g. 8 backordered + 2 forfeited on this line) */
+  dispositionAllocations?: ReceiptDispositionAllocation[];
   expectedRedeliveryDate?: string | null;
   vendorResponseReason?: string | null;
+  vendorDispositionReason?: string | null;
   resolutionAction?: VendorResolutionAction;
 }
 
@@ -560,6 +627,7 @@ export interface Fulfillment {
   declaration?: FulfillmentDeclaration | null;
   fulfillmentMethod?: FulfillmentMethod | null;
   status: "submitted" | "cancelled";
+  createdAt?: string;
   shippedAt: string;
   readyAt?: string | null;
   dispatchedAt?: string | null;
@@ -567,6 +635,9 @@ export interface Fulfillment {
   dispatchStatus?: FulfillmentDispatchStatus;
   expectedDeliveryDate?: string | null;
   carrier?: string | null;
+  licensePlate?: string | null;
+  driverName?: string | null;
+  driverPhone?: string | null;
   trackingNumber?: string | null;
   packingSlipNumber?: string | null;
   notes?: string | null;
@@ -599,6 +670,8 @@ export interface Fulfillment {
   buyerNotes?: string;
   buyerAttachmentName?: string;
   buyerAttachmentUrl?: string;
+  /** Optional buyer override permitting subsequent delivery while this shipment is unconfirmed or disputed */
+  bypassDeliveryLock?: boolean;
 }
 
 export interface OrderLegalEntityRef {
@@ -676,6 +749,11 @@ export interface Order {
   deliveryState?: FulfillmentDeliveryState;
   fulfillmentState?: FulfillmentState;
   fulfillmentActionRequired?: boolean;
+  /** Backend configurable exception: permits vendor to initiate another delivery while previous is awaiting confirmation */
+  allowConcurrentDeliveries?: boolean;
+  /** Optional backend-computed eligibility flag for creating a new delivery */
+  canCreateFulfillment?: boolean;
+  fulfillmentBlockReason?: string | null;
   canClose?: boolean;
   closeBlockers?: string[];
   finalBillingConfirmedAt?: string | null;
@@ -1037,12 +1115,45 @@ export type DocumentType =
   | "bank_document";
 
 /**
- * Document types that carry an expiration date (ISO-8601).
- * When a document is one of these types, `expiresAt` should be included in the upload payload.
+ * Document types that support an issue date (ISO-8601).
+ * All 4 document types support capturing an issue date.
+ * - Certificate of Incorporation: Date of Incorporation (mandatory)
+ * - Tax Clearance Certificate (TCC): Issue Date (mandatory)
+ * - Government ID: Issue Date (optional)
+ * - Bank Document: Issue Date (optional)
+ */
+export const DOCS_WITH_ISSUE_DATE: ReadonlySet<DocumentType> = new Set([
+  "certificate_of_incorporation",
+  "tax_certificate",
+  "government_id",
+  "bank_document",
+]);
+
+/**
+ * Document types that support an expiration date (ISO-8601).
+ * All 4 document types support capturing an expiration date.
+ * - Certificate of Incorporation: Expiry Date (optional)
+ * - Tax Clearance Certificate (TCC): Expiry Date (mandatory)
+ * - Government ID: Expiry Date (mandatory, unless marked does not expire)
+ * - Bank Document: Expiry Date (optional)
  */
 export const DOCS_WITH_EXPIRY: ReadonlySet<DocumentType> = new Set([
-  "government_id",
+  "certificate_of_incorporation",
   "tax_certificate",
+  "government_id",
+  "bank_document",
+]);
+
+/** Document types where issue date is strictly mandatory */
+export const DOCS_MANDATORY_ISSUE_DATE: ReadonlySet<DocumentType> = new Set([
+  "certificate_of_incorporation",
+  "tax_certificate",
+]);
+
+/** Document types where expiry date is strictly mandatory */
+export const DOCS_MANDATORY_EXPIRY: ReadonlySet<DocumentType> = new Set([
+  "tax_certificate",
+  "government_id",
 ]);
 
 /**
@@ -1061,8 +1172,12 @@ export interface DocumentUpload {
   file_name?: string;
   url?: string;
   uploaded?: boolean;
+  /** ISO-8601 issue date / date of incorporation — for applicable document types (see DOCS_WITH_ISSUE_DATE). */
+  issuedAt?: string;
   /** ISO-8601 expiration date — only for applicable document types (see DOCS_WITH_EXPIRY). */
   expiresAt?: string;
+  /** For government IDs that do not expire */
+  noExpiry?: boolean;
   /** Secondary screenshot/image (e.g. back of ID) — only for applicable document types. */
   screenshot?: {
     file_name?: string;

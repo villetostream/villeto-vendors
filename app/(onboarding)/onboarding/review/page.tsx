@@ -12,7 +12,7 @@ import {
 import { useOnboardingStore } from "@/lib/stores/onboardingStore";
 import { submitOnboarding, getOnboardingReview } from "@/lib/api/onboarding";
 import { toast } from "sonner";
-import { cn } from "@/lib/utils";
+import { cn, formatDate } from "@/lib/utils";
 import { useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "@/lib/stores/companyStore";
 
@@ -176,27 +176,47 @@ export default function ReviewPage() {
             <div className="rounded-xl border border-border p-5 mb-5">
               <p className="text-sm font-semibold mb-3">Documents</p>
               <div className="space-y-2.5">
-                {uploadedDocs.map((doc) => (
-                  <div key={doc.type} className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <CheckCircle2 className="h-4 w-4 text-primary shrink-0" aria-hidden="true" />
-                      <div>
-                        <p className="text-sm font-medium">{doc.file_name}</p>
-                        <p className="text-xs text-muted-foreground">{doc.label}</p>
+                {uploadedDocs.map((doc) => {
+                  const dateDetails = [
+                    doc.issuedAt
+                      ? doc.type === "certificate_of_incorporation"
+                        ? `Date of Incorporation: ${formatDate(doc.issuedAt)}`
+                        : `Issued: ${formatDate(doc.issuedAt)}`
+                      : null,
+                    doc.noExpiry
+                      ? "No expiry date"
+                      : doc.expiresAt
+                      ? `Expires: ${formatDate(doc.expiresAt)}`
+                      : null,
+                  ]
+                    .filter(Boolean)
+                    .join(" · ");
+
+                  return (
+                    <div key={doc.type} className="flex items-center justify-between gap-3 py-1">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <CheckCircle2 className="h-4 w-4 text-primary shrink-0" aria-hidden="true" />
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium truncate">{doc.file_name}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {doc.label}
+                            {dateDetails ? ` · ${dateDetails}` : ""}
+                          </p>
+                        </div>
                       </div>
+                      {doc.url && (
+                        <a
+                          href={doc.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="px-3 py-1.5 rounded-lg border border-border text-xs font-medium text-foreground hover:bg-muted transition-colors shrink-0"
+                        >
+                          View
+                        </a>
+                      )}
                     </div>
-                    {doc.url && (
-                      <a
-                        href={doc.url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="px-3 py-1.5 rounded-lg border border-border text-xs font-medium text-foreground hover:bg-muted transition-colors shrink-0"
-                      >
-                        View
-                      </a>
-                    )}
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           )}

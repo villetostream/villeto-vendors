@@ -108,11 +108,29 @@ export default function V2DocumentsPage({ params }: { params: Promise<{ companyI
   }, [company]);
 
   const isDocReady = (docId: string, dates?: DocDates) => {
-    if (dates?.notApplicable) return true;
-    const expiryOk = !!dates?.expiryDate && !isBefore(startOfDay(dates.expiryDate), startOfDay(new Date()));
-    if (!expiryOk) return false;
+    // 1. Certificate of Incorporation: Date of Incorporation is mandatory; expiry is optional
+    if (docId === "certificate_of_incorporation") {
+      const issueOk = !!dates?.issueDate && !isAfter(startOfDay(dates.issueDate), startOfDay(new Date()));
+      const expiryOk = !dates?.expiryDate || !isBefore(startOfDay(dates.expiryDate), startOfDay(new Date()));
+      return issueOk && expiryOk;
+    }
+    // 2. Tax Clearance Certificate (TCC): Both issue date and expiry date are mandatory
     if (docId === "tax_certificate") {
-      return !!dates?.issueDate && !isAfter(startOfDay(dates.issueDate), startOfDay(new Date()));
+      const issueOk = !!dates?.issueDate && !isAfter(startOfDay(dates.issueDate), startOfDay(new Date()));
+      const expiryOk = !!dates?.expiryDate && !isBefore(startOfDay(dates.expiryDate), startOfDay(new Date()));
+      return issueOk && expiryOk;
+    }
+    // 3. Government ID: Issue date is optional; expiry date is strictly required (unless marked does not expire)
+    if (docId === "government_id") {
+      const issueOk = !dates?.issueDate || !isAfter(startOfDay(dates.issueDate), startOfDay(new Date()));
+      const expiryOk = dates?.notApplicable || (!!dates?.expiryDate && !isBefore(startOfDay(dates.expiryDate), startOfDay(new Date())));
+      return issueOk && expiryOk;
+    }
+    // 4. Bank Document: Both dates are optional
+    if (docId === "bank_document") {
+      const issueOk = !dates?.issueDate || !isAfter(startOfDay(dates.issueDate), startOfDay(new Date()));
+      const expiryOk = !dates?.expiryDate || !isBefore(startOfDay(dates.expiryDate), startOfDay(new Date()));
+      return issueOk && expiryOk;
     }
     return true;
   };
@@ -169,16 +187,73 @@ export default function V2DocumentsPage({ params }: { params: Promise<{ companyI
 
   const handleNext = () => {
     for (const doc of REQUIRED_DOCS) {
+      if (!doc.required && uploads[doc.id]?.status !== "done") continue;
       const dates = docDates[doc.id];
-      if (doc.id === "tax_certificate" && dates?.issueDate) {
+
+      // 1. Certificate of Incorporation: Date of Incorporation is mandatory, expiry is optional
+      if (doc.id === "certificate_of_incorporation") {
+        if (!dates?.issueDate) {
+          toast.error("Please enter the Date of Incorporation.");
+          return;
+        }
         if (isAfter(startOfDay(dates.issueDate), startOfDay(new Date()))) {
-          toast.error("Issue date must be today or in the past.");
+          toast.error("Date of Incorporation must be today or in the past.");
+          return;
+        }
+        if (dates?.expiryDate && isBefore(startOfDay(dates.expiryDate), startOfDay(new Date()))) {
+          toast.error("Certificate of Incorporation expiration date must be today or in the future.");
           return;
         }
       }
-      if (!dates?.notApplicable && dates?.expiryDate) {
+
+      // 2. Tax Clearance Certificate: Both issue date and expiry date are mandatory
+      if (doc.id === "tax_certificate") {
+        if (!dates?.issueDate) {
+          toast.error("Please enter the Issue Date for Tax Clearance Certificate.");
+          return;
+        }
+        if (isAfter(startOfDay(dates.issueDate), startOfDay(new Date()))) {
+          toast.error("Tax Clearance Certificate issue date must be today or in the past.");
+          return;
+        }
+        if (!dates?.expiryDate) {
+          toast.error("Please enter the Expiration Date for Tax Clearance Certificate.");
+          return;
+        }
         if (isBefore(startOfDay(dates.expiryDate), startOfDay(new Date()))) {
-          toast.error("Expiration date must be today or in the future.");
+          toast.error("Tax Clearance Certificate expiration date must be today or in the future.");
+          return;
+        }
+        if (isBefore(startOfDay(dates.expiryDate), startOfDay(dates.issueDate))) {
+          toast.error("Tax Clearance Certificate expiration date cannot be earlier than its issue date.");
+          return;
+        }
+      }
+
+      // 3. Government ID: Issue date is optional, expiry date is strictly required (unless marked does not expire)
+      if (doc.id === "government_id") {
+        if (dates?.issueDate && isAfter(startOfDay(dates.issueDate), startOfDay(new Date()))) {
+          toast.error("Government ID issue date must be today or in the past.");
+          return;
+        }
+        if (!dates?.notApplicable && !dates?.expiryDate) {
+          toast.error("Please enter the Expiration Date for Government ID or select 'Does not expire'.");
+          return;
+        }
+        if (!dates?.notApplicable && dates?.expiryDate && isBefore(startOfDay(dates.expiryDate), startOfDay(new Date()))) {
+          toast.error("Government ID expiration date must be today or in the future.");
+          return;
+        }
+      }
+
+      // 4. Bank Document: Both dates are optional
+      if (doc.id === "bank_document") {
+        if (dates?.issueDate && isAfter(startOfDay(dates.issueDate), startOfDay(new Date()))) {
+          toast.error("Bank document issue date must be today or in the past.");
+          return;
+        }
+        if (dates?.expiryDate && isBefore(startOfDay(dates.expiryDate), startOfDay(new Date()))) {
+          toast.error("Bank document expiration date must be today or in the future.");
           return;
         }
       }
@@ -195,8 +270,27 @@ export default function V2DocumentsPage({ params }: { params: Promise<{ companyI
   const allRequiredDone = REQUIRED_DOCS.filter(d => d.required).every(d => uploads[d.id]?.status === "done");
   const hasPendingFiles = Object.keys(pendingFiles).length > 0;
   const hasInvalidDates = Object.entries(docDates).some(([id, d]) => {
-    if (id === "tax_certificate" && d.issueDate && isAfter(startOfDay(d.issueDate), startOfDay(new Date()))) return true;
-    if (!d.notApplicable && d.expiryDate && isBefore(startOfDay(d.expiryDate), startOfDay(new Date()))) return true;
+    if (id === "certificate_of_incorporation") {
+      const badIssue = !d.issueDate || isAfter(startOfDay(d.issueDate), startOfDay(new Date()));
+      const badExpiry = d.expiryDate && isBefore(startOfDay(d.expiryDate), startOfDay(new Date()));
+      return badIssue || badExpiry;
+    }
+    if (id === "tax_certificate") {
+      const badIssue = !d.issueDate || isAfter(startOfDay(d.issueDate), startOfDay(new Date()));
+      const badExpiry = !d.expiryDate || isBefore(startOfDay(d.expiryDate), startOfDay(new Date()));
+      const reversed = d.issueDate && d.expiryDate && isBefore(startOfDay(d.expiryDate), startOfDay(d.issueDate));
+      return badIssue || badExpiry || reversed;
+    }
+    if (id === "government_id") {
+      const badIssue = d.issueDate && isAfter(startOfDay(d.issueDate), startOfDay(new Date()));
+      const badExpiry = !d.notApplicable && (!d.expiryDate || isBefore(startOfDay(d.expiryDate), startOfDay(new Date())));
+      return badIssue || badExpiry;
+    }
+    if (id === "bank_document") {
+      const badIssue = d.issueDate && isAfter(startOfDay(d.issueDate), startOfDay(new Date()));
+      const badExpiry = d.expiryDate && isBefore(startOfDay(d.expiryDate), startOfDay(new Date()));
+      return badIssue || badExpiry;
+    }
     return false;
   });
 
@@ -290,24 +384,46 @@ function DocumentUploader({ label, uploadState, onDrop, onRemove, docId, verific
     if (initialDates?.notApplicable !== undefined) setNotApplicable(initialDates.notApplicable);
   }, [initialDates]);
 
+  const hasIssueDate = true;
+  const hasExpiryDate = true;
+  const isIssueMandatory = docId === "certificate_of_incorporation" || docId === "tax_certificate";
+  const isExpiryMandatory = docId === "tax_certificate" || docId === "government_id";
+  const hasNotApplicable = docId === "government_id";
+
   const isIssueDateInvalid = Boolean(issueDate && isAfter(startOfDay(issueDate), startOfDay(new Date())));
-  const isExpiryDateInvalid = Boolean(!notApplicable && expiryDate && isBefore(startOfDay(expiryDate), startOfDay(new Date())));
+  const isExpiryDateInvalid = Boolean(
+    !notApplicable &&
+    expiryDate &&
+    isBefore(startOfDay(expiryDate), startOfDay(new Date()))
+  );
 
   // Files can be chosen at any time; they are only sent once dates are ready
-  // ("Not applicable" bypasses ALL date requirements; expiry always required; issue date only for tax_certificate).
-  const expiryReady = notApplicable || (!!expiryDate && !isExpiryDateInvalid);
-  const issueReady = notApplicable || docId !== "tax_certificate" || (!!issueDate && !isIssueDateInvalid);
+  const issueReady = !isIssueMandatory || (!!issueDate && !isIssueDateInvalid);
+  const expiryReady = !isExpiryMandatory || notApplicable || (!!expiryDate && !isExpiryDateInvalid);
   const canUpload = true;
   const isPending = uploadState?.status === "pending";
-  const pendingHint = !issueReady
-    ? "Set the issue date or toggle \"Not applicable\" to upload"
-    : !expiryReady
-    ? "Set an expiry date or toggle \"Not applicable\" to upload"
-    : "";
+
+  const pendingHint =
+    !issueReady
+      ? docId === "certificate_of_incorporation"
+        ? "Set the Date of Incorporation to upload"
+        : "Set the issue date to upload"
+      : !expiryReady
+      ? docId === "government_id"
+        ? 'Set the expiration date or toggle "Does not expire" to upload'
+        : "Set the expiration date to upload"
+      : "";
 
   const handleIssueDateSelect = (d?: Date) => {
     if (readOnly) return;
-    if (d && isAfter(startOfDay(d), startOfDay(new Date()))) { toast.error("Issue date must be today or in the past"); return; }
+    if (d && isAfter(startOfDay(d), startOfDay(new Date()))) {
+      toast.error(
+        docId === "certificate_of_incorporation"
+          ? "Date of Incorporation must be today or in the past"
+          : "Issue date must be today or in the past"
+      );
+      return;
+    }
     setIssueDate(d);
     onDatesChange?.({ issueDate: d });
   };
@@ -408,60 +524,76 @@ function DocumentUploader({ label, uploadState, onDrop, onRemove, docId, verific
         )}
       </div>
 
-      {/* Date fields — original layout */}
+      {/* Date fields — rendered based on document type requirements */}
       <div className="flex flex-wrap gap-4 mt-2 items-end">
-        {docId === "tax_certificate" && (
-          <div className="flex flex-col gap-1.5">
-            <label className="text-[11px] text-muted-foreground font-medium">Issue date</label>
-            <div className="w-36">
-              <DatePicker
-                date={issueDate}
-                onSelect={handleIssueDateSelect}
-                disabled={(date) => isAfter(startOfDay(date), startOfDay(new Date()))}
-                isDisabled={notApplicable || readOnly}
-                placeholder="dd/mm/yyyy"
-                error={isIssueDateInvalid}
-              />
-              {isIssueDateInvalid && <p className="text-[10px] text-rose-500 font-medium mt-1">Must be today or past</p>}
-            </div>
-          </div>
-        )}
         <div className="flex flex-col gap-1.5">
-          <label className="text-[11px] text-muted-foreground font-medium">Expiry date</label>
+          <label className="text-[11px] text-muted-foreground font-medium">
+            {docId === "certificate_of_incorporation" ? "Date of Incorporation" : "Issue date"}
+            {isIssueMandatory ? (
+              <span className="text-red-500 font-bold ml-1">*</span>
+            ) : (
+              <span className="text-[10px] text-muted-foreground font-normal ml-1">(optional)</span>
+            )}
+          </label>
+          <div className="w-36">
+            <DatePicker
+              date={issueDate}
+              onSelect={handleIssueDateSelect}
+              disabled={(date) => isAfter(startOfDay(date), startOfDay(new Date()))}
+              isDisabled={readOnly}
+              placeholder="dd/mm/yyyy"
+              error={isIssueDateInvalid}
+            />
+            {isIssueDateInvalid && <p className="text-[10px] text-rose-500 font-medium mt-1">Must be today or past</p>}
+          </div>
+        </div>
+
+        <div className="flex flex-col gap-1.5">
+          <label className="text-[11px] text-muted-foreground font-medium">
+            Expiry date
+            {isExpiryMandatory && !notApplicable ? (
+              <span className="text-red-500 font-bold ml-1">*</span>
+            ) : (
+              <span className="text-[10px] text-muted-foreground font-normal ml-1">(optional)</span>
+            )}
+          </label>
           <div className="w-36">
             <DatePicker
               date={expiryDate}
               onSelect={handleExpiryDateSelect}
               disabled={(date) => isBefore(startOfDay(date), startOfDay(new Date()))}
               isDisabled={notApplicable || readOnly}
-              placeholder="dd/mm/yyyy"
+              placeholder={notApplicable ? "No expiry" : "dd/mm/yyyy"}
               error={isExpiryDateInvalid}
             />
             {isExpiryDateInvalid && <p className="text-[10px] text-rose-500 font-medium mt-1">Must be today or future</p>}
           </div>
         </div>
-        <div className="flex flex-col gap-1.5">
-          <label className="text-[11px] text-muted-foreground font-medium">Not applicable</label>
-          <div className="flex items-center h-9">
-            <button
-              type="button"
-              role="switch"
-              aria-checked={notApplicable}
-              disabled={readOnly}
-              onClick={(e) => { e.stopPropagation(); handleToggleNotApplicable(); }}
-              className={cn(
-                "relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none",
-                readOnly ? "opacity-60 cursor-not-allowed" : "cursor-pointer",
-                notApplicable ? "bg-primary" : "bg-slate-200"
-              )}
-            >
-              <span className={cn(
-                "inline-block h-4 w-4 transform rounded-full bg-white border border-slate-300/50 shadow-sm transition-transform",
-                notApplicable ? "translate-x-4" : "translate-x-0.5"
-              )} />
-            </button>
+
+        {hasNotApplicable && (
+          <div className="flex flex-col gap-1.5">
+            <label className="text-[11px] text-muted-foreground font-medium">Does not expire</label>
+            <div className="flex items-center h-9">
+              <button
+                type="button"
+                role="switch"
+                aria-checked={notApplicable}
+                disabled={readOnly}
+                onClick={(e) => { e.stopPropagation(); handleToggleNotApplicable(); }}
+                className={cn(
+                  "relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none",
+                  readOnly ? "opacity-60 cursor-not-allowed" : "cursor-pointer",
+                  notApplicable ? "bg-primary" : "bg-slate-200"
+                )}
+              >
+                <span className={cn(
+                  "inline-block h-4 w-4 transform rounded-full bg-white border border-slate-300/50 shadow-sm transition-transform",
+                  notApplicable ? "translate-x-4" : "translate-x-0.5"
+                )} />
+              </button>
+            </div>
           </div>
-        </div>
+        )}
       </div>
     </div>
   );

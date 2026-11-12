@@ -15,10 +15,11 @@ export function Spinner({ className }: { className?: string }) {
   );
 }
 
-export function PageSpinner() {
+export function PageSpinner({ message, className }: { message?: string; className?: string } = {}) {
   return (
-    <div className="flex items-center justify-center min-h-[40vh]">
+    <div className={cn("flex flex-col items-center justify-center min-h-[40vh] gap-3", className)}>
       <Spinner className="h-8 w-8" />
+      {message && <p className="text-sm text-muted-foreground">{message}</p>}
     </div>
   );
 }

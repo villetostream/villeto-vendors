@@ -95,17 +95,19 @@ export default function OrdersPage() {
     : orders;
 
   return (
-    <div className="space-y-5">
-      <div className="flex items-center gap-3">
-        <h1 className="text-2xl font-bold text-foreground">Orders</h1>
+    <div className="flex flex-col h-[calc(100vh-5.5rem)] sm:h-[calc(100vh-6.75rem)] gap-4 overflow-hidden">
+      <div className="shrink-0">
+        <div className="flex items-center gap-3">
+          <h1 className="text-2xl font-bold text-foreground">Orders</h1>
+        </div>
+        <p className="text-sm text-muted-foreground mt-0.5">
+          Manage and track your purchase orders from{" "}
+          <strong>{activeCompany?.companyName ?? "your company"}</strong>.
+        </p>
       </div>
-      <p className="text-sm text-muted-foreground -mt-3">
-        Manage and track your purchase orders from{" "}
-        <strong>{activeCompany?.companyName ?? "your company"}</strong>.
-      </p>
 
-      <div className="bg-white rounded-2xl border border-dashboard-border overflow-hidden">
-        <div className="flex flex-col gap-3 px-5 pt-4 pb-3 border-b border-dashboard-border sm:flex-row sm:items-center sm:justify-between sm:gap-4 sm:pb-0">
+      <div className="flex-1 min-h-0 flex flex-col bg-white rounded-2xl border border-dashboard-border overflow-hidden">
+        <div className="shrink-0 flex flex-col gap-3 px-5 pt-4 pb-3 border-b border-dashboard-border sm:flex-row sm:items-center sm:justify-between sm:gap-4 sm:pb-0 bg-white">
           <div className="flex items-center gap-1 overflow-x-auto scrollbar-none">
             {STATUS_TABS.map((tab) => (
               <button
@@ -173,35 +175,36 @@ export default function OrdersPage() {
           </div>
         </div>
 
-        {isLoading ? (
-          <TableSkeleton rows={limit} columns={ORDERS_COLUMNS.length} />
-        ) : isError ? (
-          <ErrorState message="Couldn't load orders. Please check your connection and try again." onRetry={() => refetch()} />
-        ) : visibleOrders.length === 0 ? (
-          <EmptyState
-            title={
-              debouncedSearch || activeTab !== "all" || deliveryOutcomeFilter !== "all" || resolutionFilter !== "all"
-                ? "No matching orders"
-                : "No orders yet"
-            }
-            description={
-              debouncedSearch || activeTab !== "all" || deliveryOutcomeFilter !== "all" || resolutionFilter !== "all"
-                ? "Try adjusting your search or filter."
-                : "Orders assigned to you will appear here."
-            }
-          />
-        ) : (
-          <div className={cn("overflow-x-auto transition-opacity", isFetching && "opacity-60")}>
-            <table className="w-full">
-              <thead>
-                <tr className="border-b border-dashboard-border">
-                  {ORDERS_COLUMNS.map((col) => (
-                    <th key={col} className="px-5 py-3 text-left text-xs font-medium text-muted-foreground whitespace-nowrap">
-                      {col}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
+        <div className="flex-1 min-h-0 overflow-auto">
+          {isLoading ? (
+            <TableSkeleton rows={limit} columns={ORDERS_COLUMNS.length} />
+          ) : isError ? (
+            <ErrorState message="Couldn't load orders. Please check your connection and try again." onRetry={() => refetch()} />
+          ) : visibleOrders.length === 0 ? (
+            <EmptyState
+              title={
+                debouncedSearch || activeTab !== "all" || deliveryOutcomeFilter !== "all" || resolutionFilter !== "all"
+                  ? "No matching orders"
+                  : "No orders yet"
+              }
+              description={
+                debouncedSearch || activeTab !== "all" || deliveryOutcomeFilter !== "all" || resolutionFilter !== "all"
+                  ? "Try adjusting your search or filter."
+                  : "Orders assigned to you will appear here."
+              }
+            />
+          ) : (
+            <div className={cn("transition-opacity", isFetching && "opacity-60")}>
+              <table className="w-full">
+                <thead className="sticky top-0 z-10 bg-white shadow-[0_1px_0_0_var(--color-dashboard-border,#e2e8f0)]">
+                  <tr className="border-b border-dashboard-border">
+                    {ORDERS_COLUMNS.map((col) => (
+                      <th key={col} className="px-5 py-3 text-left text-xs font-medium text-muted-foreground whitespace-nowrap bg-white">
+                        {col}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
               <tbody>
                 {visibleOrders.map((order) => {
                   const needsVendorAction =
@@ -234,6 +237,11 @@ export default function OrdersPage() {
                               <DeliveryStatusBadge
                                 status={deliveryLabelStatus}
                                 transportScope={order.fulfillmentTransportScope}
+                                isResolved={
+                                  order.vendorResponseRequired === false &&
+                                  !order.companyActionRequired &&
+                                  !needsVendorAction
+                                }
                               />
                             ) : (
                               <OrderStatusBadge status={order.status} />
@@ -282,10 +290,11 @@ export default function OrdersPage() {
               </tbody>
             </table>
           </div>
-        )}
+          )}
+        </div>
 
         {!isLoading && !isError && orders.length > 0 && (
-          <div className="flex flex-col gap-3 px-5 py-3.5 border-t border-dashboard-border sm:flex-row sm:items-center sm:justify-between">
+          <div className="shrink-0 flex flex-col gap-3 px-5 py-3.5 border-t border-dashboard-border bg-white sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <span>Page {page}</span>
               <label htmlFor="orders-per-page" className="sr-only">Results per page</label>

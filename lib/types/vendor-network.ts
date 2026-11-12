@@ -161,6 +161,7 @@ export interface VendorPaymentTermSubmission {
   code?: string;
   name: string;
   days: number;
+  details?: string | null;
   status: PaymentTermStatus;
   revision: number;
   isCurrent: boolean;

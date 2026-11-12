@@ -40,8 +40,12 @@ interface DocumentState {
   document_id?: string;
   url?: string;
   uploaded: boolean;
+  /** ISO-8601 issue date / date of incorporation — for applicable document types. */
+  issuedAt?: string;
   /** ISO-8601 expiration date — only sent for applicable document types. */
   expiresAt?: string;
+  /** For government IDs that do not expire */
+  noExpiry?: boolean;
   /** Secondary screenshot/image upload result — only for applicable document types. */
   screenshot?: {
     file_name?: string;
@@ -120,6 +124,12 @@ interface OnboardingState {
         documentType: DocumentType;
         originalName: string;
         fileUrl: string;
+        issuedAt?: string;
+        issueDate?: string;
+        expiresAt?: string;
+        expiryDate?: string;
+        noExpiry?: boolean;
+        notApplicable?: boolean;
       }>;
     } | null;
     onboardingMode?: OnboardingMode | null;
@@ -136,7 +146,7 @@ const DEFAULT_DOCUMENTS: DocumentState[] = [
   },
   {
     type: "tax_certificate",
-    label: "Tax Certificate",
+    label: "Tax Clearance Certificate (TCC)",
     required: true,
     uploaded: false,
   },
@@ -289,6 +299,9 @@ export const useOnboardingStore = create<OnboardingState>()(
                         uploaded: true,
                         file_name: uploaded.originalName,
                         url: uploaded.fileUrl,
+                        issuedAt: uploaded.issuedAt || uploaded.issueDate || d.issuedAt,
+                        expiresAt: uploaded.expiresAt || uploaded.expiryDate || d.expiresAt,
+                        noExpiry: uploaded.noExpiry ?? (uploaded.notApplicable !== undefined ? uploaded.notApplicable : d.noExpiry),
                       };
                     }
                     return d;

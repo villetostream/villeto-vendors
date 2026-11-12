@@ -152,6 +152,30 @@ export async function acknowledgeReceiptException(
 }
 
 /**
+ * POST /vendor-portal/orders/:purchaseOrderId/receipts/:deliveryReceiptId/accept-final-decision
+ * Accept the company's final decision and allocate any remaining rejected/missing units
+ * to backorder or forfeit.  Same 4-tier payload structure as acknowledgeReceiptException.
+ *
+ * Only call this when:
+ *   - `receipt.finalDecision` is set (company has reviewed the dispute), AND
+ *   - Some line items still have unresolved quantities after the company decision
+ *     (e.g. finalQuantityRejected > 0 or finalQuantityMissing > 0).
+ */
+export async function acceptFinalDecision(
+  purchaseOrderId: string,
+  deliveryReceiptId: string,
+  payload: AcknowledgeReceiptPayload
+): Promise<FulfillmentExceptionDetail> {
+  const { data } = await apiClient.post<
+    ApiEnvelope<FulfillmentExceptionDetail> | FulfillmentExceptionDetail
+  >(
+    `/vendor-portal/orders/${purchaseOrderId}/receipts/${deliveryReceiptId}/accept-final-decision`,
+    payload
+  );
+  return (data as ApiEnvelope<FulfillmentExceptionDetail>)?.data ?? (data as FulfillmentExceptionDetail);
+}
+
+/**
  * POST /vendor-portal/orders/:purchaseOrderId/receipts/:deliveryReceiptId/dispute
  * Submit the vendor one-time receipt dispute.
  */

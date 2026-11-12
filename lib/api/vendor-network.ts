@@ -253,13 +253,41 @@ export async function getVendorPaymentTerms(
   if (legalEntity) {
     headers["X-Villeto-Legal-Entity"] = legalEntity;
   }
+
+  const cleanParams: Record<string, any> = {};
+  if (params?.page) cleanParams.page = params.page;
+  if (params?.limit) cleanParams.limit = params.limit;
+  if (params?.status) cleanParams.status = params.status;
+  if (params?.companyId) cleanParams.companyId = params.companyId;
+  if (params?.companyName) cleanParams.companyName = params.companyName;
+
   const { data } = await apiClient.get("/vendor-network/me/payment-terms", {
-    params,
+    params: Object.keys(cleanParams).length > 0 ? cleanParams : undefined,
     headers,
   });
+
+  const rawList = Array.isArray(data?.data?.data)
+    ? data.data.data
+    : Array.isArray(data?.data)
+    ? data.data
+    : Array.isArray(data?.data?.items)
+    ? data.data.items
+    : Array.isArray(data?.items)
+    ? data.items
+    : Array.isArray(data)
+    ? data
+    : [];
+
+  const rawMeta = data?.meta || data?.data?.meta || {
+    totalCount: rawList.length,
+    totalPages: 1,
+    currentPage: 1,
+    limit: rawList.length || 10,
+  };
+
   return {
-    data: Array.isArray(data?.data) ? data.data : [],
-    meta: data?.meta || { totalCount: 0, totalPages: 0, currentPage: 1, limit: 10 },
+    data: rawList,
+    meta: rawMeta,
   };
 }
 
