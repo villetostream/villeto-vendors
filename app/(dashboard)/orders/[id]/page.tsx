@@ -390,11 +390,31 @@ function deriveFulfillmentExplicitState(
 
   const totalExceptionUnits = totalRejected + totalMissing;
 
-  const hasUnresolvedLineItems = notice.lineItems.some((li) =>
-    isLineExceptionUnresolved(li, local, notice)
+  const totalAwaitingOnLines = notice.lineItems.reduce(
+    (sum, li) => sum + (li.quantityAwaitingReceipt || 0),
+    0
   );
 
+  const hasBuyerReceiptDecision =
+    !!notice.deliveryReceiptId ||
+    !!notice.receiptNumber ||
+    isResolvedAfterDispute ||
+    notice.confirmationOutcome === "confirmed" ||
+    notice.confirmationOutcome === "confirmed_with_exceptions" ||
+    (!!notice.inspectionOutcome && notice.inspectionOutcome !== "awaiting_inspection") ||
+    notice.resolutionStatus === "acknowledged" ||
+    notice.resolutionStatus === "backordered" ||
+    notice.resolutionStatus === "forfeited" ||
+    notice.resolutionStatus === "resolved" ||
+    !!local ||
+    (totalAccepted > 0 && totalAwaitingOnLines === 0);
+
+  const hasUnresolvedLineItems =
+    hasBuyerReceiptDecision &&
+    notice.lineItems.some((li) => isLineExceptionUnresolved(li, local, notice));
+
   const isCompanyActionRequired =
+    hasBuyerReceiptDecision &&
     !hasFinalDecision &&
     !isResolvedAfterDispute &&
     (notice.companyActionRequired === true ||
@@ -402,6 +422,7 @@ function deriveFulfillmentExplicitState(
       local?.status === "disputed");
 
   const isVendorActionRequired =
+    hasBuyerReceiptDecision &&
     !hasFinalDecision &&
     !isResolvedAfterDispute &&
     (hasUnresolvedLineItems ||
@@ -440,6 +461,20 @@ function deriveFulfillmentExplicitState(
       isVendorActionRequired: false,
       isCompanyActionRequired: false,
       isResolvedAfterDispute,
+    };
+  }
+
+  if (!hasBuyerReceiptDecision) {
+    return {
+      state: "awaiting_receipt",
+      label: "Awaiting Receipt",
+      badgeCls: "bg-blue-50 text-blue-700 border-blue-200",
+      totalShipped,
+      totalAccepted: 0,
+      totalExceptionUnits: 0,
+      isVendorActionRequired: false,
+      isCompanyActionRequired: false,
+      isResolvedAfterDispute: false,
     };
   }
 
@@ -496,39 +531,6 @@ function deriveFulfillmentExplicitState(
       isVendorActionRequired: true,
       isCompanyActionRequired: false,
       isResolvedAfterDispute: false,
-    };
-  }
-
-  const totalAwaitingOnLines = notice.lineItems.reduce(
-    (sum, li) => sum + (li.quantityAwaitingReceipt || 0),
-    0
-  );
-
-  const hasBuyerReceiptDecision =
-    !!notice.deliveryReceiptId ||
-    !!notice.receiptNumber ||
-    isResolvedAfterDispute ||
-    notice.confirmationOutcome === "confirmed" ||
-    notice.confirmationOutcome === "confirmed_with_exceptions" ||
-    (!!notice.inspectionOutcome && notice.inspectionOutcome !== "awaiting_inspection") ||
-    notice.resolutionStatus === "acknowledged" ||
-    notice.resolutionStatus === "backordered" ||
-    notice.resolutionStatus === "forfeited" ||
-    notice.resolutionStatus === "resolved" ||
-    !!local ||
-    (totalAccepted > 0 && totalAwaitingOnLines === 0);
-
-  if (!hasBuyerReceiptDecision) {
-    return {
-      state: "awaiting_receipt",
-      label: "Awaiting Receipt",
-      badgeCls: "bg-blue-50 text-blue-700 border-blue-200",
-      totalShipped,
-      totalAccepted,
-      totalExceptionUnits,
-      isVendorActionRequired,
-      isCompanyActionRequired,
-      isResolvedAfterDispute,
     };
   }
 
@@ -2178,16 +2180,23 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
         (sum, li) => sum + getLineUnresolvedQty(li as any, item.fulfillment),
         0
       );
+      const rejectedSum = item.fulfillment.lineItems.reduce(
+        (sum, li) => sum + (li.quantityRejected || 0),
+        0
+      );
+      const missingSum = item.fulfillment.lineItems.reduce(
+        (sum, li) => sum + (li.quantityMissing || 0),
+        0
+      );
       return {
         fulfillment: item.fulfillment,
         index: item.index,
         totalRejected:
           item.fulfillment.totalRejectedQuantity ??
-          (item.fulfillment.lineItems.reduce((sum, li) => sum + (li.quantityRejected || 0), 0) ||
-            Math.max(0, item.totalShipped - item.totalAccepted)),
-        totalMissing:
-          item.fulfillment.totalMissingQuantity ??
-          item.fulfillment.lineItems.reduce((sum, li) => sum + (li.quantityMissing || 0), 0),
+          (rejectedSum > 0 || missingSum > 0
+            ? rejectedSum
+            : Math.max(0, item.totalShipped - item.totalAccepted)),
+        totalMissing: item.fulfillment.totalMissingQuantity ?? missingSum,
         totalExceptionUnits: item.totalExceptionUnits,
         unresolvedUnits: unresolvedUnits > 0 ? unresolvedUnits : item.totalExceptionUnits,
       };

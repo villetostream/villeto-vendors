@@ -63,14 +63,29 @@ function getLineDeliveredQty(li: FulfillmentLineItem): number {
   return li.quantityReady || li.quantityShipped || li.quantityReceived || 0;
 }
 
-function getLineExceptionQty(li: FulfillmentLineItem): number {
+function getLineExceptionQty(
+  li: FulfillmentLineItem,
+  fulfillment?: Fulfillment | null
+): number {
   const rejected = li.quantityRejected ?? 0;
   const missing = li.quantityMissing ?? 0;
   if (rejected + missing > 0) return rejected + missing;
-  return Math.max(
-    0,
-    (li.quantityReady || li.quantityShipped || 0) - (li.quantityReceived || 0)
-  );
+
+  // Only consider (shipped - received) as an exception if a buyer delivery receipt / inspection actually exists
+  const hasReceipt =
+    !!fulfillment?.deliveryReceiptId ||
+    !!fulfillment?.receiptNumber ||
+    fulfillment?.confirmationOutcome === "confirmed_with_exceptions" ||
+    (!!fulfillment?.inspectionOutcome && fulfillment.inspectionOutcome !== "awaiting_inspection");
+
+  if (hasReceipt && li.quantityReceived != null) {
+    return Math.max(
+      0,
+      (li.quantityReady || li.quantityShipped || 0) - (li.quantityReceived || 0)
+    );
+  }
+
+  return 0;
 }
 
 export function getLineContestedDisputeQty(
@@ -162,7 +177,7 @@ export function getLineUnresolvedQty(
   const excQty = isFinalDecisionPending
     ? (li.finalQuantityRejected ?? li.quantityRejected ?? 0) +
       (li.finalQuantityMissing ?? li.quantityMissing ?? 0)
-    : getLineExceptionQty(li);
+    : getLineExceptionQty(li, fulfillment);
 
   if (excQty === 0) return 0;
 
