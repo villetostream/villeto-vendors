@@ -162,19 +162,22 @@ export function getLineUnresolvedQty(
   if (
     li.resolutionStatus === "resolved" ||
     li.resolutionStatus === "resolved_after_dispute" ||
+    li.resolutionStatus === "backordered" ||
+    li.resolutionStatus === "forfeited" ||
     fulfillment?.resolutionStatus === "resolved_after_dispute" ||
     fulfillment?.finalDecision === "accept_vendor_dispute"
   ) {
     return 0;
   }
 
+  const hasFinalDecision = fulfillment?.finalDecision != null;
   const isFinalDecisionPending =
-    fulfillment?.finalDecision != null &&
+    hasFinalDecision &&
     (fulfillment.resolutionStatus === "awaiting_vendor_disposition" ||
       li.resolutionStatus === "awaiting_vendor_disposition" ||
       fulfillment.vendorActionRequired === true);
 
-  const excQty = isFinalDecisionPending
+  const excQty = hasFinalDecision
     ? (li.finalQuantityRejected ?? li.quantityRejected ?? 0) +
       (li.finalQuantityMissing ?? li.quantityMissing ?? 0)
     : getLineExceptionQty(li, fulfillment);
@@ -183,8 +186,8 @@ export function getLineUnresolvedQty(
 
   const allocated = getLineAllocatedQty(li, fulfillment).total;
 
-  if (isFinalDecisionPending) {
-    // When final decision is pending, dispute is concluded. Unresolved is remaining rejected units not yet allocated.
+  if (hasFinalDecision || isFinalDecisionPending) {
+    // Once a final decision is issued, dispute is concluded. Unresolved is remaining rejected units not yet allocated.
     return Math.max(0, excQty - allocated);
   }
 
@@ -199,6 +202,8 @@ export function isLineAlreadyResolved(
   if (
     li.resolutionStatus === "resolved" ||
     li.resolutionStatus === "resolved_after_dispute" ||
+    li.resolutionStatus === "backordered" ||
+    li.resolutionStatus === "forfeited" ||
     fulfillment?.resolutionStatus === "resolved_after_dispute" ||
     fulfillment?.finalDecision === "accept_vendor_dispute"
   ) {

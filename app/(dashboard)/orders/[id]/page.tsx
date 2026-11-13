@@ -346,9 +346,14 @@ function deriveFulfillmentExplicitState(
   const hasFinalDecision = notice.finalDecision != null;
   const isResolvedAfterDispute =
     notice.resolutionStatus === "resolved_after_dispute" ||
-    (hasFinalDecision && notice.resolutionStatus === "resolved") ||
-    (hasFinalDecision && notice.finalDecision === "accept_vendor_dispute") ||
-    (hasFinalDecision && unresolvedNoticeUnits === 0 && !notice.vendorActionRequired);
+    (hasFinalDecision &&
+      (notice.resolutionStatus === "resolved" ||
+        notice.resolutionStatus === "backordered" ||
+        notice.resolutionStatus === "forfeited" ||
+        notice.finalDecision === "accept_vendor_dispute" ||
+        (unresolvedNoticeUnits === 0 && !notice.vendorActionRequired) ||
+        (notice.vendorActionRequired === false &&
+          (notice as any).vendorResponse === "acknowledged")));
 
   const isFinalDecisionPending =
     hasFinalDecision &&
@@ -701,7 +706,7 @@ function FulfillmentHistorySection({
             <div key={notice.vendorDeliveryNoticeId}>
               <button
                 onClick={() => setExpandedId(isExpanded ? null : notice.vendorDeliveryNoticeId)}
-                className="w-full px-6 py-4 flex items-center gap-4 hover:bg-muted/30 transition-colors text-left"
+                className="w-full px-4 sm:px-6 py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4 hover:bg-muted/30 transition-colors text-left"
               >
                 <div className="flex items-center gap-3 flex-1 min-w-0">
                   <div className="h-8 w-8 rounded-full bg-muted flex items-center justify-center shrink-0">
@@ -788,7 +793,7 @@ function FulfillmentHistorySection({
               </button>
 
               {isExpanded && (
-                <div className="px-6 pb-4 space-y-3">
+                <div className="px-4 sm:px-6 pb-4 space-y-3">
                   {/* ── Action Panel 1: Vendor Action Required ── */}
                   {isVendorActionRequired && explicitInfo.state === "action_required" && (
                     <div className="p-3.5 rounded-xl bg-red-50/90 border border-red-200 space-y-3 text-xs">
@@ -1002,7 +1007,43 @@ function FulfillmentHistorySection({
                         const uom = poLine?.unitOfMeasure;
                         const shippedQty = li.quantityReady ?? li.quantityShipped ?? 0;
                         const orderedQty = li.quantityOrdered ?? poLine?.quantity ?? 0;
-                        const remainingAfterThis = Math.max(0, orderedQty - shippedQty);
+                        const isLatestForLine = !notices
+                          .slice(idx + 1)
+                          .some(
+                            (later) =>
+                              later.status !== "cancelled" &&
+                              later.lineItems.some(
+                                (laterLi) => laterLi.purchaseOrderLineItemId === li.purchaseOrderLineItemId
+                              )
+                          );
+                        const cumulativeCommitted = notices
+                          .slice(0, idx + 1)
+                          .reduce((sum, prevNotice) => {
+                            if (prevNotice.status === "cancelled") return sum;
+                            const prevLi = prevNotice.lineItems.find(
+                              (p) => p.purchaseOrderLineItemId === li.purchaseOrderLineItemId
+                            );
+                            if (!prevLi) return sum;
+                            const prevHasReceipt =
+                              !!prevNotice.deliveryReceiptId ||
+                              !!prevNotice.receiptNumber ||
+                              (prevNotice.status as string) === "confirmed";
+                            if (!prevHasReceipt) {
+                              return sum + (prevLi.quantityReady ?? prevLi.quantityShipped ?? 0);
+                            }
+                            const prevAccepted =
+                              prevNotice.finalDecision != null && prevLi.finalQuantityAccepted != null
+                                ? prevLi.finalQuantityAccepted
+                                : (prevLi.quantityAccepted ?? prevLi.quantityReceived ?? 0);
+                            const prevForfeited = (prevLi.dispositionAllocations || [])
+                              .filter((a) => a.disposition === "forfeit")
+                              .reduce((s, a) => s + (a.quantity || 0), 0);
+                            return sum + prevAccepted + prevForfeited;
+                          }, 0);
+                        const remainingAfterThis =
+                          isLatestForLine && poLine?.quantityRemainingToReady != null
+                            ? poLine.quantityRemainingToReady
+                            : Math.max(0, orderedQty - cumulativeCommitted);
 
                         const itemRejected = li.quantityRejected || 0;
                         const itemMissing = li.quantityMissing || 0;
@@ -2522,15 +2563,15 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
   return (
     <div className="space-y-5">
       {/* ── Sticky Header ── */}
-      <div className="sticky top-0 z-20 bg-dashboard-bg/95 backdrop-blur-sm -mx-4 px-4 sm:-mx-6 sm:px-6 -mt-4 pt-4 sm:-mt-6 sm:pt-6 pb-4 border-b border-border mb-2">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex items-center gap-3">
-            <button onClick={() => router.back()} aria-label="Go back" className="p-1.5 rounded-xl hover:bg-muted transition-colors shrink-0">
+      <div className="lg:sticky lg:top-0 z-20 bg-dashboard-bg/95 backdrop-blur-sm -mx-4 px-4 sm:-mx-6 sm:px-6 -mt-4 pt-4 sm:-mt-6 sm:pt-6 pb-4 border-b border-border mb-2">
+        <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+          <div className="flex items-start sm:items-center gap-3 min-w-0 flex-1">
+            <button onClick={() => router.back()} aria-label="Go back" className="p-1.5 rounded-xl hover:bg-muted transition-colors shrink-0 mt-0.5 sm:mt-0">
               <ArrowLeft className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
             </button>
-            <div>
-              <div className="flex items-center gap-2.5 flex-wrap">
-                <h1 className="text-xl font-bold">{order.poNumber}</h1>
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2 flex-wrap">
+                <h1 className="text-lg sm:text-xl font-bold break-words">{order.poNumber}</h1>
                 {order.deliveryOutcome &&
                 order.deliveryOutcome !== "not_delivered" &&
                 !["cancelled", "closed"].includes(order.status) ? (
@@ -2569,7 +2610,7 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
               </p>
             </div>
           </div>
-          <div className="flex items-center gap-2">{renderCTA()}</div>
+          <div className="flex items-center gap-2 flex-wrap xl:justify-end shrink-0">{renderCTA()}</div>
         </div>
       </div>
 
@@ -3171,12 +3212,12 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
         </div>
       )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_280px] gap-5">
+      <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_280px] gap-5">
         <div className="space-y-4 min-w-0">
           {/* ── Order Details Card ── */}
-          <div className="bg-white rounded-2xl border border-dashboard-border p-6 space-y-4">
+          <div className="bg-white rounded-2xl border border-dashboard-border p-4 sm:p-6 space-y-4">
             <h2 className="text-base font-semibold">Order Details</h2>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 pt-2 border-t border-border">
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 sm:gap-6 pt-2 border-t border-border">
               <div>
                 <p className="text-xs text-muted-foreground">Requester</p>
                 <p className="text-sm font-semibold mt-0.5">{order.requesterName ?? "—"}</p>
@@ -3223,293 +3264,358 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
           </div>
 
           {/* ── Items Table (always read-only) ── */}
-          <div className="bg-white rounded-2xl border border-dashboard-border overflow-hidden">
-            <div className="px-6 py-4 border-b border-border">
-              <h2 className="text-base font-semibold">
-                Items <span className="text-muted-foreground font-normal ml-1">{order.lineItems.length}</span>
-              </h2>
-            </div>
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[700px]">
-                <thead>
-                  <tr className="border-b border-border">
-                    <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground whitespace-nowrap">Name</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground whitespace-nowrap">Description</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground whitespace-nowrap">Quantity</th>
-                    {isEnteringDates ? (
-                      <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground whitespace-nowrap">Delivery date</th>
-                    ) : (
-                      <>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground whitespace-nowrap">Fulfillment</th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground whitespace-nowrap">Unit Price</th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground whitespace-nowrap">Line Total</th>
-                      </>
+          {(() => {
+            const itemRows = order.lineItems.map((item) => {
+              const fulfillmentSent = allNotices.reduce((sum, f) => {
+                const match = f.lineItems.find((li) => li.purchaseOrderLineItemId === item.purchaseOrderLineItemId);
+                return sum + (match?.quantityReady || match?.quantityShipped || 0);
+              }, 0);
+              const fulfillmentExceptions = allNotices.reduce((sum, f) => {
+                const match = f.lineItems.find((li) => li.purchaseOrderLineItemId === item.purchaseOrderLineItemId);
+                if (!match) return sum;
+                const rej = match.finalQuantityRejected ?? match.quantityRejected ?? 0;
+                const mis = match.finalQuantityMissing ?? match.quantityMissing ?? 0;
+                return sum + rej + mis;
+              }, 0);
+              const unresolvedItemExceptions = allNotices.reduce((sum, f) => {
+                const match = f.lineItems.find((li) => li.purchaseOrderLineItemId === item.purchaseOrderLineItemId);
+                if (!match) return sum;
+                return sum + getLineUnresolvedQty(match as any, f);
+              }, 0);
+              const matchingFulfillments = allNotices
+                .map((f, idx) => ({
+                  f,
+                  idx,
+                  li: f.lineItems.find(
+                    (l) => l.purchaseOrderLineItemId === item.purchaseOrderLineItemId
+                  ),
+                }))
+                .filter((entry): entry is { f: Fulfillment; idx: number; li: Fulfillment["lineItems"][number] } => !!entry.li);
+
+              const unresolvedFulfillments = matchingFulfillments.filter(
+                ({ f, li }) => getLineUnresolvedQty(li as any, f) > 0
+              );
+              const latestActiveFulfillment =
+                unresolvedFulfillments[unresolvedFulfillments.length - 1] ||
+                matchingFulfillments.filter(
+                  ({ li }) => (li.quantityRejected || 0) + (li.quantityMissing || 0) > 0
+                ).slice(-1)[0];
+
+              const latestExceptionDetail = latestActiveFulfillment ? (() => {
+                const { f, idx, li } = latestActiveFulfillment;
+                const rej = li.finalQuantityRejected ?? li.quantityRejected ?? 0;
+                const mis = li.finalQuantityMissing ?? li.quantityMissing ?? 0;
+                const rawReason = li.exceptionReason || li.rejectionReason || f.rejectionReason || "";
+                const parsed = parseExceptionReason(rawReason);
+                const isUnresolved = getLineUnresolvedQty(li as any, f) > 0;
+                const isMultiShipment = allNotices.length > 1;
+                const shipmentLabel = isMultiShipment ? `Shipment #${idx + 1}` : null;
+                const rec = getLineRecommendedDisposition(li as any, f);
+                return { rej, mis, category: parsed.category, text: parsed.text, isUnresolved, shipmentLabel, rec };
+              })() : null;
+
+              const latestBackorderInfo = (() => {
+                for (let i = matchingFulfillments.length - 1; i >= 0; i--) {
+                  const { f, li } = matchingFulfillments[i];
+                  const allocs = li.dispositionAllocations || [];
+                  const bo = allocs.find((a) => a.disposition === "backorder");
+                  if (bo) {
+                    return {
+                      date: bo.expectedRedeliveryDate || li.expectedRedeliveryDate || f.expectedRedeliveryDate,
+                      reason: bo.reason || f.resolutionNote,
+                    };
+                  }
+                }
+                return null;
+              })();
+
+              const effectiveBackorderDate =
+                latestBackorderInfo?.date || item.expectedReadyDate;
+              const effectiveBackorderReason =
+                latestBackorderInfo?.reason || item.dispositionReason || item.reason || "";
+              const qtyReady = fulfillmentSent > 0 ? fulfillmentSent : (item.quantityReady || 0);
+              const isCancelled = item.remainingDisposition === "cannot_fulfill";
+              const isFullyReady = qtyReady >= item.quantity;
+
+              const renderFulfillmentBadges = () => (
+                <div className="flex flex-col gap-1.5">
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    {qtyReady > 0 && (
+                      <span className={cn(
+                        "text-xs px-2 py-0.5 rounded-md inline-flex w-fit font-medium border whitespace-nowrap",
+                        isFullyReady 
+                          ? "bg-green-50 text-green-700 border-green-200" 
+                          : "bg-blue-50 text-blue-700 border-blue-200"
+                      )}>
+                        {qtyReady} of {formatQtyWithUom(item.quantity, item.unitOfMeasure)} {item.deliveryState === "dispatched" ? "Dispatched" : "Sent"}
+                      </span>
                     )}
-                  </tr>
-                </thead>
-                <tbody>
-                  {order.lineItems.map((item) => {
-                    const fulfillmentSent = allNotices.reduce((sum, f) => {
-                      const match = f.lineItems.find((li) => li.purchaseOrderLineItemId === item.purchaseOrderLineItemId);
-                      return sum + (match?.quantityReady || match?.quantityShipped || 0);
-                    }, 0);
-                    const fulfillmentExceptions = allNotices.reduce((sum, f) => {
-                      const match = f.lineItems.find((li) => li.purchaseOrderLineItemId === item.purchaseOrderLineItemId);
-                      if (!match) return sum;
-                      const rej = match.finalQuantityRejected ?? match.quantityRejected ?? 0;
-                      const mis = match.finalQuantityMissing ?? match.quantityMissing ?? 0;
-                      return sum + rej + mis;
-                    }, 0);
-                    const unresolvedItemExceptions = allNotices.reduce((sum, f) => {
-                      const match = f.lineItems.find((li) => li.purchaseOrderLineItemId === item.purchaseOrderLineItemId);
-                      if (!match) return sum;
-                      return sum + getLineUnresolvedQty(match as any, f);
-                    }, 0);
-                    // Matching fulfillment lines sorted chronologically
-                    const matchingFulfillments = allNotices
-                      .map((f, idx) => ({
-                        f,
-                        idx,
-                        li: f.lineItems.find(
-                          (l) => l.purchaseOrderLineItemId === item.purchaseOrderLineItemId
-                        ),
-                      }))
-                      .filter((entry): entry is { f: Fulfillment; idx: number; li: Fulfillment["lineItems"][number] } => !!entry.li);
+                    {(item.quantityAccepted ?? item.quantityReceived ?? 0) > 0 && (
+                      <span className="text-xs px-2 py-0.5 rounded-md inline-flex w-fit font-medium border bg-emerald-50 text-emerald-700 border-emerald-200 whitespace-nowrap">
+                        {item.quantityAccepted ?? item.quantityReceived} Accepted
+                      </span>
+                    )}
+                    {fulfillmentExceptions > 0 && (
+                      unresolvedItemExceptions === 0 ? (
+                        <span className="text-xs px-2 py-0.5 rounded-md inline-flex w-fit font-medium border bg-emerald-50 text-emerald-700 border-emerald-200 whitespace-nowrap">
+                          ✓ {fulfillmentExceptions} Rejected (Resolved)
+                        </span>
+                      ) : unresolvedItemExceptions < fulfillmentExceptions ? (
+                        <div className="flex items-center gap-1 flex-wrap">
+                          <span className="text-xs px-2 py-0.5 rounded-md inline-flex w-fit font-medium border bg-red-50 text-red-700 border-red-200 whitespace-nowrap">
+                            {unresolvedItemExceptions} Rejected
+                          </span>
+                          <span className="text-xs px-2 py-0.5 rounded-md inline-flex w-fit font-medium border bg-emerald-50 text-emerald-700 border-emerald-200 whitespace-nowrap">
+                            ✓ {fulfillmentExceptions - unresolvedItemExceptions} Resolved
+                          </span>
+                        </div>
+                      ) : (
+                        <span className="text-xs px-2 py-0.5 rounded-md inline-flex w-fit font-medium border bg-red-50 text-red-700 border-red-200 whitespace-nowrap">
+                          {fulfillmentExceptions} Rejected
+                        </span>
+                      )
+                    )}
+                  </div>
 
-                    // Prioritize the latest fulfillment with active unresolved exceptions; fallback to latest fulfillment with any exceptions
-                    const unresolvedFulfillments = matchingFulfillments.filter(
-                      ({ f, li }) => getLineUnresolvedQty(li as any, f) > 0
-                    );
-                    const latestActiveFulfillment =
-                      unresolvedFulfillments[unresolvedFulfillments.length - 1] ||
-                      matchingFulfillments.filter(
-                        ({ li }) => (li.quantityRejected || 0) + (li.quantityMissing || 0) > 0
-                      ).slice(-1)[0];
-
-                    const latestExceptionDetail = latestActiveFulfillment ? (() => {
-                      const { f, idx, li } = latestActiveFulfillment;
-                      const rej = li.finalQuantityRejected ?? li.quantityRejected ?? 0;
-                      const mis = li.finalQuantityMissing ?? li.quantityMissing ?? 0;
-                      const rawReason = li.exceptionReason || li.rejectionReason || f.rejectionReason || "";
-                      const parsed = parseExceptionReason(rawReason);
-                      const isUnresolved = getLineUnresolvedQty(li as any, f) > 0;
-                      const isMultiShipment = allNotices.length > 1;
-                      const shipmentLabel = isMultiShipment ? `Shipment #${idx + 1}` : null;
-                      const rec = getLineRecommendedDisposition(li as any, f);
-                      return { rej, mis, category: parsed.category, text: parsed.text, isUnresolved, shipmentLabel, rec };
-                    })() : null;
-
-                    // Latest backorder redelivery date and reason from latest fulfillment allocations
-                    const latestBackorderInfo = (() => {
-                      for (let i = matchingFulfillments.length - 1; i >= 0; i--) {
-                        const { f, li } = matchingFulfillments[i];
-                        const allocs = li.dispositionAllocations || [];
-                        const bo = allocs.find((a) => a.disposition === "backorder");
-                        if (bo) {
-                          return {
-                            date: bo.expectedRedeliveryDate || li.expectedRedeliveryDate || f.expectedRedeliveryDate,
-                            reason: bo.reason || f.resolutionNote,
-                          };
+                  {latestExceptionDetail && (latestExceptionDetail.category || latestExceptionDetail.text) && (
+                    <div className="text-[11px] text-red-800 bg-red-50/80 border border-red-200/70 rounded-md px-2.5 py-1.5 max-w-sm">
+                      <ExpandableText
+                        prefix={
+                          latestExceptionDetail.shipmentLabel
+                            ? `Buyer rejection (${latestExceptionDetail.shipmentLabel}):`
+                            : "Buyer rejection:"
                         }
-                      }
-                      return null;
-                    })();
+                        prefixClass="text-red-950 font-bold"
+                        text={[latestExceptionDetail.category, latestExceptionDetail.text]
+                          .filter(Boolean)
+                          .join(" - ") || "Inspection discrepancy"}
+                        maxLength={75}
+                        className="text-red-900"
+                      />
+                    </div>
+                  )}
 
-                    const effectiveBackorderDate =
-                      latestBackorderInfo?.date || item.expectedReadyDate;
-                    const effectiveBackorderReason =
-                      latestBackorderInfo?.reason || item.dispositionReason || item.reason || "";
-                    const qtyReady = fulfillmentSent > 0 ? fulfillmentSent : (item.quantityReady || 0);
-                    const isCancelled = item.remainingDisposition === "cannot_fulfill";
-                    const isFullyReady = qtyReady >= item.quantity;
-                    
-                    return (
-                      <tr
-                        key={item.purchaseOrderLineItemId}
-                        onClick={() => !isEnteringDates && setSelectedItemForDrawer(item)}
-                        className={cn(
-                          "border-b border-border/60 hover:bg-muted/30 transition-colors",
-                          !isEnteringDates && "cursor-pointer",
-                          isCancelled ? "bg-red-50/30" : ""
-                        )}
-                      >
-                        <td className="px-6 py-3.5 text-sm font-medium whitespace-nowrap">{item.name}</td>
-                        <td className="px-6 py-3.5 text-sm text-muted-foreground max-w-xs truncate">
-                          {item.description?.trim() ? item.description : "—"}
-                        </td>
-                        <td className="px-6 py-3.5 text-sm whitespace-nowrap">
-                          <span className="font-medium text-foreground">{item.quantity}</span>
-                          {item.unitOfMeasure && (
-                            <span className="ml-1 text-xs text-muted-foreground">
-                              {formatQtyWithUom(item.quantity, item.unitOfMeasure).replace(/^\d+\s*/, "")}
-                            </span>
+                  {latestExceptionDetail?.rec && unresolvedItemExceptions > 0 && (
+                    <div className="text-[11px] text-sky-900 bg-sky-50 border border-sky-200 rounded-md px-2.5 py-1 max-w-sm flex items-center gap-1.5 flex-wrap">
+                      <span className="font-bold">Buyer recommendation:</span>
+                      <span className="font-semibold capitalize">
+                        {latestExceptionDetail.rec === "forfeit" ? "Forfeit (write off)" : "Backorder (send replacement)"}
+                      </span>
+                      <span className="text-[10px] text-sky-700/80">(Non-binding)</span>
+                    </div>
+                  )}
+
+                  {item.remainingDisposition === "backordered" && (
+                    <div className="space-y-0.5">
+                      <span className="text-xs text-amber-800 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-md w-fit font-medium whitespace-nowrap inline-flex items-center gap-1">
+                        <Clock className="h-3 w-3 text-amber-600" />
+                        {formatQtyWithUom(getRemainingToReady(item), item.unitOfMeasure)} Backordered{effectiveBackorderDate ? ` · Est. ${formatDate(effectiveBackorderDate)}` : ""}
+                      </span>
+                      {effectiveBackorderReason && (
+                        <div className="pl-0.5 max-w-sm">
+                          <ExpandableText
+                            prefix="Backorder reason:"
+                            prefixClass="text-amber-950 font-semibold"
+                            text={effectiveBackorderReason}
+                            maxLength={60}
+                            className="text-amber-900/90"
+                          />
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {isCancelled && (
+                    <div className="space-y-0.5">
+                      <span className="text-xs text-red-700 bg-red-50 border border-red-200 px-2 py-0.5 rounded-md w-fit font-medium whitespace-nowrap">
+                        {formatQtyWithUom(item.quantity - qtyReady, item.unitOfMeasure)} Cannot Fulfill
+                      </span>
+                      {(item.dispositionReason || item.reason) && (
+                        <div className="pl-0.5 max-w-sm">
+                          <ExpandableText
+                            prefix="Cancellation reason:"
+                            prefixClass="text-red-950 font-semibold"
+                            text={item.dispositionReason || item.reason || ""}
+                            maxLength={60}
+                            className="text-red-800/90"
+                          />
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {(item.quantityForfeited || 0) > 0 && (
+                    <span className="text-xs text-red-700 bg-red-50 border border-red-200 px-2 py-0.5 rounded-md w-fit font-medium whitespace-nowrap">
+                      {formatQtyWithUom(item.quantityForfeited!, item.unitOfMeasure)} Forfeited
+                    </span>
+                  )}
+
+                  {(item.shortClosedQuantity || 0) > 0 && (
+                    <div className="space-y-0.5">
+                      <span className="text-xs text-slate-700 bg-slate-100 border border-slate-200 px-2 py-0.5 rounded-md w-fit font-medium whitespace-nowrap">
+                        {formatQtyWithUom(item.shortClosedQuantity!, item.unitOfMeasure)} Short-Closed
+                      </span>
+                      {item.shortCloseReason && (
+                        <p className="text-[11px] text-slate-600 pl-0.5 max-w-sm">
+                          <span className="font-semibold text-slate-800">Short-close note:</span> {item.shortCloseReason}
+                        </p>
+                      )}
+                    </div>
+                  )}
+
+                  {!qtyReady && !item.remainingDisposition && (
+                    <span className="text-xs text-slate-600 bg-slate-50 border border-slate-200/80 px-2 py-0.5 rounded-md w-fit font-medium whitespace-nowrap">
+                      Not started · {formatQtyWithUom(getRemainingToReady(item), item.unitOfMeasure)} left
+                    </span>
+                  )}
+                </div>
+              );
+
+              return { item, isCancelled, renderFulfillmentBadges };
+            });
+
+            return (
+              <div className="bg-white rounded-2xl border border-dashboard-border overflow-hidden">
+                <div className="px-4 sm:px-6 py-4 border-b border-border">
+                  <h2 className="text-base font-semibold">
+                    Items <span className="text-muted-foreground font-normal ml-1">{order.lineItems.length}</span>
+                  </h2>
+                </div>
+
+                {/* Mobile card view */}
+                <div className="md:hidden divide-y divide-border/60">
+                  {itemRows.map(({ item, isCancelled, renderFulfillmentBadges }) => (
+                    <div
+                      key={item.purchaseOrderLineItemId}
+                      onClick={() => !isEnteringDates && setSelectedItemForDrawer(item)}
+                      className={cn(
+                        "p-4 space-y-3 transition-colors",
+                        !isEnteringDates && "cursor-pointer hover:bg-muted/30",
+                        isCancelled ? "bg-red-50/30" : ""
+                      )}
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="text-sm font-semibold text-foreground">{item.name}</p>
+                          {item.description?.trim() && (
+                            <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{item.description}</p>
                           )}
-                        </td>
+                        </div>
+                        {!isEnteringDates && (
+                          <div className="text-right shrink-0">
+                            <p className="text-sm font-semibold text-foreground">
+                              {formatCurrency(item.lineTotal, order.currency)}
+                            </p>
+                            <p className="text-[11px] text-muted-foreground">
+                              {formatCurrency(item.unitPrice, order.currency)} / unit
+                            </p>
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="flex items-center justify-between text-xs text-muted-foreground">
+                        <span>
+                          Qty:{" "}
+                          <strong className="text-foreground font-medium">
+                            {formatQtyWithUom(item.quantity, item.unitOfMeasure)}
+                          </strong>
+                        </span>
+                      </div>
+
+                      {isEnteringDates ? (
+                        <div>
+                          <label htmlFor={`mobile-date-${item.purchaseOrderLineItemId}`} className="block text-xs font-medium text-muted-foreground mb-1">
+                            Delivery date
+                          </label>
+                          <DatePicker
+                            date={parseLocalDate(draftDates[item.purchaseOrderLineItemId])}
+                            onSelect={(d) =>
+                              setDraftDates((prev) => ({ ...prev, [item.purchaseOrderLineItemId]: d ? format(d, "yyyy-MM-dd") : "" }))
+                            }
+                            disabled={(d) => d < new Date(new Date().setHours(0,0,0,0))}
+                            className="h-9 px-2.5 w-full"
+                          />
+                        </div>
+                      ) : (
+                        renderFulfillmentBadges()
+                      )}
+                    </div>
+                  ))}
+                </div>
+
+                {/* Desktop / tablet table view */}
+                <div className="hidden md:block overflow-x-auto">
+                  <table className="w-full min-w-[640px]">
+                    <thead>
+                      <tr className="border-b border-border">
+                        <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground whitespace-nowrap">Name</th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground whitespace-nowrap">Description</th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground whitespace-nowrap">Quantity</th>
                         {isEnteringDates ? (
-                          <td className="px-6 py-3.5">
-                            <label htmlFor={`date-${item.purchaseOrderLineItemId}`} className="sr-only">
-                              Delivery date for {item.name}
-                            </label>
-                            <DatePicker
-                              date={parseLocalDate(draftDates[item.purchaseOrderLineItemId])}
-                              onSelect={(d) =>
-                                setDraftDates((prev) => ({ ...prev, [item.purchaseOrderLineItemId]: d ? format(d, "yyyy-MM-dd") : "" }))
-                              }
-                              disabled={(d) => d < new Date(new Date().setHours(0,0,0,0))}
-                              className="h-9 px-2.5 min-w-[140px]"
-                            />
-                          </td>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground whitespace-nowrap">Delivery date</th>
                         ) : (
                           <>
-                            {/* Fulfillment column */}
-                            <td className="px-6 py-3.5">
-                              <div className="flex flex-col gap-1.5">
-                                <div className="flex items-center gap-1.5 flex-wrap">
-                                  {qtyReady > 0 && (
-                                    <span className={cn(
-                                      "text-xs px-2 py-0.5 rounded-md inline-flex w-fit font-medium border whitespace-nowrap",
-                                      isFullyReady 
-                                        ? "bg-green-50 text-green-700 border-green-200" 
-                                        : "bg-blue-50 text-blue-700 border-blue-200"
-                                    )}>
-                                      {qtyReady} of {formatQtyWithUom(item.quantity, item.unitOfMeasure)} {item.deliveryState === "dispatched" ? "Dispatched" : "Sent"}
-                                    </span>
-                                  )}
-                                  {(item.quantityAccepted ?? item.quantityReceived ?? 0) > 0 && (
-                                    <span className="text-xs px-2 py-0.5 rounded-md inline-flex w-fit font-medium border bg-emerald-50 text-emerald-700 border-emerald-200 whitespace-nowrap">
-                                      {item.quantityAccepted ?? item.quantityReceived} Accepted
-                                    </span>
-                                  )}
-                                  {fulfillmentExceptions > 0 && (
-                                    unresolvedItemExceptions === 0 ? (
-                                      <span className="text-xs px-2 py-0.5 rounded-md inline-flex w-fit font-medium border bg-emerald-50 text-emerald-700 border-emerald-200 whitespace-nowrap">
-                                        ✓ {fulfillmentExceptions} Rejected (Resolved)
-                                      </span>
-                                    ) : unresolvedItemExceptions < fulfillmentExceptions ? (
-                                      <div className="flex items-center gap-1 flex-wrap">
-                                        <span className="text-xs px-2 py-0.5 rounded-md inline-flex w-fit font-medium border bg-red-50 text-red-700 border-red-200 whitespace-nowrap">
-                                          {unresolvedItemExceptions} Rejected
-                                        </span>
-                                        <span className="text-xs px-2 py-0.5 rounded-md inline-flex w-fit font-medium border bg-emerald-50 text-emerald-700 border-emerald-200 whitespace-nowrap">
-                                          ✓ {fulfillmentExceptions - unresolvedItemExceptions} Resolved
-                                        </span>
-                                      </div>
-                                    ) : (
-                                      <span className="text-xs px-2 py-0.5 rounded-md inline-flex w-fit font-medium border bg-red-50 text-red-700 border-red-200 whitespace-nowrap">
-                                        {fulfillmentExceptions} Rejected
-                                      </span>
-                                    )
-                                  )}
-                                </div>
-
-                                {/* Buyer rejection note (prioritizing the latest active fulfillment) with expandable more/less */}
-                                {latestExceptionDetail && (latestExceptionDetail.category || latestExceptionDetail.text) && (
-                                  <div className="text-[11px] text-red-800 bg-red-50/80 border border-red-200/70 rounded-md px-2.5 py-1.5 max-w-sm">
-                                    <ExpandableText
-                                      prefix={
-                                        latestExceptionDetail.shipmentLabel
-                                          ? `Buyer rejection (${latestExceptionDetail.shipmentLabel}):`
-                                          : "Buyer rejection:"
-                                      }
-                                      prefixClass="text-red-950 font-bold"
-                                      text={[latestExceptionDetail.category, latestExceptionDetail.text]
-                                        .filter(Boolean)
-                                        .join(" - ") || "Inspection discrepancy"}
-                                      maxLength={75}
-                                      className="text-red-900"
-                                    />
-                                  </div>
-                                )}
-
-                                {/* Buyer recommendation for unresolved items */}
-                                {latestExceptionDetail?.rec && unresolvedItemExceptions > 0 && (
-                                  <div className="text-[11px] text-sky-900 bg-sky-50 border border-sky-200 rounded-md px-2.5 py-1 max-w-sm flex items-center gap-1.5 flex-wrap">
-                                    <span className="font-bold">Buyer recommendation:</span>
-                                    <span className="font-semibold capitalize">
-                                      {latestExceptionDetail.rec === "forfeit" ? "Forfeit (write off)" : "Backorder (send replacement)"}
-                                    </span>
-                                    <span className="text-[10px] text-sky-700/80">(Non-binding)</span>
-                                  </div>
-                                )}
-
-                                {/* Vendor backorder disposition (reflecting latest fulfillment resolution/notes) */}
-                                {item.remainingDisposition === "backordered" && (
-                                  <div className="space-y-0.5">
-                                    <span className="text-xs text-amber-800 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-md w-fit font-medium whitespace-nowrap inline-flex items-center gap-1">
-                                      <Clock className="h-3 w-3 text-amber-600" />
-                                      {formatQtyWithUom(getRemainingToReady(item), item.unitOfMeasure)} Backordered{effectiveBackorderDate ? ` · Est. ${formatDate(effectiveBackorderDate)}` : ""}
-                                    </span>
-                                    {effectiveBackorderReason && (
-                                      <div className="pl-0.5 max-w-sm">
-                                        <ExpandableText
-                                          prefix="Backorder reason:"
-                                          prefixClass="text-amber-950 font-semibold"
-                                          text={effectiveBackorderReason}
-                                          maxLength={60}
-                                          className="text-amber-900/90"
-                                        />
-                                      </div>
-                                    )}
-                                  </div>
-                                )}
-
-                                {/* Vendor cannot fulfill disposition with expandable more/less */}
-                                {isCancelled && (
-                                  <div className="space-y-0.5">
-                                    <span className="text-xs text-red-700 bg-red-50 border border-red-200 px-2 py-0.5 rounded-md w-fit font-medium whitespace-nowrap">
-                                      {formatQtyWithUom(item.quantity - qtyReady, item.unitOfMeasure)} Cannot Fulfill
-                                    </span>
-                                    {(item.dispositionReason || item.reason) && (
-                                      <div className="pl-0.5 max-w-sm">
-                                        <ExpandableText
-                                          prefix="Cancellation reason:"
-                                          prefixClass="text-red-950 font-semibold"
-                                          text={item.dispositionReason || item.reason || ""}
-                                          maxLength={60}
-                                          className="text-red-800/90"
-                                        />
-                                      </div>
-                                    )}
-                                  </div>
-                                )}
-
-                                {(item.quantityForfeited || 0) > 0 && (
-                                  <span className="text-xs text-red-700 bg-red-50 border border-red-200 px-2 py-0.5 rounded-md w-fit font-medium whitespace-nowrap">
-                                    {formatQtyWithUom(item.quantityForfeited!, item.unitOfMeasure)} Forfeited
-                                  </span>
-                                )}
-
-                                {(item.shortClosedQuantity || 0) > 0 && (
-                                  <div className="space-y-0.5">
-                                    <span className="text-xs text-slate-700 bg-slate-100 border border-slate-200 px-2 py-0.5 rounded-md w-fit font-medium whitespace-nowrap">
-                                      {formatQtyWithUom(item.shortClosedQuantity!, item.unitOfMeasure)} Short-Closed
-                                    </span>
-                                    {item.shortCloseReason && (
-                                      <p className="text-[11px] text-slate-600 pl-0.5 max-w-sm">
-                                        <span className="font-semibold text-slate-800">Short-close note:</span> {item.shortCloseReason}
-                                      </p>
-                                    )}
-                                  </div>
-                                )}
-
-                                {!qtyReady && !item.remainingDisposition && (
-                                  <span className="text-xs text-slate-600 bg-slate-50 border border-slate-200/80 px-2 py-0.5 rounded-md w-fit font-medium whitespace-nowrap">
-                                    Not started · {formatQtyWithUom(getRemainingToReady(item), item.unitOfMeasure)} left
-                                  </span>
-                                )}
-                              </div>
-                            </td>
-                            <td className="px-6 py-3.5 text-sm whitespace-nowrap">{formatCurrency(item.unitPrice, order.currency)}</td>
-                            <td className="px-6 py-3.5 text-sm font-medium whitespace-nowrap">{formatCurrency(item.lineTotal, order.currency)}</td>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground whitespace-nowrap">Fulfillment</th>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground whitespace-nowrap">Unit Price</th>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground whitespace-nowrap">Line Total</th>
                           </>
                         )}
                       </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          </div>
+                    </thead>
+                    <tbody>
+                      {itemRows.map(({ item, isCancelled, renderFulfillmentBadges }) => (
+                        <tr
+                          key={item.purchaseOrderLineItemId}
+                          onClick={() => !isEnteringDates && setSelectedItemForDrawer(item)}
+                          className={cn(
+                            "border-b border-border/60 hover:bg-muted/30 transition-colors",
+                            !isEnteringDates && "cursor-pointer",
+                            isCancelled ? "bg-red-50/30" : ""
+                          )}
+                        >
+                          <td className="px-6 py-3.5 text-sm font-medium whitespace-nowrap">{item.name}</td>
+                          <td className="px-6 py-3.5 text-sm text-muted-foreground max-w-xs truncate">
+                            {item.description?.trim() ? item.description : "—"}
+                          </td>
+                          <td className="px-6 py-3.5 text-sm whitespace-nowrap">
+                            <span className="font-medium text-foreground">{item.quantity}</span>
+                            {item.unitOfMeasure && (
+                              <span className="ml-1 text-xs text-muted-foreground">
+                                {formatQtyWithUom(item.quantity, item.unitOfMeasure).replace(/^\d+\s*/, "")}
+                              </span>
+                            )}
+                          </td>
+                          {isEnteringDates ? (
+                            <td className="px-6 py-3.5">
+                              <label htmlFor={`date-${item.purchaseOrderLineItemId}`} className="sr-only">
+                                Delivery date for {item.name}
+                              </label>
+                              <DatePicker
+                                date={parseLocalDate(draftDates[item.purchaseOrderLineItemId])}
+                                onSelect={(d) =>
+                                  setDraftDates((prev) => ({ ...prev, [item.purchaseOrderLineItemId]: d ? format(d, "yyyy-MM-dd") : "" }))
+                                }
+                                disabled={(d) => d < new Date(new Date().setHours(0,0,0,0))}
+                                className="h-9 px-2.5 min-w-[140px]"
+                              />
+                            </td>
+                          ) : (
+                            <>
+                              <td className="px-6 py-3.5">
+                                {renderFulfillmentBadges()}
+                              </td>
+                              <td className="px-6 py-3.5 text-sm whitespace-nowrap">{formatCurrency(item.unitPrice, order.currency)}</td>
+                              <td className="px-6 py-3.5 text-sm font-medium whitespace-nowrap">{formatCurrency(item.lineTotal, order.currency)}</td>
+                            </>
+                          )}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            );
+          })()}
 
           {/* ── Receipt Confirmation (dispatched vs buyer-confirmed) ── */}
           <ReceiptConfirmationSection
