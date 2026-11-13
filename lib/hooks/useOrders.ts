@@ -48,7 +48,6 @@ export function useOrders(filters: OrderFilters = {}) {
     queryKey: queryKeys.orders(companyId, mergedFilters),
     queryFn: () => getOrders(mergedFilters),
     enabled: !!companyId,
-    refetchInterval: 15000,
   });
 }
 
@@ -59,7 +58,21 @@ export function useOrder(purchaseOrderId: string) {
     queryKey: queryKeys.order(companyId, purchaseOrderId),
     queryFn: () => getOrder(purchaseOrderId),
     enabled: !!companyId && !!purchaseOrderId,
-    refetchInterval: 15000, // Poll every 15s for buyer actions (e.g. receipt confirmation)
+    // Poll every 30s only while waiting on a buyer action (receipt confirmation or dispute review)
+    refetchInterval: (query) => {
+      const data = query.state.data;
+      if (!data) return false;
+      if (["closed", "cancelled", "delivered", "issued", "acknowledged"].includes(data.status)) {
+        return false;
+      }
+      const hasDisputedReview = data.receiptConfirmations?.some(
+        (r) => r.companyActionRequired || r.resolutionStatus === "under_company_review"
+      );
+      const hasAwaitingReceipt = (data.fulfillments || data.deliveryNotices || []).some(
+        (f) => f.dispatchStatus === "dispatched" && (f.status as string) !== "confirmed" && f.status !== "cancelled"
+      );
+      return hasDisputedReview || hasAwaitingReceipt ? 30000 : false;
+    },
   });
 }
 
@@ -170,7 +183,6 @@ export function useFulfillmentExceptions(filters: FulfillmentExceptionFilters = 
     queryKey: queryKeys.fulfillmentExceptions(companyId, filters),
     queryFn: () => getFulfillmentExceptions(filters),
     enabled: !!companyId,
-    refetchInterval: 15000,
   });
 }
 
@@ -181,7 +193,6 @@ export function useFulfillmentException(deliveryReceiptId?: string) {
     queryKey: queryKeys.fulfillmentException(companyId, deliveryReceiptId ?? ""),
     queryFn: () => getFulfillmentException(deliveryReceiptId!),
     enabled: !!companyId && !!deliveryReceiptId,
-    refetchInterval: 15000,
   });
 }
 
@@ -201,7 +212,6 @@ export function useOrderFulfillmentExceptions(purchaseOrderId: string) {
       queryKey: queryKeys.fulfillmentException(companyId, item.deliveryReceiptId),
       queryFn: () => getFulfillmentException(item.deliveryReceiptId),
       enabled: !!companyId && !!item.deliveryReceiptId,
-      refetchInterval: 15000,
     })),
   });
 

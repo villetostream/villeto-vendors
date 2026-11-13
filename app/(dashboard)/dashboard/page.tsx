@@ -71,7 +71,6 @@ export default function DashboardPage() {
     queryKey: queryKeys.summary(companyId, summaryFilters),
     queryFn: () => getVendorSummary(summaryFilters),
     enabled: !!companyId,
-    refetchInterval: 15000,
   });
 
   const orders = summary?.recentOrders ?? [];
