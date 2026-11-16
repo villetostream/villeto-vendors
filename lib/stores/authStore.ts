@@ -8,6 +8,7 @@ import { create } from "zustand";
 import { AuthUser, CompanyRelationship, CurrentVendor } from "@/lib/types";
 import Cookies from "js-cookie";
 import { AUTH_COOKIE_NAMES, AUTH_COOKIE_OPTIONS } from "@/lib/constants/auth";
+import { clearAllClientSessionState } from "@/lib/security/session";
 
 interface AuthState {
   user: AuthUser | null;
@@ -96,16 +97,7 @@ export const useAuthStore = create<AuthState>((set) => ({
   },
 
   clearAuth: () => {
-    Cookies.remove(AUTH_COOKIE_NAMES.authToken);
-    Cookies.remove(AUTH_COOKIE_NAMES.onboardingSession);
-    Cookies.remove(AUTH_COOKIE_NAMES.approvalStatus);
-    Cookies.remove(AUTH_COOKIE_NAMES.vendorStatus);
-    Cookies.remove(AUTH_COOKIE_NAMES.activeCompanyId);
-    Cookies.remove(AUTH_COOKIE_NAMES.decisionNote);
-    if (typeof window !== "undefined") {
-      localStorage.removeItem("villeto-onboarding");
-      sessionStorage.removeItem("villeto-onboarding");
-    }
+    clearAllClientSessionState();
     set({ user: null, companies: [], isAuthenticated: false, isLoading: false });
   },
 

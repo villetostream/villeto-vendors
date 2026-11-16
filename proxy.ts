@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { AUTH_COOKIE_NAMES } from "@/lib/constants/auth";
+import { verifyJwtToken } from "@/lib/security/jwt";
+import { sanitizeRedirectPath } from "@/lib/security/redirect";
 
 /**
  * EDGE PROXY (formerly Middleware)
@@ -44,9 +46,21 @@ const PROTECTED_ROUTES = [
   "/dashboard",
   "/orders",
   "/invoices",
+  "/companies",
+  "/settings",
+  "/notifications",
   "/profile",
   "/pending",
 ];
+
+function clearAuthCookiesOnResponse(response: NextResponse): NextResponse {
+  response.cookies.delete(AUTH_COOKIE_NAMES.authToken);
+  response.cookies.delete(AUTH_COOKIE_NAMES.vendorStatus);
+  response.cookies.delete(AUTH_COOKIE_NAMES.approvalStatus);
+  response.cookies.delete(AUTH_COOKIE_NAMES.activeCompanyId);
+  response.cookies.delete(AUTH_COOKIE_NAMES.decisionNote);
+  return response;
+}
 
 /**
  * Extracts the invite token from an /invite request.
@@ -94,10 +108,20 @@ export async function proxy(request: NextRequest) {
       return NextResponse.redirect(new URL("/auth/login", request.url));
     }
 
-    // Already normalised → pass through to Server Component
+    const inviteCookieOptions = {
+      httpOnly: true,
+      sameSite: "lax" as const,
+      secure: process.env.NODE_ENV === "production",
+      maxAge: 60 * 30,
+      path: "/",
+    };
+
+    // Already normalised → pass through to Server Component while ensuring HttpOnly invite cookie exists
     const alreadyNormalised = request.nextUrl.searchParams.get("token") === token;
     if (alreadyNormalised) {
-      return NextResponse.next();
+      const response = NextResponse.next();
+      response.cookies.set("villeto_invite_token", token, inviteCookieOptions);
+      return response;
     }
 
     // Raw token detected → REDIRECT to normalised ?token=xxx form.
@@ -107,14 +131,9 @@ export async function proxy(request: NextRequest) {
 
     const redirectResponse = NextResponse.redirect(normalised, { status: 302 });
 
-    // Belt-and-suspenders: also set cookie so the Server Component can read
-    // the token via cookies() even if searchParams extraction somehow fails.
-    redirectResponse.cookies.set("villeto_invite_token", token, {
-      httpOnly: true,
-      sameSite: "lax",
-      maxAge: 60 * 30,
-      path: "/",
-    });
+    // Belt-and-suspenders: also set cookie so Server Components (/invite, /signup)
+    // can read the token via cookies() without propagating it in subsequent URLs.
+    redirectResponse.cookies.set("villeto_invite_token", token, inviteCookieOptions);
 
     return redirectResponse;
   }
@@ -126,6 +145,11 @@ export async function proxy(request: NextRequest) {
     const approvalStatus = request.cookies.get(AUTH_COOKIE_NAMES.approvalStatus)?.value;
 
     if (authToken) {
+      const jwtResult = await verifyJwtToken(authToken, process.env.JWT_SECRET);
+      if (!jwtResult.valid) {
+        return clearAuthCookiesOnResponse(NextResponse.next());
+      }
+
       // If they are navigating to login with an invitation token or company ID, we must
       // allow them to render the page to accept the invite via the client-side router.
       if (request.nextUrl.searchParams.has("invitationToken") || request.nextUrl.searchParams.has("companyId")) {
@@ -139,10 +163,11 @@ export async function proxy(request: NextRequest) {
       // Vendor has submitted (approvalStatus is set) → /pending to show review state.
       // Vendor is still onboarding (approvalStatus not yet set) → onboarding wizard.
       const activeCompanyId = request.cookies.get(AUTH_COOKIE_NAMES.activeCompanyId)?.value;
+      const safeCompanyId = activeCompanyId && /^[a-zA-Z0-9_-]+$/.test(activeCompanyId) ? activeCompanyId : "";
       const destination = approvalStatus 
         ? "/pending" 
-        : activeCompanyId 
-          ? `/onboarding/${activeCompanyId}`
+        : safeCompanyId 
+          ? `/onboarding/${safeCompanyId}`
           : "/companies";
       
       return NextResponse.redirect(new URL(destination, request.url));
@@ -150,7 +175,7 @@ export async function proxy(request: NextRequest) {
     return NextResponse.next();
   }
 
-  // ── 3. Onboarding routes — need auth token ─────
+  // ── 3. Onboarding routes — need valid auth token ─────
   const isOnboardingRoute = ONBOARDING_ROUTES.some((r) =>
     pathname.startsWith(r)
   );
@@ -159,17 +184,34 @@ export async function proxy(request: NextRequest) {
     if (!authToken) {
       return NextResponse.redirect(new URL("/auth/login", request.url));
     }
+    const jwtResult = await verifyJwtToken(authToken, process.env.JWT_SECRET);
+    if (!jwtResult.valid) {
+      return clearAuthCookiesOnResponse(NextResponse.redirect(new URL("/auth/login", request.url)));
+    }
     return NextResponse.next();
   }
 
-  // ── 4. Protected dashboard routes — need auth token ───────────
+  // ── 4. Protected dashboard routes — need valid auth token ───────────
   const isProtected = PROTECTED_ROUTES.some((r) => pathname.startsWith(r));
   if (isProtected) {
     const authToken = request.cookies.get(AUTH_COOKIE_NAMES.authToken)?.value;
     if (!authToken) {
       const loginUrl = new URL("/auth/login", request.url);
-      loginUrl.searchParams.set("next", pathname);
+      const safeNext = sanitizeRedirectPath(`${pathname}${request.nextUrl.search}`, "");
+      if (safeNext) {
+        loginUrl.searchParams.set("next", safeNext);
+      }
       return NextResponse.redirect(loginUrl);
+    }
+
+    const jwtResult = await verifyJwtToken(authToken, process.env.JWT_SECRET);
+    if (!jwtResult.valid) {
+      const loginUrl = new URL("/auth/login", request.url);
+      const safeNext = sanitizeRedirectPath(`${pathname}${request.nextUrl.search}`, "");
+      if (safeNext) {
+        loginUrl.searchParams.set("next", safeNext);
+      }
+      return clearAuthCookiesOnResponse(NextResponse.redirect(loginUrl));
     }
 
     // Protection for dashboard routes — unapproved vendors should be at /pending

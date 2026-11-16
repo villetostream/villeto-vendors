@@ -21,7 +21,7 @@ export async function getChatThreads(): Promise<ChatThread[]> {
 
 export async function getChatMessages(threadId: string): Promise<ChatMessage[]> {
   const { data } = await apiClient.get<ApiEnvelope<ChatMessage[]>>(
-    `/vendor-portal/messages/threads/${threadId}/messages`
+    `/vendor-portal/messages/threads/${encodeURIComponent(threadId)}/messages`
   );
   return data.data;
 }
@@ -36,12 +36,12 @@ export async function createChatThread(tag: ChatThreadTag, body: string): Promis
 
 export async function sendChatMessage(threadId: string, body: string): Promise<ChatMessage> {
   const { data } = await apiClient.post<ApiEnvelope<ChatMessage>>(
-    `/vendor-portal/messages/threads/${threadId}/messages`,
+    `/vendor-portal/messages/threads/${encodeURIComponent(threadId)}/messages`,
     { body }
   );
   return data.data;
 }
 
 export async function markThreadRead(threadId: string): Promise<void> {
-  await apiClient.patch(`/vendor-portal/messages/threads/${threadId}/read`);
+  await apiClient.patch(`/vendor-portal/messages/threads/${encodeURIComponent(threadId)}/read`);
 }

@@ -36,7 +36,7 @@ export async function getUnreadNotificationCount(): Promise<number> {
 
 export async function markNotificationRead(notificationId: string): Promise<VendorNotification> {
   const { data } = await apiClient.patch<ApiEnvelope<VendorNotification>>(
-    `/vendor-portal/notifications/${notificationId}/read`
+    `/vendor-portal/notifications/${encodeURIComponent(notificationId)}/read`
   );
   return data.data;
 }

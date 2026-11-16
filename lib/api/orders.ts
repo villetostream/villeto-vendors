@@ -40,7 +40,7 @@ export async function getOrders(filters: OrderFilters = {}): Promise<OrderListIt
  */
 export async function getOrder(purchaseOrderId: string): Promise<Order> {
   const { data } = await apiClient.get<ApiEnvelope<Order>>(
-    `/vendor-portal/orders/${purchaseOrderId}`
+    `/vendor-portal/orders/${encodeURIComponent(purchaseOrderId)}`
   );
   return data.data;
 }
@@ -53,7 +53,7 @@ export async function acknowledgeOrder(
   payload?: AcknowledgeOrderPayload
 ): Promise<Order> {
   const { data } = await apiClient.patch<ApiEnvelope<Order>>(
-    `/vendor-portal/orders/${purchaseOrderId}/acknowledge`,
+    `/vendor-portal/orders/${encodeURIComponent(purchaseOrderId)}/acknowledge`,
     payload
   );
   return data.data;
@@ -64,7 +64,7 @@ export async function acknowledgeOrder(
  */
 export async function markReadyForDelivery(purchaseOrderId: string): Promise<Order> {
   const { data } = await apiClient.patch<ApiEnvelope<Order>>(
-    `/vendor-portal/orders/${purchaseOrderId}/ready-for-delivery`
+    `/vendor-portal/orders/${encodeURIComponent(purchaseOrderId)}/ready-for-delivery`
   );
   return data.data;
 }
@@ -77,7 +77,7 @@ export async function createFulfillment(
   payload: CreateFulfillmentPayload
 ): Promise<CreateFulfillmentResponse> {
   const { data } = await apiClient.post<ApiEnvelope<CreateFulfillmentResponse>>(
-    `/vendor-portal/orders/${purchaseOrderId}/fulfillments`,
+    `/vendor-portal/orders/${encodeURIComponent(purchaseOrderId)}/fulfillments`,
     payload
   );
   return data.data;
@@ -92,7 +92,7 @@ export async function dispatchFulfillment(
   payload: DispatchFulfillmentPayload
 ): Promise<CreateFulfillmentResponse> {
   const { data } = await apiClient.post<ApiEnvelope<CreateFulfillmentResponse>>(
-    `/vendor-portal/orders/${purchaseOrderId}/fulfillments/${fulfillmentId}/dispatch`,
+    `/vendor-portal/orders/${encodeURIComponent(purchaseOrderId)}/fulfillments/${encodeURIComponent(fulfillmentId)}/dispatch`,
     payload
   );
   return data.data;
@@ -129,7 +129,7 @@ export async function getFulfillmentException(
 ): Promise<FulfillmentExceptionDetail> {
   const { data } = await apiClient.get<
     ApiEnvelope<FulfillmentExceptionDetail> | FulfillmentExceptionDetail
-  >(`/vendor-portal/fulfillment-exceptions/${deliveryReceiptId}`);
+  >(`/vendor-portal/fulfillment-exceptions/${encodeURIComponent(deliveryReceiptId)}`);
   return (data as ApiEnvelope<FulfillmentExceptionDetail>)?.data ?? (data as FulfillmentExceptionDetail);
 }
 
@@ -145,7 +145,7 @@ export async function acknowledgeReceiptException(
   const { data } = await apiClient.post<
     ApiEnvelope<FulfillmentExceptionDetail> | FulfillmentExceptionDetail
   >(
-    `/vendor-portal/orders/${purchaseOrderId}/receipts/${deliveryReceiptId}/acknowledge`,
+    `/vendor-portal/orders/${encodeURIComponent(purchaseOrderId)}/receipts/${encodeURIComponent(deliveryReceiptId)}/acknowledge`,
     payload
   );
   return (data as ApiEnvelope<FulfillmentExceptionDetail>)?.data ?? (data as FulfillmentExceptionDetail);
@@ -169,7 +169,7 @@ export async function acceptFinalDecision(
   const { data } = await apiClient.post<
     ApiEnvelope<FulfillmentExceptionDetail> | FulfillmentExceptionDetail
   >(
-    `/vendor-portal/orders/${purchaseOrderId}/receipts/${deliveryReceiptId}/accept-final-decision`,
+    `/vendor-portal/orders/${encodeURIComponent(purchaseOrderId)}/receipts/${encodeURIComponent(deliveryReceiptId)}/accept-final-decision`,
     payload
   );
   return (data as ApiEnvelope<FulfillmentExceptionDetail>)?.data ?? (data as FulfillmentExceptionDetail);
@@ -187,7 +187,7 @@ export async function disputeReceiptException(
   const { data } = await apiClient.post<
     ApiEnvelope<FulfillmentExceptionDetail> | FulfillmentExceptionDetail
   >(
-    `/vendor-portal/orders/${purchaseOrderId}/receipts/${deliveryReceiptId}/dispute`,
+    `/vendor-portal/orders/${encodeURIComponent(purchaseOrderId)}/receipts/${encodeURIComponent(deliveryReceiptId)}/dispute`,
     payload
   );
   return (data as ApiEnvelope<FulfillmentExceptionDetail>)?.data ?? (data as FulfillmentExceptionDetail);
@@ -207,7 +207,7 @@ export async function uploadReceiptEvidence(
   const { data } = await uploadClient.post<
     ApiEnvelope<ReceiptEvidenceItem> | ReceiptEvidenceItem
   >(
-    `/vendor-portal/orders/${purchaseOrderId}/receipts/${deliveryReceiptId}/evidence`,
+    `/vendor-portal/orders/${encodeURIComponent(purchaseOrderId)}/receipts/${encodeURIComponent(deliveryReceiptId)}/evidence`,
     formData
   );
   return (data as ApiEnvelope<ReceiptEvidenceItem>)?.data ?? (data as ReceiptEvidenceItem);

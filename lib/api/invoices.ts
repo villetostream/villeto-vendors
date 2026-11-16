@@ -39,7 +39,7 @@ export async function getInvoices(filters: InvoiceFilters = {}): Promise<Invoice
  */
 export async function getInvoice(invoiceId: string): Promise<Invoice> {
   const { data } = await apiClient.get<ApiEnvelope<Invoice>>(
-    `/vendor-portal/invoices/${invoiceId}`
+    `/vendor-portal/invoices/${encodeURIComponent(invoiceId)}`
   );
   return data.data;
 }
@@ -67,7 +67,7 @@ export async function updateInvoice(
   payload: UpdateInvoicePayload
 ): Promise<Invoice> {
   const { data } = await apiClient.patch<ApiEnvelope<Invoice>>(
-    `/vendor-portal/invoices/${invoiceId}`,
+    `/vendor-portal/invoices/${encodeURIComponent(invoiceId)}`,
     payload
   );
   return data.data;
@@ -77,7 +77,7 @@ export async function updateInvoice(
  * DELETE /vendor-portal/invoices/:invoiceId
  */
 export async function deleteInvoice(invoiceId: string): Promise<{ success: boolean }> {
-  const { data } = await apiClient.delete(`/vendor-portal/invoices/${invoiceId}`);
+  const { data } = await apiClient.delete(`/vendor-portal/invoices/${encodeURIComponent(invoiceId)}`);
   return data;
 }
 
@@ -89,7 +89,7 @@ export async function addInvoiceLineItems(
   lineItems: CreateInvoicePayload["lineItems"]
 ): Promise<Invoice> {
   const { data } = await apiClient.post<ApiEnvelope<Invoice>>(
-    `/vendor-portal/invoices/${invoiceId}/line-items`,
+    `/vendor-portal/invoices/${encodeURIComponent(invoiceId)}/line-items`,
     { lineItems }
   );
   return data.data;

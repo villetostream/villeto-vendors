@@ -12,12 +12,14 @@
  * that keeps other tabs from acting on a stale context.
  */
 
-import axios, { AxiosError, InternalAxiosRequestConfig } from "axios";
+import axios, { AxiosError, AxiosInstance, InternalAxiosRequestConfig } from "axios";
 import Cookies from "js-cookie";
 import { AUTH_COOKIE_NAMES } from "@/lib/constants/auth";
 import { broadcastAuthEvent } from "@/lib/utils/authBroadcast";
+import { clearAllClientSessionState } from "@/lib/security/session";
+import { getApiBaseUrl } from "@/lib/security/urls";
 
-const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "https://api.villeto.com";
+const BASE_URL = getApiBaseUrl();
 
 /**
  * Endpoints a vendor can hit *without* an existing session. A 401 from one
@@ -37,16 +39,8 @@ function isPublicAuthRequest(url?: string): boolean {
   return PUBLIC_AUTH_PATHS.some((path) => url.includes(path));
 }
 
-function clearSessionCookies() {
-  Cookies.remove(AUTH_COOKIE_NAMES.authToken);
-  Cookies.remove(AUTH_COOKIE_NAMES.onboardingSession);
-  Cookies.remove(AUTH_COOKIE_NAMES.approvalStatus);
-  Cookies.remove(AUTH_COOKIE_NAMES.vendorStatus);
-  Cookies.remove(AUTH_COOKIE_NAMES.activeCompanyId);
-}
-
 function handleSessionExpired() {
-  clearSessionCookies();
+  clearAllClientSessionState();
   if (typeof window !== "undefined") {
     // Don't force-redirect if the user is on a public page that doesn't
     // require a session — /invite and /signup are entry points for new
@@ -65,6 +59,48 @@ function handleSessionExpired() {
   }
 }
 
+function attachAuthInterceptors(
+  instance: AxiosInstance,
+  fallbackMessage: string,
+  stripContentType = false
+): void {
+  instance.interceptors.request.use(
+    (config: InternalAxiosRequestConfig) => {
+      const token = Cookies.get(AUTH_COOKIE_NAMES.authToken);
+      if (token) {
+        config.headers.Authorization = `Bearer ${token}`;
+      }
+      if (stripContentType) {
+        delete config.headers["Content-Type"];
+      }
+      return config;
+    },
+    (error) => Promise.reject(error)
+  );
+
+  instance.interceptors.response.use(
+    (response) => response,
+    async (error: AxiosError) => {
+      const status = error.response?.status;
+
+      if (status === 401 && !isPublicAuthRequest(error.config?.url)) {
+        handleSessionExpired();
+      }
+
+      const apiError = {
+        message:
+          (error.response?.data as { message?: string })?.message ??
+          error.message ??
+          fallbackMessage,
+        status,
+        code: (error.response?.data as { code?: string })?.code,
+      };
+
+      return Promise.reject(apiError);
+    }
+  );
+}
+
 export const apiClient = axios.create({
   baseURL: BASE_URL,
   timeout: 30_000,
@@ -74,38 +110,7 @@ export const apiClient = axios.create({
   },
 });
 
-apiClient.interceptors.request.use(
-  (config: InternalAxiosRequestConfig) => {
-    const token = Cookies.get(AUTH_COOKIE_NAMES.authToken);
-    if (token) {
-      config.headers.Authorization = `Bearer ${token}`;
-    }
-    return config;
-  },
-  (error) => Promise.reject(error)
-);
-
-apiClient.interceptors.response.use(
-  (response) => response,
-  async (error: AxiosError) => {
-    const status = error.response?.status;
-
-    if (status === 401 && !isPublicAuthRequest(error.config?.url)) {
-      handleSessionExpired();
-    }
-
-    const apiError = {
-      message:
-        (error.response?.data as { message?: string })?.message ??
-        error.message ??
-        "An unexpected error occurred",
-      status,
-      code: (error.response?.data as { code?: string })?.code,
-    };
-
-    return Promise.reject(apiError);
-  }
-);
+attachAuthInterceptors(apiClient, "An unexpected error occurred");
 
 // ─────────────────────────────────────────────
 // MULTIPART CLIENT (file uploads)
@@ -116,31 +121,4 @@ export const uploadClient = axios.create({
   timeout: 120_000,
 });
 
-uploadClient.interceptors.request.use((config) => {
-  const token = Cookies.get(AUTH_COOKIE_NAMES.authToken);
-  if (token) config.headers.Authorization = `Bearer ${token}`;
-  delete config.headers["Content-Type"];
-  return config;
-});
-
-uploadClient.interceptors.response.use(
-  (response) => response,
-  async (error: AxiosError) => {
-    const status = error.response?.status;
-
-    if (status === 401 && !isPublicAuthRequest(error.config?.url)) {
-      handleSessionExpired();
-    }
-
-    const apiError = {
-      message:
-        (error.response?.data as { message?: string })?.message ??
-        error.message ??
-        "Upload failed",
-      status,
-      code: (error.response?.data as { code?: string })?.code,
-    };
-
-    return Promise.reject(apiError);
-  }
-);
+attachAuthInterceptors(uploadClient, "Upload failed", true);

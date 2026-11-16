@@ -11,6 +11,7 @@ import { getVendorCompanies, getVendorProfile } from "@/lib/api/vendor";
 import Cookies from "js-cookie";
 import { AUTH_COOKIE_NAMES, AUTH_COOKIE_OPTIONS } from "@/lib/constants/auth";
 import { AuthUser } from "@/lib/types";
+import { sanitizeRedirectPath } from "@/lib/security/redirect";
 
 function profileToAuthUser(profile: Awaited<ReturnType<typeof getVendorProfile>>): AuthUser {
   return {
@@ -109,7 +110,8 @@ function AuthInitializer({ children }: { children: React.ReactNode }) {
           pathname?.startsWith("/auth/login");
           
         if (!isPublicRoute) {
-          const loginUrl = pathname ? `/auth/login?next=${encodeURIComponent(pathname)}` : "/auth/login";
+          const safeNext = sanitizeRedirectPath(pathname, "");
+          const loginUrl = safeNext ? `/auth/login?next=${encodeURIComponent(safeNext)}` : "/auth/login";
           router.replace(loginUrl);
         }
       });

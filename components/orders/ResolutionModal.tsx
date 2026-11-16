@@ -30,6 +30,7 @@ import { EvidenceGallery, LocalFilePreview } from "@/components/orders/EvidenceG
 import { ExpandableText } from "@/components/ui/ExpandableText";
 import { cn, parseExceptionReason, formatExceptionReason } from "@/lib/utils";
 import { toast } from "sonner";
+import { validateUploadFile } from "@/lib/security/upload";
 import type {
   Fulfillment,
   FulfillmentLineItem,
@@ -548,17 +549,14 @@ export function ResolutionModal({
     }
   };
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !activeItemForUpload) return;
 
-    if (!ALLOWED_EVIDENCE_MIME_TYPES.includes(file.type)) {
-      toast.error("Invalid file format. Only JPEG, PNG, or WebP images are allowed.");
-      return;
-    }
-
-    if (file.size > MAX_EVIDENCE_BYTES) {
-      toast.error("Image exceeds the 5 MB limit. Please upload a smaller image.");
+    const validation = await validateUploadFile(file, "evidenceImage");
+    if (!validation.valid) {
+      toast.error(validation.error || "Invalid image file. Only JPEG, PNG, or WebP images under 5 MB are allowed.");
+      e.target.value = "";
       return;
     }
 

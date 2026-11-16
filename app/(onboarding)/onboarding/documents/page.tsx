@@ -16,6 +16,7 @@ import {
   DOCS_MANDATORY_EXPIRY,
 } from "@/lib/types";
 import { cn, parseLocalDate } from "@/lib/utils";
+import { validateUploadFile } from "@/lib/security/upload";
 import { toast } from "sonner";
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/Modal";
 import Image from "next/image";
@@ -60,43 +61,43 @@ export default function DocumentsPage() {
     });
   };
 
-  const ALLOWED_EXTENSIONS = [".pdf", ".jpg", ".jpeg", ".png", ".doc", ".docx"];
-  const ALLOWED_MIME_TYPES = [
-    "application/pdf",
-    "image/jpeg",
-    "image/png",
-    "application/msword",
-    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-  ];
-
-  const validateFile = (file: File): boolean => {
-    const extension = `.${file.name.split(".").pop()?.toLowerCase() ?? ""}`;
-    const isAllowedType =
-      ALLOWED_MIME_TYPES.includes(file.type) || ALLOWED_EXTENSIONS.includes(extension);
-    if (!isAllowedType) {
-      toast.error("Only PDF, DOC, JPG, or PNG files are allowed.");
-      return false;
+  const revokePreviewUrl = (url?: string) => {
+    if (url && url.startsWith("blob:")) {
+      URL.revokeObjectURL(url.split("#")[0]);
     }
-    if (file.size > 10 * 1024 * 1024) {
-      toast.error("File must be under 10MB");
-      return false;
-    }
-    return true;
   };
 
-  const handleFileSelect = (type: DocumentType, file: File) => {
-    if (!validateFile(file)) return;
+  const clearPendingUpload = () => {
+    setPendingUpload((prev) => {
+      revokePreviewUrl(prev?.previewUrl);
+      return null;
+    });
+  };
+
+  const handleFileSelect = async (type: DocumentType, file: File) => {
+    const validation = await validateUploadFile(file, "document");
+    if (!validation.valid) {
+      toast.error(validation.error || "Only PDF, DOC, DOCX, JPG, or PNG files under 10MB are allowed.");
+      return;
+    }
     const existingDoc = store.documents.find((d) => d.type === type);
-    const previewUrl = URL.createObjectURL(file);
     const isPdf = file.type === "application/pdf";
-    const finalUrl = isPdf ? `${previewUrl}#toolbar=0&navpanes=0&scrollbar=0` : previewUrl;
-    setPendingUpload({
-      type,
-      file,
-      previewUrl: finalUrl,
-      issuedAt: existingDoc?.issuedAt,
-      expiresAt: existingDoc?.expiresAt,
-      noExpiry: existingDoc?.noExpiry,
+    const isImage = file.type.startsWith("image/");
+    let finalUrl = "";
+    if (isPdf || isImage) {
+      const previewUrl = URL.createObjectURL(file);
+      finalUrl = isPdf ? `${previewUrl}#toolbar=0&navpanes=0&scrollbar=0` : previewUrl;
+    }
+    setPendingUpload((prev) => {
+      revokePreviewUrl(prev?.previewUrl);
+      return {
+        type,
+        file,
+        previewUrl: finalUrl,
+        issuedAt: existingDoc?.issuedAt,
+        expiresAt: existingDoc?.expiresAt,
+        noExpiry: existingDoc?.noExpiry,
+      };
     });
   };
 
@@ -172,7 +173,7 @@ export default function DocumentsPage() {
       }
     }
 
-    setPendingUpload(null);
+    clearPendingUpload();
     setUploadState(type, { uploading: true, progress: 0, error: undefined });
 
     try {
@@ -613,9 +614,16 @@ export default function DocumentsPage() {
                           type="file"
                           accept=".jpg,.jpeg,.png,.pdf"
                           className="hidden"
-                          onChange={(e) => {
-                            const file = e.target.files?.[0];
-                            if (!file || !validateFile(file)) return;
+                          onChange={async (e) => {
+                            const input = e.target;
+                            const file = input.files?.[0];
+                            if (!file) return;
+                            const validation = await validateUploadFile(file, "evidenceAttachment");
+                            if (!validation.valid) {
+                              toast.error(validation.error || "Invalid screenshot file.");
+                              input.value = "";
+                              return;
+                            }
                             // Optimistically record the filename; the actual file
                             // will be sent in the payload when the main document
                             // is uploaded (or re-uploaded). If the main doc is
@@ -669,7 +677,7 @@ export default function DocumentsPage() {
       </div>
 
       {/* Confirmation dialog */}
-      <Dialog open={!!pendingUpload} onOpenChange={(open) => !open && setPendingUpload(null)}>
+      <Dialog open={!!pendingUpload} onOpenChange={(open) => !open && clearPendingUpload()}>
         <DialogContent size="lg">
           <DialogTitle>Confirm Document</DialogTitle>
           <DialogDescription>
@@ -803,7 +811,7 @@ export default function DocumentsPage() {
                 type="button"
                 variant="outline"
                 className="flex-1"
-                onClick={() => setPendingUpload(null)}
+                onClick={clearPendingUpload}
               >
                 Cancel
               </Button>

@@ -11,6 +11,7 @@ import { apiClient } from "./client";
 import { InviteTokenPayload } from "@/lib/types";
 import Cookies from "js-cookie";
 import { AUTH_COOKIE_OPTIONS, AUTH_COOKIE_NAMES } from "@/lib/constants/auth";
+import { clearAllClientSessionState } from "@/lib/security/session";
 
 // ─────────────────────────────────────────────
 // INVITE TOKEN
@@ -120,14 +121,7 @@ export async function signUp(payload: {
  * which would be mistakenly surfaced to the user as a signup error.
  */
 export function clearSessionCookies(): void {
-  Cookies.remove(AUTH_COOKIE_NAMES.authToken);
-  Cookies.remove(AUTH_COOKIE_NAMES.onboardingSession);
-  Cookies.remove(AUTH_COOKIE_NAMES.approvalStatus);
-  Cookies.remove(AUTH_COOKIE_NAMES.vendorStatus);
-  Cookies.remove(AUTH_COOKIE_NAMES.activeCompanyId);
-  if (typeof window !== "undefined") {
-    localStorage.removeItem("villeto-onboarding");
-  }
+  clearAllClientSessionState();
 }
 
 // ─────────────────────────────────────────────
