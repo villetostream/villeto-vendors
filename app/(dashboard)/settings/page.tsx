@@ -24,6 +24,8 @@ import {
   Check,
 } from "lucide-react";
 import { toast } from "sonner";
+import { validateUploadFile } from "@/lib/security/upload";
+import { sanitizeSafeUrl } from "@/lib/security/urls";
 import { useCompanyStore, queryKeys } from "@/lib/stores/companyStore";
 import {
   useMyCompanies,
@@ -393,14 +395,23 @@ export default function SettingsPage() {
   });
 
   const handleSaveBank = () => {
-    if (!bankName.trim() || !accountNumber.trim() || !accountName.trim()) {
+    const trimmedAcct = accountNumber.trim();
+    if (!bankName.trim() || !trimmedAcct || !accountName.trim()) {
       toast.error("Please fill in all required bank fields.");
+      return;
+    }
+    if (trimmedAcct.includes("•") || trimmedAcct.includes("*")) {
+      toast.error("Please enter the full 10-digit account number before saving.");
+      return;
+    }
+    if (!/^\d{10}$/.test(trimmedAcct)) {
+      toast.error("Account number must be exactly 10 digits.");
       return;
     }
     saveBankMutation.mutate({
       bankName: bankName.trim(),
       bankCode: bankCode.trim() || "000",
-      accountNumber: accountNumber.trim(),
+      accountNumber: trimmedAcct,
       accountName: accountName.trim(),
     });
   };
@@ -426,6 +437,12 @@ export default function SettingsPage() {
   const handleDocumentUpload = async () => {
     if (!uploadingDocType || !uploadFile) {
       toast.error("Please select a file to upload.");
+      return;
+    }
+
+    const fileCheck = await validateUploadFile(uploadFile, "document");
+    if (!fileCheck.valid) {
+      toast.error(fileCheck.error || "Invalid compliance document file.");
       return;
     }
 
@@ -959,16 +976,20 @@ export default function SettingsPage() {
                     </div>
 
                     <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
-                      {uploaded?.fileUrl && (
-                        <a
-                          href={uploaded.fileUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="px-3 py-1.5 rounded-lg border border-border text-xs font-semibold text-foreground hover:bg-muted transition-colors inline-flex items-center gap-1.5"
-                        >
-                          <ExternalLink className="h-3 w-3" /> View
-                        </a>
-                      )}
+                      {(() => {
+                        const safeDocUrl = sanitizeSafeUrl(uploaded?.fileUrl);
+                        if (!safeDocUrl) return null;
+                        return (
+                          <a
+                            href={safeDocUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="px-3 py-1.5 rounded-lg border border-border text-xs font-semibold text-foreground hover:bg-muted transition-colors inline-flex items-center gap-1.5"
+                          >
+                            <ExternalLink className="h-3 w-3" /> View
+                          </a>
+                        );
+                      })()}
                       <Button
                         variant={hasFile ? "outline" : "primary"}
                         size="sm"
@@ -1504,7 +1525,21 @@ export default function SettingsPage() {
                     <input
                       type="file"
                       accept=".pdf,.jpg,.jpeg,.png,.doc,.docx"
-                      onChange={(e) => setUploadFile(e.target.files?.[0] || null)}
+                      onChange={async (e) => {
+                        const file = e.target.files?.[0] || null;
+                        if (!file) {
+                          setUploadFile(null);
+                          return;
+                        }
+                        const check = await validateUploadFile(file, "document");
+                        if (!check.valid) {
+                          toast.error(check.error || "Invalid document file.");
+                          e.target.value = "";
+                          setUploadFile(null);
+                          return;
+                        }
+                        setUploadFile(file);
+                      }}
                       className="w-full text-sm border border-border rounded-lg p-2 focus:outline-none"
                     />
                     {uploadFile && (

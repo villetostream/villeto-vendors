@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { ReceiptEvidenceItem } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { sanitizeSafeUrl } from "@/lib/security/urls";
 
 export interface LightboxImageItem {
   url: string;
@@ -39,18 +40,26 @@ export function EvidenceGallery({
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
 
   const allItems: LightboxImageItem[] = [
-    ...buyerEvidence.map((ev, idx) => ({
-      url: ev.url,
-      label: ev.originalName || `Buyer Photo #${idx + 1}`,
-      source: "buyer" as const,
-      mimeType: ev.mimeType,
-    })),
-    ...vendorEvidence.map((ev, idx) => ({
-      url: ev.url,
-      label: ev.originalName || `Vendor Dispute Photo #${idx + 1}`,
-      source: "vendor" as const,
-      mimeType: ev.mimeType,
-    })),
+    ...buyerEvidence.flatMap((ev, idx) => {
+      const safeUrl = sanitizeSafeUrl(ev.url, { allowBlob: true });
+      if (!safeUrl) return [];
+      return [{
+        url: safeUrl,
+        label: ev.originalName || `Buyer Photo #${idx + 1}`,
+        source: "buyer" as const,
+        mimeType: ev.mimeType,
+      }];
+    }),
+    ...vendorEvidence.flatMap((ev, idx) => {
+      const safeUrl = sanitizeSafeUrl(ev.url, { allowBlob: true });
+      if (!safeUrl) return [];
+      return [{
+        url: safeUrl,
+        label: ev.originalName || `Vendor Dispute Photo #${idx + 1}`,
+        source: "vendor" as const,
+        mimeType: ev.mimeType,
+      }];
+    }),
   ];
 
   const handlePrev = useCallback(() => {

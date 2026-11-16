@@ -3,101 +3,10 @@ import Link from "next/link";
 import { cookies } from "next/headers";
 import { ShieldCheck, ArrowRight, AlertCircle } from "lucide-react";
 import { AUTH_COOKIE_NAMES } from "@/lib/constants/auth";
+import { validateInviteTokenPreview } from "@/lib/api/invite-preview";
 
 interface InvitePageProps {
   searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
-}
-
-/**
- * Shape returned by POST /vendors/invitations/preview
- */
-interface InvitePreviewData {
-  vendorId: string;
-  vendorInvitationId: string;
-  email: string;
-  displayName: string;
-  legalName: string;
-  onboardingStatus: string;
-  expiresAt: string;
-  isExpired: boolean;
-  isConsumed: boolean;
-  inviteeType: "new_vendor" | "existing_vendor";
-  nextAction: "set_password" | "verify_existing_password" | "login_to_accept";
-  companyId: string;
-  companyName: string;
-  accountExists: boolean;
-  requiresPasswordSetup: boolean;
-  requiresExistingPassword: boolean;
-  hasReusableProfile: boolean;
-  hasActiveVendorRelationship: boolean;
-}
-
-type InviteResult =
-  | { ok: true; data: InvitePreviewData }
-  // "invalid": backend has definitively confirmed the invite doesn't exist,
-  // is expired, or is already consumed → safe to send to /invite/expired
-  // with its "request a new invite" messaging.
-  | { ok: false; reason: "invalid"; consumed?: boolean }
-  // "transient": the request itself failed (network error, timeout, 5xx,
-  // unparseable response) → we don't actually know the invite's real
-  // status, so it would be wrong to tell the vendor it's expired.
-  | { ok: false; reason: "transient" };
-
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "https://api.villeto.com";
-
-/**
- * Validate the invite token by calling the backend preview endpoint.
- * POST {API_BASE_URL}/vendors/invitations/preview
- * Body: { token: string }
- *
- * The backend returns:
- * {
- *   "message": "OK",
- *   "status": 201,
- *   "data": {
- *     "message": "Vendor invitation is valid",
- *     "data": { vendorId, vendorInvitationId, email, displayName, legalName, ... }
- *   }
- * }
- */
-async function validateInviteToken(token: string): Promise<InviteResult> {
-  let res: Response;
-  try {
-    res = await fetch(`${API_BASE_URL}/vendors/invitations/preview`, {
-      method: "POST",
-      body: JSON.stringify({ token }),
-      headers: { "Content-Type": "application/json" },
-      cache: "no-store",
-    });
-  } catch {
-    // Network failure — couldn't even reach the backend.
-    return { ok: false, reason: "transient" };
-  }
-
-  if (!res.ok) {
-    // 400 and 422 cover "consumed", "already used", or "invalid token" backend responses.
-    // 404 and 410 cover "not found" or "permanently gone".
-    // Anything else (5xx, rate-limiting, etc.) is a transient failure.
-    const isDefinitelyInvalid = [400, 404, 410, 422].includes(res.status);
-    return { ok: false, reason: isDefinitelyInvalid ? "invalid" : "transient" };
-  }
-
-  let json: { data?: { data?: InvitePreviewData } };
-  try {
-    json = await res.json();
-  } catch {
-    return { ok: false, reason: "transient" };
-  }
-
-  const data = json?.data?.data;
-  if (!data) return { ok: false, reason: "transient" };
-
-  // Distinguish consumed (already used) from expired so we can show
-  // the correct message on the /invite/expired page.
-  if (data.isConsumed) return { ok: false, reason: "invalid", consumed: true };
-  if (data.isExpired) return { ok: false, reason: "invalid", consumed: false };
-
-  return { ok: true, data };
 }
 
 export default async function InvitePage({ searchParams }: InvitePageProps) {
@@ -115,7 +24,7 @@ export default async function InvitePage({ searchParams }: InvitePageProps) {
     redirect("/auth/login");
   }
 
-  const result = await validateInviteToken(token);
+  const result = await validateInviteTokenPreview(token);
 
   if (!result.ok) {
     if (result.reason === "invalid") {
@@ -157,13 +66,7 @@ export default async function InvitePage({ searchParams }: InvitePageProps) {
       `&companyId=${encodeURIComponent(invite.companyId)}`;
     ctaText = "Log in to Accept";
   } else {
-    ctaHref = `/signup` +
-      `?token=${encodeURIComponent(token)}` +
-      `&email=${encodeURIComponent(invite.email)}` +
-      `&displayName=${encodeURIComponent(invite.displayName)}` +
-      `&legalName=${encodeURIComponent(invite.legalName)}` +
-      `&vendorId=${encodeURIComponent(invite.vendorId)}` +
-      `&vendorInvitationId=${encodeURIComponent(invite.vendorInvitationId)}`;
+    ctaHref = `/signup`;
     ctaText = "Start Vendor Setup";
   }
 

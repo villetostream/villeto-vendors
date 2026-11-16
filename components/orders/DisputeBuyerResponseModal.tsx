@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/Button";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { Checkbox } from "@/components/ui/Checkbox";
+import { validateUploadFile } from "@/lib/security/upload";
 import type {
   Fulfillment,
   FulfillmentLineItem,
@@ -87,12 +88,13 @@ export function DisputeBuyerResponseModal({
 
   const isMultiItem = rejectedItems.length > 1;
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (file.size > 10 * 1024 * 1024) {
-      toast.error("File exceeds 10MB limit. Please upload a smaller file.");
+    const validation = await validateUploadFile(file, "evidenceAttachment");
+    if (!validation.valid) {
+      toast.error(validation.error || "Invalid attachment file.");
       if (fileInputRef.current) fileInputRef.current.value = "";
       return;
     }

@@ -16,6 +16,7 @@ import { useAuthStore } from "@/lib/stores/authStore";
 import { useCompanyStore } from "@/lib/stores/companyStore";
 import { useOnboardingStore } from "@/lib/stores/onboardingStore";
 import { isStatusActive, cn } from "@/lib/utils";
+import { sanitizeRedirectPath } from "@/lib/security/redirect";
 import { toast } from "sonner";
 
 const schema = z.object({
@@ -35,7 +36,7 @@ const ONBOARDING_STEP_ROUTES: Record<string, string> = {
 function LoginContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const next = searchParams.get("next") ?? "/dashboard";
+  const next = sanitizeRedirectPath(searchParams.get("next"), "/dashboard");
   const inviteEmail = searchParams.get("email");
   const inviteCompany = searchParams.get("company");
   const inviteCompanyId = searchParams.get("companyId");

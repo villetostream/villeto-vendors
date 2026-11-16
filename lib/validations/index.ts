@@ -9,10 +9,11 @@ export const signupSchema = z
     password: z
       .string()
       .min(8, "Minimum 8 characters")
+      .max(128, "Maximum 128 characters")
       .regex(/[A-Z]/, "Must contain uppercase letter")
       .regex(/[a-z]/, "Must contain lowercase letter")
       .regex(/[0-9]/, "Must contain a number"),
-    confirm_password: z.string(),
+    confirm_password: z.string().max(128, "Maximum 128 characters"),
   })
   .refine((d) => d.password === d.confirm_password, {
     message: "Passwords do not match",
@@ -20,8 +21,8 @@ export const signupSchema = z
   });
 
 export const loginSchema = z.object({
-  email: z.string().email("Enter a valid email address"),
-  password: z.string().min(1, "Password is required"),
+  email: z.string().trim().email("Enter a valid email address").max(254),
+  password: z.string().min(1, "Password is required").max(128),
 });
 
 // ─────────────────────────────────────────────
@@ -29,18 +30,18 @@ export const loginSchema = z.object({
 // ─────────────────────────────────────────────
 
 export const businessIdentitySchema = z.object({
-  business_name: z.string().min(2, "Business name is required"),
-  business_email: z.string().email("Enter a valid email"),
-  registration_number: z.string().min(3, "Registration number is required"),
-  country: z.string().min(1, "Please select a country"),
-  business_address: z.string().min(5, "Business address is required"),
+  business_name: z.string().trim().min(2, "Business name is required").max(200),
+  business_email: z.string().trim().email("Enter a valid email").max(254),
+  registration_number: z.string().trim().min(3, "Registration number is required").max(100),
+  country: z.string().trim().min(1, "Please select a country").max(100),
+  business_address: z.string().trim().min(5, "Business address is required").max(500),
 });
 
 export const bankingSchema = z.object({
-  bank_code: z.string().min(1, "Select a bank"),
-  bank_name: z.string().min(1, "Select a bank"),
+  bank_code: z.string().trim().min(1, "Select a bank").max(50),
+  bank_name: z.string().trim().min(1, "Select a bank").max(150),
   account_number: z.string().trim().regex(/^\d{10}$/, "Account number must be exactly 10 digits"),
-  flag_note: z.string().optional(),
+  flag_note: z.string().max(500).optional(),
 });
 
 // ─────────────────────────────────────────────
@@ -48,19 +49,20 @@ export const bankingSchema = z.object({
 // ─────────────────────────────────────────────
 
 export const invoiceLineItemSchema = z.object({
-  id: z.string(),
-  name: z.string().min(1, "Item name is required"),
-  quantity: z.number().min(1, "Quantity must be at least 1"),
-  unit_price: z.number().min(0, "Unit price must be 0 or more"),
+  id: z.string().min(1).max(128),
+  name: z.string().trim().min(1, "Item name is required").max(255),
+  quantity: z.number().finite().min(1, "Quantity must be at least 1").max(1_000_000),
+  unit_price: z.number().finite().min(0, "Unit price must be 0 or more").max(1_000_000_000),
 });
 
 export const createInvoiceSchema = z.object({
-  order_id: z.string().optional(),
-  delivery_date: z.string().min(1, "Delivery date is required"),
-  due_date: z.string().optional(),
+  order_id: z.string().max(128).optional(),
+  delivery_date: z.string().min(1, "Delivery date is required").max(64),
+  due_date: z.string().max(64).optional(),
   items: z
     .array(invoiceLineItemSchema)
-    .min(1, "At least one item is required"),
+    .min(1, "At least one item is required")
+    .max(500, "Too many line items"),
 });
 
 // ─────────────────────────────────────────────
@@ -68,7 +70,7 @@ export const createInvoiceSchema = z.object({
 // ─────────────────────────────────────────────
 
 export const messageSchema = z.object({
-  message: z.string().min(1, "Message cannot be empty").max(1000),
+  message: z.string().trim().min(1, "Message cannot be empty").max(1000),
 });
 
 // ─────────────────────────────────────────────
@@ -76,12 +78,14 @@ export const messageSchema = z.object({
 // ─────────────────────────────────────────────
 
 export const partialDeliverySchema = z.object({
-  items: z.array(
-    z.object({
-      id: z.string(),
-      delivered_quantity: z.number().min(0),
-    })
-  ),
+  items: z
+    .array(
+      z.object({
+        id: z.string().min(1).max(128),
+        delivered_quantity: z.number().finite().min(0).max(1_000_000),
+      })
+    )
+    .max(500),
 });
 
 export type SignupFormData = z.infer<typeof signupSchema>;

@@ -7,6 +7,7 @@ import { useCompanyOnboardingStore } from "@/lib/stores/companyOnboardingStore";
 import { useAuthStore } from "@/lib/stores/authStore";
 import { useOnboardingStore } from "@/lib/stores/onboardingStore";
 import { PageSpinner } from "@/components/ui/Spinner";
+import { resolveSafeApiAssetUrl } from "@/lib/security/urls";
 
 export default function V2OnboardingRouter({
   params,
@@ -57,7 +58,7 @@ export default function V2OnboardingRouter({
         const docs = company.documents.map((d: any) => ({
           id: d.documentType,
           name: d.originalName || `${d.documentType}.pdf`,
-          url: d.fileUrl || (d.viewEndpoint ? `https://api.villeto.com${d.viewEndpoint}` : ""),
+          url: resolveSafeApiAssetUrl(d.fileUrl, d.viewEndpoint) ?? "",
         }));
         setUploadedDocumentsLocally(docs);
       }

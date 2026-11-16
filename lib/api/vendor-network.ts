@@ -66,7 +66,7 @@ export async function getMyCompanies(params?: {
 
 export async function getMyCompany(companyId: string): Promise<V2CompanyRelationship | null> {
   try {
-    const { data } = await apiClient.get(`/vendor-network/me/companies/${companyId}`);
+    const { data } = await apiClient.get(`/vendor-network/me/companies/${encodeURIComponent(companyId)}`);
     return data?.data ?? null;
   } catch (err: any) {
     // A brand-new vendor who hasn't completed business-identity yet may get a
@@ -84,14 +84,14 @@ export async function acceptCompanyInvitation(
   payload?: AcceptCompanyPayload
 ): Promise<{ success: boolean }> {
   const { data } = await apiClient.post(
-    `/vendor-network/me/companies/${companyId}/accept`,
+    `/vendor-network/me/companies/${encodeURIComponent(companyId)}/accept`,
     payload || {}
   );
   return data;
 }
 
 export async function rejectCompanyInvitation(companyId: string): Promise<{ success: boolean }> {
-  const { data } = await apiClient.post(`/vendor-network/me/companies/${companyId}/reject`);
+  const { data } = await apiClient.post(`/vendor-network/me/companies/${encodeURIComponent(companyId)}/reject`);
   return data;
 }
 
@@ -100,7 +100,7 @@ export async function rejectCompanyInvitation(companyId: string): Promise<{ succ
 // ─────────────────────────────────────────────
 
 export async function getOnboardingStatus(companyId: string): Promise<V2OnboardingStatus> {
-  const { data } = await apiClient.get(`/vendor-network/me/companies/${companyId}/onboarding`);
+  const { data } = await apiClient.get(`/vendor-network/me/companies/${encodeURIComponent(companyId)}/onboarding`);
   return data?.data;
 }
 
@@ -109,14 +109,14 @@ export async function saveV2BusinessIdentity(
   payload: V2BusinessIdentityPayload
 ): Promise<{ success: boolean }> {
   const { data } = await apiClient.patch(
-    `/vendor-network/me/companies/${companyId}/business-identity`,
+    `/vendor-network/me/companies/${encodeURIComponent(companyId)}/business-identity`,
     payload
   );
   return data;
 }
 
 export async function submitV2Onboarding(companyId: string): Promise<{ success: boolean }> {
-  const { data } = await apiClient.post(`/vendor-network/me/companies/${companyId}/onboarding/submit`, {
+  const { data } = await apiClient.post(`/vendor-network/me/companies/${encodeURIComponent(companyId)}/onboarding/submit`, {
     confirm: true,
   });
   return data;
@@ -151,7 +151,7 @@ export async function saveV2BankingDetails(
   }
 ): Promise<{ success: boolean }> {
   const { data } = await apiClient.patch(
-    `/vendor-network/me/companies/${companyId}/banking-details`,
+    `/vendor-network/me/companies/${encodeURIComponent(companyId)}/banking-details`,
     payload
   );
   return data;
@@ -189,7 +189,7 @@ export async function uploadV2Document(
   }
 
   const { data } = await uploadClient.patch(
-    `/vendor-network/me/companies/${companyId}/documents`,
+    `/vendor-network/me/companies/${encodeURIComponent(companyId)}/documents`,
     formData,
     {
       onUploadProgress: (e) => {
@@ -204,7 +204,7 @@ export async function uploadV2Document(
 
 export async function viewV2Document(companyId: string, vendorDocumentId: string): Promise<{ url: string }> {
   const { data } = await apiClient.get(
-    `/vendor-network/me/companies/${companyId}/documents/${vendorDocumentId}/view`
+    `/vendor-network/me/companies/${encodeURIComponent(companyId)}/documents/${encodeURIComponent(vendorDocumentId)}/view`
   );
   return data?.data;
 }
@@ -222,7 +222,7 @@ export async function getCompanyPaymentTermOptions(
     headers["X-Villeto-Legal-Entity"] = legalEntity;
   }
   const { data } = await apiClient.get(
-    `/vendor-network/me/companies/${companyId}/payment-term-options`,
+    `/vendor-network/me/companies/${encodeURIComponent(companyId)}/payment-term-options`,
     { headers }
   );
   return Array.isArray(data?.data) ? data.data : [];
@@ -233,7 +233,7 @@ export async function saveCompanyPaymentTerm(
   payload: SaveCompanyPaymentTermPayload
 ): Promise<{ success: boolean; data?: VendorPaymentTermSubmission }> {
   const { data } = await apiClient.put(
-    `/vendor-network/me/companies/${companyId}/payment-terms`,
+    `/vendor-network/me/companies/${encodeURIComponent(companyId)}/payment-terms`,
     payload
   );
   return data;
@@ -294,7 +294,9 @@ export async function getVendorPaymentTerms(
 export async function getVendorPaymentTermById(
   paymentTermId: string
 ): Promise<VendorPaymentTermSubmission> {
-  const { data } = await apiClient.get(`/vendor-network/me/payment-terms/${paymentTermId}`);
+  const { data } = await apiClient.get(
+    `/vendor-network/me/payment-terms/${encodeURIComponent(paymentTermId)}`
+  );
   return data?.data ?? data;
 }
 

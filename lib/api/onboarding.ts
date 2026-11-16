@@ -77,7 +77,7 @@ export async function getBankList(country: string = "NG"): Promise<
 > {
   // INTEGRATION POINT ↓
   const { data } = await apiClient.get(
-    `/vendors/onboarding/banks?country=${country}`
+    `/vendors/onboarding/banks?country=${encodeURIComponent(country)}`
   );
   return data.data;
 }

@@ -13,6 +13,8 @@ import { useDropzone } from "react-dropzone";
 import { toast } from "sonner";
 import { format, startOfDay, isAfter, isBefore } from "date-fns";
 import { cn } from "@/lib/utils";
+import { validateUploadFile } from "@/lib/security/upload";
+import { resolveSafeApiAssetUrl } from "@/lib/security/urls";
 import Cookies from "js-cookie";
 import { AUTH_COOKIE_NAMES } from "@/lib/constants/auth";
 
@@ -74,7 +76,7 @@ export default function V2DocumentsPage({ params }: { params: Promise<{ companyI
         const next = { ...prev };
         let changed = false;
         company.documents?.forEach((d: any) => {
-          const docUrl = d.fileUrl || (d.viewEndpoint ? `https://api.villeto.com${d.viewEndpoint}` : "");
+          const docUrl = resolveSafeApiAssetUrl(d.fileUrl, d.viewEndpoint) ?? "";
           if (!next[d.documentType] || !next[d.documentType].url || next[d.documentType].url?.startsWith("blob:")) {
             next[d.documentType] = { status: "done", filename: d.originalName || `${d.documentType}.pdf`, url: docUrl };
             changed = true;
@@ -135,9 +137,14 @@ export default function V2DocumentsPage({ params }: { params: Promise<{ companyI
     return true;
   };
 
-  const onDrop = (acceptedFiles: File[], docId: string) => {
+  const onDrop = async (acceptedFiles: File[], docId: string) => {
     const file = acceptedFiles[0];
     if (!file) return;
+    const validation = await validateUploadFile(file, "document");
+    if (!validation.valid) {
+      toast.error(validation.error || "Invalid document file.");
+      return;
+    }
     setPendingFiles((prev) => ({ ...prev, [docId]: file }));
     setUploads((prev) => ({ ...prev, [docId]: { status: "pending", filename: file.name } }));
   };
@@ -177,11 +184,16 @@ export default function V2DocumentsPage({ params }: { params: Promise<{ companyI
       } catch (e) {
         console.warn("Could not get document view URL", e);
       }
-      setUploads((prev) => ({ ...prev, [docId]: { status: "done", url: viewUrl || res.url || localUrl, filename: res.file_name || file.name } }));
+      setUploads((prev) => ({
+        ...prev,
+        [docId]: { status: "done", url: viewUrl || res.url || "", filename: res.file_name || file.name },
+      }));
       toast.success("Document uploaded successfully");
     } catch (err: any) {
       setUploads((prev) => ({ ...prev, [docId]: { status: "error", filename: file.name } }));
       toast.error(err.message || "Failed to upload document");
+    } finally {
+      URL.revokeObjectURL(localUrl);
     }
   };
 
