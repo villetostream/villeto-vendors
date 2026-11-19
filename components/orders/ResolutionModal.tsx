@@ -211,15 +211,29 @@ export function isLineAlreadyResolved(
     return true;
   }
 
-  return getLineUnresolvedQty(li, fulfillment) === 0;
+  // Actively contested / disputed lines under buyer review are NOT resolved
+  if (
+    li.resolutionStatus === "under_company_review" ||
+    li.vendorDisposition === "dispute" ||
+    fulfillment?.resolutionStatus === "under_company_review"
+  ) {
+    return false;
+  }
+
+  const excQty = (li.quantityRejected || 0) + (li.quantityMissing || 0);
+  if (excQty === 0) return true;
+
+  const allocated = getLineAllocatedQty(li, fulfillment).total;
+  return allocated >= excQty;
 }
 
 export function getLineRecommendedDisposition(
   li: FulfillmentLineItem,
   fulfillment?: Fulfillment | null
 ): "backorder" | "forfeit" | null {
-  if (li.recommendedDisposition) {
-    return li.recommendedDisposition;
+  const directRec = li.companyRecommendedDisposition ?? li.recommendedDisposition;
+  if (directRec) {
+    return directRec;
   }
   if (fulfillment?.decisionHistory && Array.isArray(fulfillment.decisionHistory)) {
     for (const dh of [...fulfillment.decisionHistory].reverse()) {
@@ -230,8 +244,9 @@ export function getLineRecommendedDisposition(
             dhl.purchaseOrderLineItemId === li.purchaseOrderLineItemId ||
             (dhl.name && dhl.name.trim().toLowerCase() === li.name?.trim().toLowerCase())
         );
-        if (match?.recommendedDisposition) {
-          return match.recommendedDisposition;
+        const matchRec = match?.companyRecommendedDisposition ?? match?.recommendedDisposition;
+        if (matchRec) {
+          return matchRec;
         }
       }
     }
@@ -476,11 +491,7 @@ export function ResolutionModal({
     : fulfillment.totalMissingQuantity ??
       fulfillment.lineItems.reduce((acc, li) => acc + (li.quantityMissing || 0), 0);
 
-  const fulfillmentTitle = fulfillment.receiptNumber
-    ? `Receipt ${fulfillment.receiptNumber}${
-        fulfillment.fulfillmentReference ? ` (${fulfillment.fulfillmentReference})` : ""
-      }`
-    : fulfillment.fulfillmentReference
+  const fulfillmentTitle = fulfillment.fulfillmentReference
     ? `Shipment #${fulfillmentIndex + 1} (${fulfillment.fulfillmentReference})`
     : `Shipment #${fulfillmentIndex + 1}`;
 

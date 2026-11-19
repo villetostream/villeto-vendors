@@ -34,7 +34,11 @@ import { ExpandableText } from "@/components/ui/ExpandableText";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/Modal";
 import { DatePicker } from "@/components/ui/DatePicker";
 import { ErrorState, EmptyState } from "@/components/ui/Spinner";
-import { formatCurrency, formatDate, formatDateTime, parseLocalDate, parseExceptionReason, formatExceptionReason, getUniqueLineReasons, enrichFulfillmentsWithReceipts, formatQtyWithUom, pluralizeUnits, cn } from "@/lib/utils";
+import { formatCurrency, formatDate, formatDateTime, parseLocalDate, isPastCalendarDate, resolveAcknowledgePromiseDate, parseExceptionReason, formatExceptionReason, getUniqueLineReasons, enrichFulfillmentsWithReceipts, formatQtyWithUom, pluralizeUnits, cn } from "@/lib/utils";
+import {
+  buildCreateFulfillmentPayload,
+  validateFulfillmentDeliveryDetails,
+} from "@/lib/utils/fulfillment";
 import { format } from "date-fns";
 import {
   Fulfillment,
@@ -74,23 +78,6 @@ function OrderDetailSkeleton() {
         </div>
       </div>
     </div>
-  );
-}
-
-// ── Fulfillment state badge helper ──
-function FulfillmentStateBadge({ state }: { state?: string }) {
-  if (!state || state === "not_started") return null;
-  const map: Record<string, { label: string; cls: string }> = {
-    partially_ready: { label: "Partially Fulfilled", cls: "bg-blue-50 text-blue-700 border-blue-200" },
-    fully_ready:     { label: "Fully Fulfilled",     cls: "bg-green-50 text-green-700 border-green-200" },
-    backordered:     { label: "Backordered",         cls: "bg-amber-50 text-amber-700 border-amber-200" },
-  };
-  const entry = map[state];
-  if (!entry) return null;
-  return (
-    <span className={cn("text-xs px-1.5 py-0.5 rounded-md font-medium border inline-flex w-fit", entry.cls)}>
-      {entry.label}
-    </span>
   );
 }
 
@@ -324,7 +311,11 @@ function deriveFulfillmentExplicitState(
   isResolvedAfterDispute: boolean;
 } {
   const method = notice.fulfillmentMethod || "unknown";
-  const isPhysical = ["carrier", "vendor_truck"].includes(method);
+  const isPhysical =
+    ["carrier", "vendor_truck"].includes(method) ||
+    notice.lineItems.some((li) =>
+      ["carrier", "vendor_truck"].includes(li.fulfillmentMethod || "")
+    );
 
   const totalShipped =
     notice.totalDeliveredQuantity ??
@@ -404,6 +395,8 @@ function deriveFulfillmentExplicitState(
     !!notice.deliveryReceiptId ||
     !!notice.receiptNumber ||
     isResolvedAfterDispute ||
+    notice.status === "confirmed" ||
+    notice.status === "confirmed_with_exceptions" ||
     notice.confirmationOutcome === "confirmed" ||
     notice.confirmationOutcome === "confirmed_with_exceptions" ||
     (!!notice.inspectionOutcome && notice.inspectionOutcome !== "awaiting_inspection") ||
@@ -625,7 +618,11 @@ function FulfillmentHistorySection({
         {notices.map((notice, idx) => {
           const isExpanded = expandedId === notice.vendorDeliveryNoticeId;
           const method = notice.fulfillmentMethod || "unknown";
-          const isPhysical = ["carrier", "vendor_truck"].includes(method);
+          const isPhysical =
+            ["carrier", "vendor_truck"].includes(method) ||
+            notice.lineItems.some((li) =>
+              ["carrier", "vendor_truck"].includes(li.fulfillmentMethod || "")
+            );
           
           let titlePrefix = "Fulfillment";
           let Icon = Package;
@@ -717,11 +714,6 @@ function FulfillmentHistorySection({
                       <p className="text-sm font-medium truncate">
                         {titlePrefix} #{idx + 1}
                       </p>
-                      {notice.receiptNumber && (
-                        <span className="text-[11px] font-mono text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
-                          {notice.receiptNumber}
-                        </span>
-                      )}
                       {/* Explicit Delivery State Pill */}
                       <span
                         className={cn(
@@ -1080,6 +1072,20 @@ function FulfillmentHistorySection({
                           <tr key={li.vendorDeliveryNoticeLineItemId || li.purchaseOrderLineItemId} className="border-b border-border/40 hover:bg-slate-50/50 transition-colors">
                             <td className="py-3 font-semibold text-foreground">
                               <div>{li.name}</div>
+                              {li.fulfillmentMethod && (
+                                <p className="text-[11px] font-normal text-muted-foreground mt-0.5 flex items-center gap-1.5 flex-wrap">
+                                  <span className="font-medium capitalize text-foreground/80">
+                                    {li.fulfillmentMethod.replace(/_/g, " ")}
+                                  </span>
+                                  {li.carrier && <span>· {li.carrier}</span>}
+                                  {li.trackingNumber && (
+                                    <span className="font-mono">({li.trackingNumber})</span>
+                                  )}
+                                  {li.expectedDeliveryDate && (
+                                    <span>· ETA {formatDate(li.expectedDeliveryDate)}</span>
+                                  )}
+                                </p>
+                              )}
                               {(li.exceptionReason || li.rejectionReason) && (
                                 <p className="text-[11px] font-normal text-muted-foreground mt-0.5">
                                   {formatExceptionReason(li.exceptionReason || li.rejectionReason)}
@@ -1767,7 +1773,7 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
   const resolveReceiptException = useResolveReceiptException();
   const acceptFinalDecisionMutation = useAcceptFinalDecision();
 
-  // Per-item delivery dates entered before acknowledging
+  // Per-item promise dates entered before acknowledging
   const [draftDates, setDraftDates] = useState<Record<string, string>>({});
 
   const [fulfillmentModalOpen, setFulfillmentModalOpen] = useState(false);
@@ -1863,35 +1869,14 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
   useEffect(() => {
     if (!order) return;
 
-    // PO-level expected delivery date formatted as yyyy-MM-dd
-    const defaultOrderDate = (() => {
-      const raw = order.deliveryDate;
-      if (!raw) return "";
-      const match = raw.match(/^(\d{4}-\d{2}-\d{2})/);
-      if (match) return match[1];
-      const parsed = new Date(raw);
-      if (!isNaN(parsed.getTime())) {
-        return format(parsed, "yyyy-MM-dd");
-      }
-      return "";
-    })();
-
     setDraftDates((prev) => {
       const next = { ...prev };
       for (const item of order.lineItems) {
-        // If date has not been set or is empty, automatically select the expected delivery date
-        if (!(item.purchaseOrderLineItemId in next) || !next[item.purchaseOrderLineItemId]) {
-          const itemDate = item.deliveryDate
-            ? (() => {
-                const match = item.deliveryDate.match(/^(\d{4}-\d{2}-\d{2})/);
-                if (match) return match[1];
-                const p = new Date(item.deliveryDate);
-                return !isNaN(p.getTime()) ? format(p, "yyyy-MM-dd") : item.deliveryDate;
-              })()
-            : null;
-
-          next[item.purchaseOrderLineItemId] =
-            itemDate || defaultOrderDate || format(new Date(), "yyyy-MM-dd");
+        if (!(item.purchaseOrderLineItemId in next)) {
+          next[item.purchaseOrderLineItemId] = resolveAcknowledgePromiseDate(
+            item.promisedDeliveryDate || item.deliveryDate,
+            order.promisedDeliveryDate || order.deliveryDate
+          );
         }
       }
       return next;
@@ -1952,7 +1937,14 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
 
   const handleAcknowledge = () => {
     if (!allDatesEntered) {
-      toast.error("Please enter a delivery date for every item before acknowledging.");
+      toast.error("Please enter a promise date for every item before acknowledging.");
+      return;
+    }
+    const hasPastDate = order.lineItems.some((item) =>
+      isPastCalendarDate(draftDates[item.purchaseOrderLineItemId])
+    );
+    if (hasPastDate) {
+      toast.error("Promise date cannot be in the past.");
       return;
     }
     acknowledge.mutate({
@@ -1960,7 +1952,7 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
       payload: {
         lineItems: order.lineItems.map((item) => ({
           purchaseOrderLineItemId: item.purchaseOrderLineItemId,
-          deliveryDate: draftDates[item.purchaseOrderLineItemId],
+          promisedDeliveryDate: draftDates[item.purchaseOrderLineItemId],
         })),
       },
     });
@@ -1979,6 +1971,31 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
   };
 
   const handleFulfillmentSubmit = async (data: FulfillmentFormData) => {
+    const deliveryValidationError = validateFulfillmentDeliveryDetails({
+      usePerItemMethod: data.usePerItemMethod,
+      fulfillmentMethod: data.fulfillmentMethod,
+      carrier: data.carrier,
+      trackingNumber: data.trackingNumber,
+      expectedDeliveryDate: data.expectedDeliveryDate,
+      lineItems: data.lineItems.map((li) => {
+        const poItem = order.lineItems.find(
+          (i) => i.purchaseOrderLineItemId === li.purchaseOrderLineItemId
+        );
+        return {
+          purchaseOrderLineItemId: li.purchaseOrderLineItemId,
+          name: poItem?.name,
+          fulfillmentMethod: li.fulfillmentMethod,
+          carrier: li.carrier,
+          trackingNumber: li.trackingNumber,
+          expectedDeliveryDate: li.expectedDeliveryDate,
+        };
+      }),
+    });
+    if (deliveryValidationError) {
+      toast.error(deliveryValidationError);
+      return;
+    }
+
     // Validate partial dispositions
     if (data.declaration === "partial") {
       const invalidItems = data.lineItems.filter(li => {
@@ -2024,33 +2041,31 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
         ? `${rawUserRef}-SHP${nextShipmentNum}-${crypto.randomUUID().slice(0, 4)}`
         : rawUserRef
       : `FUL-${crypto.randomUUID().slice(0, 8)}`;
-    const isPhysicalMethod = ["carrier", "vendor_truck"].includes(data.fulfillmentMethod);
+    const isPhysicalMethod = data.usePerItemMethod
+      ? data.lineItems.some((li) =>
+          ["carrier", "vendor_truck"].includes(li.fulfillmentMethod || "")
+        )
+      : ["carrier", "vendor_truck"].includes(data.fulfillmentMethod || "");
     const shouldDispatchImmediately = isPhysicalMethod && data.dispatchNow !== false;
+
+    const payload = buildCreateFulfillmentPayload({
+      fulfillmentReference: generatedRef,
+      declaration: data.declaration,
+      readyAt: new Date().toISOString(),
+      usePerItemMethod: data.usePerItemMethod,
+      fulfillmentMethod: data.fulfillmentMethod,
+      expectedDeliveryDate: data.expectedDeliveryDate,
+      carrier: data.carrier,
+      trackingNumber: data.trackingNumber,
+      packingSlipNumber: data.packingSlipNumber,
+      notes: data.notes,
+      lineItems: data.lineItems,
+    });
 
     try {
       const createdRes = await createFulfillment.mutateAsync({
         purchaseOrderId: order.purchaseOrderId,
-        payload: {
-          fulfillmentReference: generatedRef,
-          declaration: data.declaration,
-          fulfillmentMethod: data.fulfillmentMethod as any,
-          readyAt: new Date().toISOString(),
-          expectedDeliveryDate: data.expectedDeliveryDate,
-          carrier: data.carrier,
-          trackingNumber: data.trackingNumber,
-          packingSlipNumber: data.packingSlipNumber,
-          notes: data.notes,
-          lineItems: data.lineItems.map(li => {
-            const reason = li.reason || li.dispositionReason;
-            return {
-              purchaseOrderLineItemId: li.purchaseOrderLineItemId,
-              quantityReady: li.quantityReady,
-              ...(li.remainingDisposition ? { remainingDisposition: li.remainingDisposition as any } : {}),
-              ...(li.expectedReadyDate ? { expectedReadyDate: li.expectedReadyDate } : {}),
-              ...(reason ? { reason } : {}),
-            };
-          }),
-        },
+        payload,
       });
 
       if (shouldDispatchImmediately) {
@@ -2578,36 +2593,45 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
                   <DeliveryStatusBadge
                     status={order.deliveryOutcome}
                     isResolved={
+                      (order.openExceptionCount ?? 0) === 0 &&
                       order.vendorResponseRequired === false &&
                       activeRejectionNotices.length === 0 &&
                       finalDecisionNotices.length === 0 &&
                       underReviewNotices.length === 0
                     }
                   />
-                ) : (
-                  <OrderStatusBadge status={order.status} />
-                )}
-                {order.resolutionStatus && order.resolutionStatus !== "not_required" && (
+                ) : order.resolutionStatus && order.resolutionStatus !== "not_required" ? (
                   <ExceptionResolutionBadge status={order.resolutionStatus} />
+                ) : (
+                  <OrderStatusBadge
+                    status={order.status}
+                    isResolved={
+                      (order.openExceptionCount ?? 0) === 0 &&
+                      order.vendorResponseRequired === false &&
+                      activeRejectionNotices.length === 0 &&
+                      finalDecisionNotices.length === 0 &&
+                      underReviewNotices.length === 0
+                    }
+                  />
                 )}
-                {order.fulfillmentState && order.fulfillmentState !== "not_started" && (
-                  <FulfillmentStateBadge state={order.fulfillmentState} />
-                )}
-                {finalDecisionNotices.length > 0 ? (
-                  <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-50 text-amber-900 border border-amber-300">
-                    <AlertCircle className="h-3.5 w-3.5 text-amber-600" />
-                    Final Decision Issued ({pluralizeUnits(finalDecisionNotices[0].unresolvedUnits)} to Allocate)
-                  </span>
-                ) : activeRejectionNotices.length > 0 ? (
-                  <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-red-50 text-red-700 border border-red-200">
-                    <AlertCircle className="h-3.5 w-3.5 text-red-500" />
-                    Action Required ({pluralizeUnits(totalAllUnresolved || order.openExceptionCount || totalAllRejected)} Pending Resolution)
-                  </span>
-                ) : null}
               </div>
-              <p className="text-xs text-muted-foreground mt-0.5">
-                Issued on {formatDate(order.issueDate)}
-              </p>
+              <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                <p className="text-xs text-muted-foreground">
+                  Issued on {formatDate(order.issueDate)}
+                </p>
+                {order.fulfillmentState === "backordered" && (
+                  <>
+                    <span className="text-xs text-muted-foreground" aria-hidden="true">•</span>
+                    <span className="text-xs text-amber-700 font-medium">Contains backordered items</span>
+                  </>
+                )}
+                {order.fulfillmentState === "cannot_fulfill" && (
+                  <>
+                    <span className="text-xs text-muted-foreground" aria-hidden="true">•</span>
+                    <span className="text-xs text-red-700 font-medium">Contains unfulfilled items</span>
+                  </>
+                )}
+              </div>
             </div>
           </div>
           <div className="flex items-center gap-2 flex-wrap xl:justify-end shrink-0">{renderCTA()}</div>
@@ -2633,9 +2657,6 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
                   <p className="text-sm font-bold text-amber-950">
                     Shipment #{target.index + 1} is staged as ready ({pluralizeUnits(target.totalShipped)}) — physical dispatch required
                   </p>
-                  <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-amber-200/80 text-amber-900">
-                    Action Required
-                  </span>
                 </div>
                 <p className="text-xs text-amber-800 mt-1 leading-relaxed">
                   Mark this shipment as <strong>Dispatched</strong> once the goods leave your facility so the buyer can inspect and confirm receipt.
@@ -2747,13 +2768,8 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
                       <p className="text-sm font-bold text-amber-950">
                         Shipment #{target.index + 1} Dispute Concluded — Buyer Ruling: {decisionLabel}
                       </p>
-                      {f.receiptNumber && (
-                        <span className="text-[11px] font-mono px-2 py-0.5 rounded-md bg-white/90 text-amber-900 border border-amber-300 font-medium">
-                          {f.receiptNumber}
-                        </span>
-                      )}
                       <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-amber-200/80 text-amber-900">
-                        Final Decision · Allocation Required ({pluralizeUnits(unresolvedUnits)})
+                        Allocation Required ({pluralizeUnits(unresolvedUnits)})
                       </span>
                     </div>
                     <p className="text-xs text-amber-800 mt-1 leading-relaxed">
@@ -2835,6 +2851,10 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
         underReviewNotices.length > 0 &&
         order.status !== "cancelled" && (() => {
           const target = underReviewNotices[0];
+          const targetUnresolvedUnits = target.fulfillment.lineItems.reduce(
+            (sum, li) => sum + getLineUnresolvedQty(li as any, target.fulfillment),
+            0
+          );
           return (
             <div className="p-4 rounded-2xl bg-purple-50/85 border border-purple-200 flex flex-col md:flex-row md:items-center justify-between gap-3 shadow-xs">
               <div className="flex items-start gap-3">
@@ -2853,10 +2873,10 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
                   <p className="text-xs text-purple-800 mt-1 leading-relaxed">
                     Further deliveries and invoicing for disputed units remain restricted until the buyer resolves the discrepancy or explicitly authorizes continuation.
                   </p>
-                  {order.openExceptionCount && order.openExceptionCount > 0 && (
+                  {targetUnresolvedUnits > 0 && (
                     <div className="pt-2 flex items-center justify-between gap-2 flex-wrap">
                       <p className="text-xs font-semibold text-purple-900">
-                        Note: {pluralizeUnits(order.openExceptionCount)} on this order still {order.openExceptionCount === 1 ? "requires" : "require"} resolution.
+                        Note: {pluralizeUnits(targetUnresolvedUnits)} on this shipment still {targetUnresolvedUnits === 1 ? "requires" : "require"} resolution.
                       </p>
                       <Button
                         type="button"
@@ -2865,7 +2885,7 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
                         onClick={() => handleOpenResolution(target.fulfillment, target.index, null, "backorder")}
                         className="h-8 px-3 text-xs font-semibold bg-[#00b29a] hover:bg-[#009b86] text-white"
                       >
-                        Resolve Remaining ({pluralizeUnits(order.openExceptionCount)})
+                        Resolve Remaining ({pluralizeUnits(targetUnresolvedUnits)})
                       </Button>
                     </div>
                   )}
@@ -2962,14 +2982,6 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
                     <p className="text-sm font-bold text-red-950">
                       Buyer reported {summaryLabel} on Shipment #{index + 1}
                     </p>
-                    {fulfillment.receiptNumber && (
-                      <span className="text-[11px] font-mono px-2 py-0.5 rounded-md bg-white/90 text-red-800 border border-red-200 font-medium">
-                        {fulfillment.receiptNumber}
-                      </span>
-                    )}
-                    <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-red-200/80 text-red-800">
-                      Action Required ({pluralizeUnits(unresolvedUnits)})
-                    </span>
                   </div>
                   <p className="text-xs text-red-700/90 mt-0.5">
                     {hasPartial
@@ -3045,9 +3057,6 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
                   <h3 className="text-sm font-bold text-red-900">
                     Buyer reported exceptions on {activeRejectionNotices.length} shipments ({totalAllRejected} total exception units)
                   </h3>
-                  <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-red-200 text-red-800">
-                    Action Required
-                  </span>
                 </div>
                 <p className="text-xs text-red-700 mt-0.5">
                   Each shipment with exceptions needs your response (backorder, forfeit, or dispute).
@@ -3108,11 +3117,6 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
                           <span className="text-sm font-bold text-foreground">
                             Shipment #{index + 1}
                           </span>
-                          {fulfillment.receiptNumber && (
-                            <span className="text-[11px] font-mono text-muted-foreground bg-muted px-2 py-0.5 rounded-md border border-border">
-                              {fulfillment.receiptNumber}
-                            </span>
-                          )}
                           {totalRejected > 0 && (
                             <span className="text-[11px] font-bold text-[#e14856] bg-red-50 border border-red-200 px-2 py-0.5 rounded-full">
                               {totalRejected} rejected
@@ -3196,8 +3200,8 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
             : "text-amber-700 bg-amber-50 border-amber-100"
         )}>
           {allDatesEntered
-            ? "Delivery dates are pre-filled with the expected delivery schedule. You can adjust dates if needed before acknowledging."
-            : "Please verify or select the delivery date for every item below before acknowledging."}
+            ? "Promise dates are pre-filled with the expected delivery schedule. You can adjust dates if needed before acknowledging."
+            : "Please verify or select the promise date for every item below before acknowledging."}
         </div>
       )}
 
@@ -3228,7 +3232,7 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
               </div>
               <div>
                 <p className="text-xs text-muted-foreground">Due date</p>
-                <p className="text-sm font-semibold mt-0.5">{formatDate(order.deliveryDate)}</p>
+                <p className="text-sm font-semibold mt-0.5">{formatDate(order.promisedDeliveryDate || order.deliveryDate)}</p>
               </div>
               <div>
                 <p className="text-xs text-muted-foreground">Priority</p>
@@ -3281,6 +3285,22 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
                 const match = f.lineItems.find((li) => li.purchaseOrderLineItemId === item.purchaseOrderLineItemId);
                 if (!match) return sum;
                 return sum + getLineUnresolvedQty(match as any, f);
+              }, 0);
+              const disputedItemExceptions = allNotices.reduce((sum, f) => {
+                const match = f.lineItems.find((li) => li.purchaseOrderLineItemId === item.purchaseOrderLineItemId);
+                if (!match) return sum;
+                return sum + getLineContestedDisputeQty(match as any, f);
+              }, 0);
+              const resolvedItemExceptions = allNotices.reduce((sum, f) => {
+                const match = f.lineItems.find((li) => li.purchaseOrderLineItemId === item.purchaseOrderLineItemId);
+                if (!match) return sum;
+                if (isLineAlreadyResolved(match as any, f)) {
+                  const r = match.finalQuantityRejected ?? match.quantityRejected ?? 0;
+                  const m = match.finalQuantityMissing ?? match.quantityMissing ?? 0;
+                  return sum + r + m;
+                }
+                const alloc = getLineAllocatedQty(match as any, f);
+                return sum + alloc.total;
               }, 0);
               const matchingFulfillments = allNotices
                 .map((f, idx) => ({
@@ -3337,159 +3357,220 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
               const isCancelled = item.remainingDisposition === "cannot_fulfill";
               const isFullyReady = qtyReady >= item.quantity;
 
-              const renderFulfillmentBadges = () => (
-                <div className="flex flex-col gap-1.5">
-                  <div className="flex items-center gap-1.5 flex-wrap">
-                    {qtyReady > 0 && (
-                      <span className={cn(
-                        "text-xs px-2 py-0.5 rounded-md inline-flex w-fit font-medium border whitespace-nowrap",
-                        isFullyReady 
-                          ? "bg-green-50 text-green-700 border-green-200" 
-                          : "bg-blue-50 text-blue-700 border-blue-200"
-                      )}>
-                        {qtyReady} of {formatQtyWithUom(item.quantity, item.unitOfMeasure)} {item.deliveryState === "dispatched" ? "Dispatched" : "Sent"}
+              const qtyAccepted = item.quantityAccepted ?? item.quantityReceived ?? 0;
+              const qtyAwaiting = Math.max(0, qtyReady - qtyAccepted - fulfillmentExceptions);
+              const allocatedForfeit = matchingFulfillments.reduce((sum, { f, li }) => {
+                const alloc = getLineAllocatedQty(li as any, f);
+                return sum + alloc.forfeit;
+              }, 0);
+              const qtyForfeited = (item.quantityForfeited && item.quantityForfeited > 0)
+                ? item.quantityForfeited
+                : allocatedForfeit;
+              const isShortClosed = (item.shortClosedQuantity || 0) > 0;
+
+              const rejectionTooltip = latestExceptionDetail?.category
+                ? (latestExceptionDetail.text ? `Buyer rejected: ${latestExceptionDetail.category} — ${latestExceptionDetail.text}` : `Buyer rejected: ${latestExceptionDetail.category}`)
+                : `${fulfillmentExceptions} unit(s) rejected by buyer. Click row for details.`;
+
+              const renderFulfillmentProgress = () => {
+                const exceptionBadge = (() => {
+                  if (unresolvedItemExceptions > 0) {
+                    return (
+                      <span
+                        title={rejectionTooltip}
+                        className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full font-medium bg-red-50 text-red-700 border border-red-200 whitespace-nowrap cursor-pointer hover:bg-red-100 transition-colors"
+                      >
+                        <AlertCircle className="h-3 w-3 text-red-500 shrink-0" />
+                        {unresolvedItemExceptions} rejected
                       </span>
-                    )}
-                    {(item.quantityAccepted ?? item.quantityReceived ?? 0) > 0 && (
-                      <span className="text-xs px-2 py-0.5 rounded-md inline-flex w-fit font-medium border bg-emerald-50 text-emerald-700 border-emerald-200 whitespace-nowrap">
-                        {item.quantityAccepted ?? item.quantityReceived} Accepted
+                    );
+                  }
+                  if (disputedItemExceptions > 0) {
+                    return (
+                      <span
+                        title={rejectionTooltip}
+                        className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full font-medium bg-purple-50 text-purple-700 border border-purple-200 whitespace-nowrap cursor-pointer hover:bg-purple-100 transition-colors"
+                      >
+                        {disputedItemExceptions} disputed
                       </span>
-                    )}
-                    {fulfillmentExceptions > 0 && (
-                      unresolvedItemExceptions === 0 ? (
-                        <span className="text-xs px-2 py-0.5 rounded-md inline-flex w-fit font-medium border bg-emerald-50 text-emerald-700 border-emerald-200 whitespace-nowrap">
-                          ✓ {fulfillmentExceptions} Rejected (Resolved)
+                    );
+                  }
+                  if (fulfillmentExceptions > 0) {
+                    return (
+                      <span
+                        title={rejectionTooltip}
+                        className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full font-medium bg-slate-100 text-slate-700 border border-slate-200 whitespace-nowrap cursor-pointer hover:bg-slate-200 transition-colors"
+                      >
+                        <CheckCircle2 className="h-3 w-3 text-emerald-600 shrink-0" />
+                        {fulfillmentExceptions} rejected (resolved)
+                      </span>
+                    );
+                  }
+                  return null;
+                })();
+
+                if (qtyAccepted >= item.quantity) {
+                  return (
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-xs font-semibold text-emerald-700">
+                        {item.quantity} of {formatQtyWithUom(item.quantity, item.unitOfMeasure)} accepted
+                      </span>
+                      {exceptionBadge}
+                    </div>
+                  );
+                }
+                if (qtyAccepted > 0) {
+                  return (
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-xs font-medium text-foreground">
+                          {qtyAccepted} of {formatQtyWithUom(item.quantity, item.unitOfMeasure)} accepted
                         </span>
-                      ) : unresolvedItemExceptions < fulfillmentExceptions ? (
-                        <div className="flex items-center gap-1 flex-wrap">
-                          <span className="text-xs px-2 py-0.5 rounded-md inline-flex w-fit font-medium border bg-red-50 text-red-700 border-red-200 whitespace-nowrap">
-                            {unresolvedItemExceptions} Rejected
-                          </span>
-                          <span className="text-xs px-2 py-0.5 rounded-md inline-flex w-fit font-medium border bg-emerald-50 text-emerald-700 border-emerald-200 whitespace-nowrap">
-                            ✓ {fulfillmentExceptions - unresolvedItemExceptions} Resolved
-                          </span>
-                        </div>
-                      ) : (
-                        <span className="text-xs px-2 py-0.5 rounded-md inline-flex w-fit font-medium border bg-red-50 text-red-700 border-red-200 whitespace-nowrap">
-                          {fulfillmentExceptions} Rejected
-                        </span>
-                      )
-                    )}
-                  </div>
-
-                  {latestExceptionDetail && (latestExceptionDetail.category || latestExceptionDetail.text) && (
-                    <div className="text-[11px] text-red-800 bg-red-50/80 border border-red-200/70 rounded-md px-2.5 py-1.5 max-w-sm">
-                      <ExpandableText
-                        prefix={
-                          latestExceptionDetail.shipmentLabel
-                            ? `Buyer rejection (${latestExceptionDetail.shipmentLabel}):`
-                            : "Buyer rejection:"
-                        }
-                        prefixClass="text-red-950 font-bold"
-                        text={[latestExceptionDetail.category, latestExceptionDetail.text]
-                          .filter(Boolean)
-                          .join(" - ") || "Inspection discrepancy"}
-                        maxLength={75}
-                        className="text-red-900"
-                      />
-                    </div>
-                  )}
-
-                  {latestExceptionDetail?.rec && unresolvedItemExceptions > 0 && (
-                    <div className="text-[11px] text-sky-900 bg-sky-50 border border-sky-200 rounded-md px-2.5 py-1 max-w-sm flex items-center gap-1.5 flex-wrap">
-                      <span className="font-bold">Buyer recommendation:</span>
-                      <span className="font-semibold capitalize">
-                        {latestExceptionDetail.rec === "forfeit" ? "Forfeit (write off)" : "Backorder (send replacement)"}
-                      </span>
-                      <span className="text-[10px] text-sky-700/80">(Non-binding)</span>
-                    </div>
-                  )}
-
-                  {item.remainingDisposition === "backordered" && (
-                    <div className="space-y-0.5">
-                      <span className="text-xs text-amber-800 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-md w-fit font-medium whitespace-nowrap inline-flex items-center gap-1">
-                        <Clock className="h-3 w-3 text-amber-600" />
-                        {formatQtyWithUom(getRemainingToReady(item), item.unitOfMeasure)} Backordered{effectiveBackorderDate ? ` · Est. ${formatDate(effectiveBackorderDate)}` : ""}
-                      </span>
-                      {effectiveBackorderReason && (
-                        <div className="pl-0.5 max-w-sm">
-                          <ExpandableText
-                            prefix="Backorder reason:"
-                            prefixClass="text-amber-950 font-semibold"
-                            text={effectiveBackorderReason}
-                            maxLength={60}
-                            className="text-amber-900/90"
-                          />
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  {isCancelled && (
-                    <div className="space-y-0.5">
-                      <span className="text-xs text-red-700 bg-red-50 border border-red-200 px-2 py-0.5 rounded-md w-fit font-medium whitespace-nowrap">
-                        {formatQtyWithUom(item.quantity - qtyReady, item.unitOfMeasure)} Cannot Fulfill
-                      </span>
-                      {(item.dispositionReason || item.reason) && (
-                        <div className="pl-0.5 max-w-sm">
-                          <ExpandableText
-                            prefix="Cancellation reason:"
-                            prefixClass="text-red-950 font-semibold"
-                            text={item.dispositionReason || item.reason || ""}
-                            maxLength={60}
-                            className="text-red-800/90"
-                          />
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  {(item.quantityForfeited || 0) > 0 && (
-                    <span className="text-xs text-red-700 bg-red-50 border border-red-200 px-2 py-0.5 rounded-md w-fit font-medium whitespace-nowrap">
-                      {formatQtyWithUom(item.quantityForfeited!, item.unitOfMeasure)} Forfeited
-                    </span>
-                  )}
-
-                  {(item.shortClosedQuantity || 0) > 0 && (
-                    <div className="space-y-0.5">
-                      <span className="text-xs text-slate-700 bg-slate-100 border border-slate-200 px-2 py-0.5 rounded-md w-fit font-medium whitespace-nowrap">
-                        {formatQtyWithUom(item.shortClosedQuantity!, item.unitOfMeasure)} Short-Closed
-                      </span>
-                      {item.shortCloseReason && (
-                        <p className="text-[11px] text-slate-600 pl-0.5 max-w-sm">
-                          <span className="font-semibold text-slate-800">Short-close note:</span> {item.shortCloseReason}
+                        {exceptionBadge}
+                      </div>
+                      {qtyAwaiting > 0 && (
+                        <p className="text-[11px] text-blue-600 font-normal">
+                          +{qtyAwaiting} in transit
                         </p>
                       )}
                     </div>
-                  )}
+                  );
+                }
+                if (qtyReady > 0) {
+                  return (
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-xs font-medium text-blue-700">
+                        {qtyReady} of {formatQtyWithUom(item.quantity, item.unitOfMeasure)} dispatched
+                      </span>
+                      {exceptionBadge}
+                    </div>
+                  );
+                }
+                return (
+                  <span className="text-xs text-muted-foreground">
+                    0 of {formatQtyWithUom(item.quantity, item.unitOfMeasure)} sent
+                  </span>
+                );
+              };
 
-                  {!qtyReady && !item.remainingDisposition && (
-                    <span className="text-xs text-slate-600 bg-slate-50 border border-slate-200/80 px-2 py-0.5 rounded-md w-fit font-medium whitespace-nowrap">
-                      Not started · {formatQtyWithUom(getRemainingToReady(item), item.unitOfMeasure)} left
+              const renderStatusBadge = () => {
+                if (unresolvedItemExceptions > 0) {
+                  return (
+                    <span className="inline-flex items-center gap-1 text-xs px-2.5 py-0.5 rounded-full font-medium bg-red-50 text-red-700 border border-red-200 whitespace-nowrap">
+                      <AlertCircle className="h-3 w-3 text-red-500 shrink-0" />
+                      Action Required ({unresolvedItemExceptions} rejected)
                     </span>
-                  )}
-                </div>
-              );
+                  );
+                }
+                if (disputedItemExceptions > 0) {
+                  return (
+                    <span className="inline-flex items-center gap-1 text-xs px-2.5 py-0.5 rounded-full font-medium bg-purple-50 text-purple-700 border border-purple-200 whitespace-nowrap">
+                      Under Review ({disputedItemExceptions} disputed)
+                    </span>
+                  );
+                }
 
-              return { item, isCancelled, renderFulfillmentBadges };
+                const lifecycleBadges: React.ReactNode[] = [];
+
+                if (item.remainingDisposition === "backordered") {
+                  lifecycleBadges.push(
+                    <span key="backordered" className="inline-flex items-center gap-1 text-xs px-2.5 py-0.5 rounded-full font-medium bg-amber-50 text-amber-800 border border-amber-200 whitespace-nowrap">
+                      <Clock className="h-3 w-3 text-amber-600 shrink-0" />
+                      {formatQtyWithUom(getRemainingToReady(item), item.unitOfMeasure)} Backordered{effectiveBackorderDate ? ` · Est. ${formatDate(effectiveBackorderDate)}` : ""}
+                    </span>
+                  );
+                } else if (isCancelled) {
+                  lifecycleBadges.push(
+                    <span key="cancelled" className="inline-flex items-center text-xs px-2.5 py-0.5 rounded-full font-medium bg-red-50 text-red-700 border border-red-200 whitespace-nowrap">
+                      Cannot Fulfill
+                    </span>
+                  );
+                }
+
+                if (qtyForfeited > 0) {
+                  lifecycleBadges.push(
+                    <span key="forfeited" className="inline-flex items-center text-xs px-2.5 py-0.5 rounded-full font-medium bg-rose-50 text-rose-700 border border-rose-200 whitespace-nowrap">
+                      {formatQtyWithUom(qtyForfeited, item.unitOfMeasure)} Forfeited
+                    </span>
+                  );
+                }
+
+                if (isShortClosed) {
+                  lifecycleBadges.push(
+                    <span key="shortclosed" className="inline-flex items-center text-xs px-2.5 py-0.5 rounded-full font-medium bg-slate-100 text-slate-700 border border-slate-200 whitespace-nowrap">
+                      {formatQtyWithUom(item.shortClosedQuantity!, item.unitOfMeasure)} Short-Closed
+                    </span>
+                  );
+                }
+
+                if (lifecycleBadges.length > 0) {
+                  return (
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      {lifecycleBadges}
+                    </div>
+                  );
+                }
+
+                if (qtyAccepted >= item.quantity) {
+                  return (
+                    <span className="inline-flex items-center gap-1 text-xs px-2.5 py-0.5 rounded-full font-medium bg-emerald-50 text-emerald-700 border border-emerald-200 whitespace-nowrap">
+                      <CheckCircle2 className="h-3 w-3 text-emerald-600 shrink-0" />
+                      Delivered
+                    </span>
+                  );
+                }
+                if (qtyReady > 0 && qtyAccepted === 0) {
+                  return (
+                    <span className="inline-flex items-center text-xs px-2.5 py-0.5 rounded-full font-medium bg-blue-50 text-blue-700 border border-blue-200 whitespace-nowrap">
+                      In Transit
+                    </span>
+                  );
+                }
+                if (qtyAccepted > 0) {
+                  return (
+                    <span className="inline-flex items-center text-xs px-2.5 py-0.5 rounded-full font-medium bg-blue-50 text-blue-700 border border-blue-200 whitespace-nowrap">
+                      Partially Delivered
+                    </span>
+                  );
+                }
+                if (qtyForfeited > 0) {
+                  return (
+                    <span className="inline-flex items-center text-xs px-2.5 py-0.5 rounded-full font-medium bg-rose-50 text-rose-700 border border-rose-200 whitespace-nowrap">
+                      {formatQtyWithUom(qtyForfeited, item.unitOfMeasure)} Forfeited
+                    </span>
+                  );
+                }
+                return (
+                  <span className="inline-flex items-center text-xs px-2.5 py-0.5 rounded-full font-medium bg-slate-50 text-slate-600 border border-slate-200 whitespace-nowrap">
+                    Not Started
+                  </span>
+                );
+              };
+
+              return { item, isCancelled, renderFulfillmentProgress, renderStatusBadge };
             });
 
             return (
               <div className="bg-white rounded-2xl border border-dashboard-border overflow-hidden">
-                <div className="px-4 sm:px-6 py-4 border-b border-border">
+                <div className="px-4 sm:px-6 py-4 border-b border-border flex items-center justify-between">
                   <h2 className="text-base font-semibold">
                     Items <span className="text-muted-foreground font-normal ml-1">{order.lineItems.length}</span>
                   </h2>
+                  {!isEnteringDates && (
+                    <p className="text-xs text-muted-foreground hidden sm:block">
+                      Click any item to view fulfillment details & history
+                    </p>
+                  )}
                 </div>
 
                 {/* Mobile card view */}
                 <div className="md:hidden divide-y divide-border/60">
-                  {itemRows.map(({ item, isCancelled, renderFulfillmentBadges }) => (
+                  {itemRows.map(({ item, isCancelled, renderFulfillmentProgress, renderStatusBadge }) => (
                     <div
                       key={item.purchaseOrderLineItemId}
                       onClick={() => !isEnteringDates && setSelectedItemForDrawer(item)}
                       className={cn(
-                        "p-4 space-y-3 transition-colors",
+                        "p-4 space-y-2.5 transition-colors",
                         !isEnteringDates && "cursor-pointer hover:bg-muted/30",
                         isCancelled ? "bg-red-50/30" : ""
                       )}
@@ -3513,19 +3594,17 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
                         )}
                       </div>
 
-                      <div className="flex items-center justify-between text-xs text-muted-foreground">
-                        <span>
-                          Qty:{" "}
-                          <strong className="text-foreground font-medium">
-                            {formatQtyWithUom(item.quantity, item.unitOfMeasure)}
-                          </strong>
+                      <div className="flex items-center justify-between text-xs pt-0.5">
+                        <span className="text-muted-foreground">
+                          Qty: <strong className="text-foreground font-medium">{formatQtyWithUom(item.quantity, item.unitOfMeasure)}</strong>
                         </span>
+                        {!isEnteringDates && renderStatusBadge()}
                       </div>
 
                       {isEnteringDates ? (
                         <div>
                           <label htmlFor={`mobile-date-${item.purchaseOrderLineItemId}`} className="block text-xs font-medium text-muted-foreground mb-1">
-                            Delivery date
+                            Promise date
                           </label>
                           <DatePicker
                             date={parseLocalDate(draftDates[item.purchaseOrderLineItemId])}
@@ -3537,7 +3616,9 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
                           />
                         </div>
                       ) : (
-                        renderFulfillmentBadges()
+                        <div className="pt-0.5">
+                          {renderFulfillmentProgress()}
+                        </div>
                       )}
                     </div>
                   ))}
@@ -3548,14 +3629,14 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
                   <table className="w-full min-w-[640px]">
                     <thead>
                       <tr className="border-b border-border">
-                        <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground whitespace-nowrap">Name</th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground whitespace-nowrap">Description</th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground whitespace-nowrap">Item</th>
                         <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground whitespace-nowrap">Quantity</th>
                         {isEnteringDates ? (
-                          <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground whitespace-nowrap">Delivery date</th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground whitespace-nowrap">Promise date</th>
                         ) : (
                           <>
                             <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground whitespace-nowrap">Fulfillment</th>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground whitespace-nowrap">Status</th>
                             <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground whitespace-nowrap">Unit Price</th>
                             <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground whitespace-nowrap">Line Total</th>
                           </>
@@ -3563,7 +3644,7 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
                       </tr>
                     </thead>
                     <tbody>
-                      {itemRows.map(({ item, isCancelled, renderFulfillmentBadges }) => (
+                      {itemRows.map(({ item, isCancelled, renderFulfillmentProgress, renderStatusBadge }) => (
                         <tr
                           key={item.purchaseOrderLineItemId}
                           onClick={() => !isEnteringDates && setSelectedItemForDrawer(item)}
@@ -3573,9 +3654,11 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
                             isCancelled ? "bg-red-50/30" : ""
                           )}
                         >
-                          <td className="px-6 py-3.5 text-sm font-medium whitespace-nowrap">{item.name}</td>
-                          <td className="px-6 py-3.5 text-sm text-muted-foreground max-w-xs truncate">
-                            {item.description?.trim() ? item.description : "—"}
+                          <td className="px-6 py-3.5">
+                            <p className="text-sm font-medium text-foreground">{item.name}</p>
+                            {item.description?.trim() && (
+                              <p className="text-xs text-muted-foreground truncate max-w-xs">{item.description}</p>
+                            )}
                           </td>
                           <td className="px-6 py-3.5 text-sm whitespace-nowrap">
                             <span className="font-medium text-foreground">{item.quantity}</span>
@@ -3588,7 +3671,7 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
                           {isEnteringDates ? (
                             <td className="px-6 py-3.5">
                               <label htmlFor={`date-${item.purchaseOrderLineItemId}`} className="sr-only">
-                                Delivery date for {item.name}
+                                Promise date for {item.name}
                               </label>
                               <DatePicker
                                 date={parseLocalDate(draftDates[item.purchaseOrderLineItemId])}
@@ -3601,8 +3684,11 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
                             </td>
                           ) : (
                             <>
-                              <td className="px-6 py-3.5">
-                                {renderFulfillmentBadges()}
+                              <td className="px-6 py-3.5 whitespace-nowrap text-sm">
+                                {renderFulfillmentProgress()}
+                              </td>
+                              <td className="px-6 py-3.5 whitespace-nowrap">
+                                {renderStatusBadge()}
                               </td>
                               <td className="px-6 py-3.5 text-sm whitespace-nowrap">{formatCurrency(item.unitPrice, order.currency)}</td>
                               <td className="px-6 py-3.5 text-sm font-medium whitespace-nowrap">{formatCurrency(item.lineTotal, order.currency)}</td>

@@ -357,11 +357,6 @@ function DeliveryReceiptOverview({
                           · {methodLabel[method] || method} ·{" "}
                           {fulfillment.declaration === "partial" ? "Partial" : "Full"}
                         </span>
-                        {fulfillment.receiptNumber && (
-                          <span className="text-[11px] font-mono text-muted-foreground bg-muted px-1.5 py-0.5 rounded ml-2">
-                            {fulfillment.receiptNumber}
-                          </span>
-                        )}
                       </p>
                       <p className="text-xs text-muted-foreground">
                         {fulfillment.readyAt ? formatDateTime(fulfillment.readyAt) : "—"}

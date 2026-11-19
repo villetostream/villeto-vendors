@@ -30,7 +30,12 @@ import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Checkbox } from "@/components/ui/Checkbox";
 import { DatePicker } from "@/components/ui/DatePicker";
-import { cn, formatQtyWithUom, formatUomLabel } from "@/lib/utils";
+import { cn, formatQtyWithUom, formatUomLabel, parseLocalDate } from "@/lib/utils";
+import {
+  inferDefaultItemDeliveryMethod,
+  sanitizeDeliveryFieldsForMethod,
+  validateFulfillmentDeliveryDetails,
+} from "@/lib/utils/fulfillment";
 import { format } from "date-fns";
 import type { OrderLineItem, DeliveryType } from "@/lib/types";
 
@@ -52,7 +57,10 @@ interface FulfillmentModalProps {
 
 export interface FulfillmentFormData {
   declaration: DeliveryType;
-  fulfillmentMethod: string;
+  /** Top-level delivery method when all items share one method */
+  fulfillmentMethod?: string;
+  /** True when each line item in `lineItems` uses its own delivery method */
+  usePerItemMethod?: boolean;
   /** When true on physical shipments, immediately dispatches the shipment after creating the fulfillment record */
   dispatchNow?: boolean;
   expectedDeliveryDate?: string;
@@ -64,6 +72,11 @@ export interface FulfillmentFormData {
   lineItems: {
     purchaseOrderLineItemId: string;
     quantityReady: number;
+    fulfillmentMethod?: string;
+    expectedDeliveryDate?: string;
+    carrier?: string;
+    trackingNumber?: string;
+    packingSlipNumber?: string;
     remainingDisposition?: string;
     expectedReadyDate?: string;
     reason?: string;
@@ -168,6 +181,9 @@ export function FulfillmentModal({
   // For "partial" fulfillment, Step 1 = Quantities & Remaining Units, Step 2 = Delivery & Dispatch.
   const [step, setStep] = useState<1 | 2>(isFull ? 2 : 1);
 
+  const [useSharedDeliveryMethod, setUseSharedDeliveryMethod] = useState(true);
+  const [shareCarrierDetails, setShareCarrierDetails] = useState(true);
+  const [shareTruckDetails, setShareTruckDetails] = useState(true);
   const [fulfillmentMethod, setFulfillmentMethod] = useState("carrier");
   const [dispatchNow, setDispatchNow] = useState(true);
   const [showOptionalPaperwork, setShowOptionalPaperwork] = useState(false);
@@ -178,6 +194,13 @@ export function FulfillmentModal({
   const [trackingNumber, setTrackingNumber] = useState("");
   const [packingSlipNumber, setPackingSlipNumber] = useState("");
   const [notes, setNotes] = useState("");
+
+  // Per-item delivery method & shipping details (when vendor chooses different methods per line item)
+  const [itemDeliveryMethods, setItemDeliveryMethods] = useState<Record<string, string>>({});
+  const [itemExpectedDeliveryDates, setItemExpectedDeliveryDates] = useState<Record<string, string>>({});
+  const [itemCarriers, setItemCarriers] = useState<Record<string, string>>({});
+  const [itemTrackingNumbers, setItemTrackingNumbers] = useState<Record<string, string>>({});
+  const [itemPackingSlips, setItemPackingSlips] = useState<Record<string, string>>({});
 
   // Per-item quantities & remainder settings (for partial mode)
   const [selectedItems, setSelectedItems] = useState<Record<string, boolean>>({});
@@ -207,6 +230,8 @@ export function FulfillmentModal({
       setFulfillmentMethod("carrier");
       setDispatchNow(true);
       setShowOptionalPaperwork(false);
+      setShareCarrierDetails(true);
+      setShareTruckDetails(true);
       setFulfillmentReference("");
       setExpectedDeliveryDate("");
       setCarrier("");
@@ -223,6 +248,8 @@ export function FulfillmentModal({
       const initSelected: Record<string, boolean> = {};
       const initQty: Record<string, number | ""> = {};
       const initDisp: Record<string, string> = {};
+      const initItemMethods: Record<string, string> = {};
+      const inferredMethodSet = new Set<string>();
 
       for (const item of lineItems) {
         const remaining = getRemainingToReady(item);
@@ -233,8 +260,32 @@ export function FulfillmentModal({
           initSelected[id] = mode === "full";
           initQty[id] = mode === "full" ? remaining : 0;
           initDisp[id] = "backordered";
+
+          const inferred = inferDefaultItemDeliveryMethod(item);
+          initItemMethods[id] = inferred;
+          inferredMethodSet.add(inferred);
         }
       }
+
+      // If all items share the same inferred method (e.g. all physical), use "Same method for all".
+      // If items mix methods (e.g. hardware + software licenses + installation service), automatically
+      // open in "Different per item" mode with shared Courier details so the vendor never has to type tracking 4 times!
+      if (inferredMethodSet.size === 1) {
+        const singleMethod = Array.from(inferredMethodSet)[0];
+        setFulfillmentMethod(singleMethod);
+        setUseSharedDeliveryMethod(true);
+      } else if (inferredMethodSet.size > 1) {
+        setUseSharedDeliveryMethod(false);
+      } else {
+        setUseSharedDeliveryMethod(true);
+      }
+
+      setItemDeliveryMethods(initItemMethods);
+      setItemExpectedDeliveryDates({});
+      setItemCarriers({});
+      setItemTrackingNumbers({});
+      setItemPackingSlips({});
+
       setSelectedItems(initSelected);
       setQuantities(initQty);
       setDispositions(initDisp);
@@ -243,8 +294,6 @@ export function FulfillmentModal({
     }
   }, [open, initialDeclaration, lineItems]);
 
-  const isPhysical = fulfillmentMethod === "carrier" || fulfillmentMethod === "vendor_truck";
-
   const getEffectiveItemQty = (item: OrderLineItem): number => {
     const remaining = getRemainingToReady(item);
     if (isFull) return remaining;
@@ -252,14 +301,23 @@ export function FulfillmentModal({
     return typeof raw === "number" ? Math.max(0, Math.min(raw, remaining)) : 0;
   };
 
+  const activeFulfillmentItems = fulfillableItems.filter(
+    (item) => getEffectiveItemQty(item) > 0
+  );
+
+  const isPhysical = useSharedDeliveryMethod
+    ? fulfillmentMethod === "carrier" || fulfillmentMethod === "vendor_truck"
+    : activeFulfillmentItems.some((item) => {
+        const m = itemDeliveryMethods[item.purchaseOrderLineItemId] || "carrier";
+        return m === "carrier" || m === "vendor_truck";
+      });
+
   const totalDeliveringNow = fulfillableItems.reduce(
     (sum, item) => sum + getEffectiveItemQty(item),
     0
   );
 
-  const selectedItemCount = fulfillableItems.filter(
-    (item) => getEffectiveItemQty(item) > 0
-  ).length;
+  const selectedItemCount = activeFulfillmentItems.length;
 
   // Only items that are ACTUALLY included in this fulfillment (qty > 0) and have a partial leftover (qty < remaining)
   // require a remainder decision (backorder vs forfeit). Unchecked items (qty === 0) stay open on the PO untouched!
@@ -326,29 +384,66 @@ export function FulfillmentModal({
     setFulfillmentReference(candidate);
   };
 
-  // Validate Step 2 (Delivery & Dispatch)
-  const validateStep2 = (): string | null => {
-    if (!fulfillmentMethod) {
-      return "Please choose how this delivery is being sent.";
+  const getResolvedPerItemFields = (id: string) => {
+    const method = itemDeliveryMethods[id] || "carrier";
+    if (method === "carrier") {
+      return {
+        fulfillmentMethod: method,
+        carrier: shareCarrierDetails ? carrier : itemCarriers[id],
+        trackingNumber: shareCarrierDetails ? trackingNumber : itemTrackingNumbers[id],
+        expectedDeliveryDate: shareCarrierDetails
+          ? expectedDeliveryDate
+          : itemExpectedDeliveryDates[id],
+        packingSlipNumber: shareCarrierDetails
+          ? packingSlipNumber
+          : itemPackingSlips[id],
+      };
     }
-    if (fulfillmentMethod === "carrier") {
-      if (!carrier.trim()) {
-        return "Please enter the courier or carrier name (e.g., DHL, FedEx, GIG).";
-      }
-      if (!expectedDeliveryDate) {
-        return "Please select the expected arrival date.";
-      }
+    if (method === "vendor_truck") {
+      return {
+        fulfillmentMethod: method,
+        expectedDeliveryDate: shareTruckDetails
+          ? expectedDeliveryDate
+          : itemExpectedDeliveryDates[id],
+        packingSlipNumber: shareTruckDetails
+          ? packingSlipNumber
+          : itemPackingSlips[id],
+      };
     }
-    if (fulfillmentMethod === "vendor_truck") {
-      if (!expectedDeliveryDate) {
-        return "Please select the expected arrival date.";
-      }
-    }
-    if (isDuplicateReference) {
-      return `The reference number "${trimmedRef}" was already used on an earlier shipment for this order. Each delivery needs its own unique Waybill / Reference # (or leave it blank to auto-generate).`;
-    }
-    return null;
+    return {
+      fulfillmentMethod: method,
+    };
   };
+
+  // Validate Step 2 (Delivery & Dispatch)
+  const validateStep2 = (): string | null =>
+    useSharedDeliveryMethod
+      ? validateFulfillmentDeliveryDetails({
+          usePerItemMethod: false,
+          fulfillmentMethod,
+          carrier,
+          trackingNumber,
+          expectedDeliveryDate,
+          isDuplicateReference,
+          trimmedRef,
+        })
+      : validateFulfillmentDeliveryDetails({
+          usePerItemMethod: true,
+          isDuplicateReference,
+          trimmedRef,
+          lineItems: activeFulfillmentItems.map((item) => {
+            const id = item.purchaseOrderLineItemId;
+            const resolved = getResolvedPerItemFields(id);
+            return {
+              purchaseOrderLineItemId: id,
+              name: item.name,
+              fulfillmentMethod: resolved.fulfillmentMethod,
+              carrier: resolved.carrier,
+              trackingNumber: resolved.trackingNumber,
+              expectedDeliveryDate: resolved.expectedDeliveryDate,
+            };
+          }),
+        });
 
   const handleContinueToStep2 = () => {
     const err = validateStep1();
@@ -368,69 +463,69 @@ export function FulfillmentModal({
     }
     setValidationError(null);
 
-    let finalExpectedDeliveryDate = expectedDeliveryDate || undefined;
-    let finalCarrier = carrier || undefined;
-    let finalTrackingNumber = trackingNumber || undefined;
-    let finalPackingSlipNumber = packingSlipNumber || undefined;
-
-    if (fulfillmentMethod === "vendor_truck") {
-      finalCarrier = undefined;
-      finalTrackingNumber = undefined;
-    } else if (fulfillmentMethod === "digital" || fulfillmentMethod === "service") {
-      finalExpectedDeliveryDate = undefined;
-      finalCarrier = undefined;
-      finalTrackingNumber = undefined;
-      finalPackingSlipNumber = undefined;
-    }
+    const topLevelSanitized = useSharedDeliveryMethod
+      ? sanitizeDeliveryFieldsForMethod(fulfillmentMethod, {
+          expectedDeliveryDate,
+          carrier,
+          trackingNumber,
+          packingSlipNumber,
+        })
+      : {};
 
     const useShared = useSharedRemainder || partialItemsWithLeftover.length === 1;
 
     // Only include items that are actually being fulfilled in this fulfillment (qtyReady > 0).
     // Unselected items (qtyReady === 0) remain open on the PO for future fulfillments.
-    const itemsToSubmit = fulfillableItems
-      .filter((item) => getEffectiveItemQty(item) > 0)
-      .map((item) => {
-        const id = item.purchaseOrderLineItemId;
-        const remaining = getRemainingToReady(item);
-        const qtyReady = getEffectiveItemQty(item);
+    const itemsToSubmit = activeFulfillmentItems.map((item) => {
+      const id = item.purchaseOrderLineItemId;
+      const remaining = getRemainingToReady(item);
+      const qtyReady = getEffectiveItemQty(item);
 
-        let remainingDisposition: string | undefined;
-        let expectedReadyDate: string | undefined;
-        let dispositionReason: string | undefined;
-        let reason: string | undefined;
+      let remainingDisposition: string | undefined;
+      let expectedReadyDate: string | undefined;
+      let dispositionReason: string | undefined;
+      let reason: string | undefined;
 
-        if (!isFull && qtyReady < remaining) {
-          remainingDisposition = (useShared ? sharedDisposition : dispositions[id]) || undefined;
-          if (remainingDisposition === "backordered") {
-            expectedReadyDate = (useShared ? sharedExpectedDate : expectedDates[id]) || undefined;
-          }
-          const trimmedReason = (useShared ? sharedReason : dispositionReasons[id])?.trim();
-          reason = trimmedReason || undefined;
-          dispositionReason = trimmedReason || undefined;
+      if (!isFull && qtyReady < remaining) {
+        remainingDisposition = (useShared ? sharedDisposition : dispositions[id]) || undefined;
+        if (remainingDisposition === "backordered") {
+          expectedReadyDate = (useShared ? sharedExpectedDate : expectedDates[id]) || undefined;
         }
+        const trimmedReason = (useShared ? sharedReason : dispositionReasons[id])?.trim();
+        reason = trimmedReason || undefined;
+        dispositionReason = trimmedReason || undefined;
+      }
 
-        return {
-          purchaseOrderLineItemId: id,
-          quantityReady: qtyReady,
-          remainingDisposition,
-          expectedReadyDate,
-          reason,
-          dispositionReason,
-        };
-      });
+      const resolvedPerItem = getResolvedPerItemFields(id);
+      const itemSanitizedDelivery = !useSharedDeliveryMethod
+        ? sanitizeDeliveryFieldsForMethod(resolvedPerItem.fulfillmentMethod, {
+            expectedDeliveryDate: resolvedPerItem.expectedDeliveryDate,
+            carrier: resolvedPerItem.carrier,
+            trackingNumber: resolvedPerItem.trackingNumber,
+            packingSlipNumber: resolvedPerItem.packingSlipNumber,
+          })
+        : {};
+
+      return {
+        purchaseOrderLineItemId: id,
+        quantityReady: qtyReady,
+        ...itemSanitizedDelivery,
+        remainingDisposition,
+        expectedReadyDate,
+        reason,
+        dispositionReason,
+      };
+    });
 
     const effectiveDeclaration: DeliveryType =
       totalDeliveringNow >= totalRemainingUnits ? "full" : "partial";
 
     onSubmit({
       declaration: effectiveDeclaration,
-      fulfillmentMethod,
+      usePerItemMethod: !useSharedDeliveryMethod,
+      ...topLevelSanitized,
       dispatchNow: isPhysical ? dispatchNow : undefined,
       fulfillmentReference: fulfillmentReference.trim() || undefined,
-      expectedDeliveryDate: finalExpectedDeliveryDate,
-      carrier: finalCarrier?.trim() || undefined,
-      trackingNumber: finalTrackingNumber?.trim() || undefined,
-      packingSlipNumber: finalPackingSlipNumber?.trim() || undefined,
       notes: notes.trim() || undefined,
       lineItems: itemsToSubmit,
     });
@@ -453,10 +548,10 @@ export function FulfillmentModal({
                 <div className="flex items-center gap-2 flex-wrap">
                   <DialogTitle className="text-base font-bold text-foreground">
                     {isFull
-                      ? "Declare Full Fulfillment"
+                      ? "Deliver All Items"
                       : step === 1
-                      ? "Partial Fulfillment — Quantities"
-                      : "Partial Fulfillment — Delivery & Dispatch"}
+                      ? "Partial Delivery — Select Quantities"
+                      : "Partial Delivery — Delivery Details"}
                   </DialogTitle>
                   {!isFull && (
                     <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-[#f0faf8] text-[#087f70] border border-[#cbf0eb]">
@@ -1171,251 +1266,734 @@ export function FulfillmentModal({
                 </div>
               </div>
 
-              {/* Sleek 2x2 Delivery Method Selector */}
-              <div className="space-y-2">
-                <Label className="text-xs font-semibold text-foreground">
-                  Delivery Method
-                </Label>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                  {DELIVERY_METHODS.map((m) => {
-                    const Icon = m.icon;
-                    const selected = fulfillmentMethod === m.id;
-                    return (
-                      <button
-                        key={m.id}
-                        type="button"
-                        onClick={() => {
-                          setValidationError(null);
-                          setFulfillmentMethod(m.id);
-                        }}
-                        className={cn(
-                          "cursor-pointer flex flex-col items-start gap-1.5 p-3 rounded-xl border text-left transition-all bg-white",
-                          selected
-                            ? "border-[#00b29a] bg-[#f0faf8]/70 ring-1 ring-[#00b29a]/25"
-                            : "border-border hover:border-slate-300"
-                        )}
-                      >
-                        <div className="flex items-center justify-between w-full">
-                          <div
-                            className={cn(
-                              "h-7 w-7 rounded-lg flex items-center justify-center shrink-0",
-                              selected
-                                ? "bg-[#00b29a] text-white"
-                                : "bg-slate-100 text-muted-foreground"
-                            )}
-                          >
-                            <Icon className="h-3.5 w-3.5" />
-                          </div>
-                          <CustomRadioIndicator checked={selected} tone="teal" />
-                        </div>
-                        <div>
-                          <p className="text-xs font-bold text-foreground leading-tight">{m.title}</p>
-                          <p className="text-[10px] text-muted-foreground mt-0.5 leading-tight">{m.subtitle}</p>
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {/* Essential Delivery Inputs */}
-              {isPhysical && (
-                <div className="rounded-xl border border-border bg-white p-4 space-y-4">
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-                    {fulfillmentMethod === "carrier" && (
-                      <div className="space-y-1.5">
-                        <Label className="text-xs font-semibold" required>
-                          Courier / Carrier Name
-                        </Label>
-                        <input
-                          type="text"
-                          value={carrier}
-                          onChange={(e) => {
-                            setValidationError(null);
-                            setCarrier(e.target.value);
-                          }}
-                          placeholder="e.g., DHL, FedEx, GIG Logistics"
-                          className="h-10 px-3 text-sm border border-border rounded-lg bg-white w-full focus:outline-none focus:ring-2 focus:ring-[#00b29a]/20 focus:border-[#00b29a]"
-                        />
-                      </div>
-                    )}
-
-                    <div className="space-y-1.5">
-                      <Label className="text-xs font-semibold" required>
-                        Expected Arrival Date
-                      </Label>
-                      <DatePicker
-                        date={expectedDeliveryDate ? new Date(expectedDeliveryDate) : undefined}
-                        onSelect={(d) => {
-                          setValidationError(null);
-                          setExpectedDeliveryDate(d ? format(d, "yyyy-MM-dd") : "");
-                        }}
-                        disabled={(d) => d < new Date(new Date().setHours(0, 0, 0, 0))}
-                        className="h-10 bg-white w-full"
-                      />
-                    </div>
-
-                    {fulfillmentMethod === "carrier" ? (
-                      <div className="space-y-1.5 sm:col-span-2">
-                        <Label className="text-xs font-semibold">
-                          Tracking Number <span className="text-muted-foreground font-normal">(Optional)</span>
-                        </Label>
-                        <input
-                          type="text"
-                          value={trackingNumber}
-                          onChange={(e) => setTrackingNumber(e.target.value)}
-                          placeholder="e.g., 1Z999AA10123456784"
-                          className="h-10 px-3 text-sm border border-border rounded-lg bg-white w-full focus:outline-none focus:ring-2 focus:ring-[#00b29a]/20 focus:border-[#00b29a]"
-                        />
-                      </div>
-                    ) : (
-                      <div className="space-y-1.5">
-                        <div className="flex items-center justify-between gap-2">
-                          <Label className="text-xs font-semibold">
-                            Waybill / Delivery Note # <span className="text-muted-foreground font-normal">(Optional)</span>
-                          </Label>
-                          <button
-                            type="button"
-                            onClick={generateUniqueWaybillNumber}
-                            className="text-[11px] font-semibold text-[#00b29a] hover:underline"
-                          >
-                            Auto-generate
-                          </button>
-                        </div>
-                        <Input
-                          value={fulfillmentReference}
-                          onChange={(e) => {
-                            setValidationError(null);
-                            setFulfillmentReference(e.target.value);
-                          }}
-                          placeholder={`e.g., WB-2026-0${nextShipmentNumber} (leave blank to auto-generate)`}
-                          className={cn(
-                            "h-10 bg-white",
-                            isDuplicateReference && "border-red-400 focus:border-red-500 focus:ring-red-200"
-                          )}
-                        />
-                        {isDuplicateReference ? (
-                          <p className="text-[11px] text-red-600 font-medium">
-                            &ldquo;{trimmedRef}&rdquo; was already used on a previous shipment. Click{" "}
-                            <button
-                              type="button"
-                              onClick={generateUniqueWaybillNumber}
-                              className="underline font-bold"
-                            >
-                              Auto-generate
-                            </button>{" "}
-                            or enter a unique number for Shipment #{nextShipmentNumber}.
-                          </p>
-                        ) : (
-                          <p className="text-[11px] text-muted-foreground">
-                            Must be a unique number for this shipment (or leave blank to auto-generate).
-                          </p>
-                        )}
-                      </div>
-                    )}
+              {/* Delivery Method Mode Switcher + 2x2 Selector (or Compact Per-Item Table + Grouped Details) */}
+              <div className="space-y-3">
+                <div className="flex items-start justify-between gap-3 flex-wrap">
+                  <div>
+                    <Label className="text-xs font-semibold text-foreground">
+                      Delivery Method
+                    </Label>
+                    <p className="text-[11px] text-muted-foreground mt-0.5">
+                      {useSharedDeliveryMethod
+                        ? "How are you delivering these items?"
+                        : "Choose how each item is delivered. Physical items share one tracking form by default."}
+                    </p>
                   </div>
 
-                  {/* Progressive Disclosure for Extra Paperwork / Notes */}
-                  <div className="pt-2 border-t border-border/50">
+                  <div
+                    role="group"
+                    aria-label="Delivery method mode"
+                    className="inline-flex items-center rounded-xl border border-border bg-slate-100 p-1 shrink-0"
+                  >
                     <button
                       type="button"
-                      onClick={() => setShowOptionalPaperwork((v) => !v)}
-                      className="flex items-center gap-1.5 text-xs font-semibold text-[#087f70] hover:underline"
-                    >
-                      {showOptionalPaperwork ? (
-                        <>
-                          <ChevronUp className="h-3.5 w-3.5" />
-                          Hide extra reference fields &amp; notes
-                        </>
-                      ) : (
-                        <>
-                          <ChevronDown className="h-3.5 w-3.5" />
-                          + Add packing slip # or delivery notes (optional)
-                        </>
+                      onClick={() => {
+                        setValidationError(null);
+                        setUseSharedDeliveryMethod(true);
+                      }}
+                      className={cn(
+                        "cursor-pointer px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-all",
+                        useSharedDeliveryMethod
+                          ? "bg-white text-foreground shadow-xs border border-border/70"
+                          : "text-muted-foreground hover:text-foreground"
                       )}
+                    >
+                      Same method for all
+                      {activeFulfillmentItems.length > 1
+                        ? ` (${activeFulfillmentItems.length})`
+                        : ""}
                     </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setValidationError(null);
+                        if (useSharedDeliveryMethod) {
+                          const nextMethods = { ...itemDeliveryMethods };
+                          const nextDates = { ...itemExpectedDeliveryDates };
+                          const nextCarriers = { ...itemCarriers };
+                          const nextTracking = { ...itemTrackingNumbers };
+                          const nextPackingSlips = { ...itemPackingSlips };
 
-                    {showOptionalPaperwork && (
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 mt-3 pt-2">
-                        {fulfillmentMethod === "carrier" && (
-                          <div className="space-y-1.5">
-                            <div className="flex items-center justify-between gap-2">
-                              <Label className="text-xs font-semibold">
-                                Waybill / Delivery Note # <span className="text-muted-foreground font-normal">(Optional)</span>
-                              </Label>
-                              <button
-                                type="button"
-                                onClick={generateUniqueWaybillNumber}
-                                className="text-[11px] font-semibold text-[#00b29a] hover:underline"
-                              >
-                                Auto-generate
-                              </button>
-                            </div>
-                            <Input
-                              value={fulfillmentReference}
-                              onChange={(e) => {
-                                setValidationError(null);
-                                setFulfillmentReference(e.target.value);
-                              }}
-                              placeholder={`e.g., WB-2026-0${nextShipmentNumber} (or leave blank)`}
-                              className={cn(
-                                "h-9 bg-white",
-                                isDuplicateReference && "border-red-400 focus:border-red-500 focus:ring-red-200"
-                              )}
-                            />
-                            {isDuplicateReference && (
-                              <p className="text-[11px] text-red-600 font-medium">
-                                Already used on an earlier shipment — must be unique per delivery.
-                              </p>
+                          for (const item of activeFulfillmentItems) {
+                            const id = item.purchaseOrderLineItemId;
+                            if (!nextMethods[id]) {
+                              nextMethods[id] = inferDefaultItemDeliveryMethod(item);
+                            }
+                            if (!nextDates[id] && expectedDeliveryDate) {
+                              nextDates[id] = expectedDeliveryDate;
+                            }
+                            if (!nextCarriers[id] && carrier) {
+                              nextCarriers[id] = carrier;
+                            }
+                            if (!nextTracking[id] && trackingNumber) {
+                              nextTracking[id] = trackingNumber;
+                            }
+                            if (!nextPackingSlips[id] && packingSlipNumber) {
+                              nextPackingSlips[id] = packingSlipNumber;
+                            }
+                          }
+                          setItemDeliveryMethods(nextMethods);
+                          setItemExpectedDeliveryDates(nextDates);
+                          setItemCarriers(nextCarriers);
+                          setItemTrackingNumbers(nextTracking);
+                          setItemPackingSlips(nextPackingSlips);
+                        }
+                        setUseSharedDeliveryMethod(false);
+                      }}
+                      className={cn(
+                        "cursor-pointer px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-all flex items-center gap-1",
+                        !useSharedDeliveryMethod
+                          ? "bg-white text-foreground shadow-xs border border-border/70"
+                          : "text-muted-foreground hover:text-foreground"
+                      )}
+                    >
+                      <Layers className="h-3 w-3" />
+                      Different per item
+                    </button>
+                  </div>
+                </div>
+
+                {useSharedDeliveryMethod ? (
+                  <>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                      {DELIVERY_METHODS.map((m) => {
+                        const Icon = m.icon;
+                        const selected = fulfillmentMethod === m.id;
+                        return (
+                          <button
+                            key={m.id}
+                            type="button"
+                            onClick={() => {
+                              setValidationError(null);
+                              setFulfillmentMethod(m.id);
+                            }}
+                            className={cn(
+                              "cursor-pointer flex flex-col items-start gap-1.5 p-3 rounded-xl border text-left transition-all bg-white",
+                              selected
+                                ? "border-[#00b29a] bg-[#f0faf8]/70 ring-1 ring-[#00b29a]/25"
+                                : "border-border hover:border-slate-300"
                             )}
+                          >
+                            <div className="flex items-center justify-between w-full">
+                              <div
+                                className={cn(
+                                  "h-7 w-7 rounded-lg flex items-center justify-center shrink-0",
+                                  selected
+                                    ? "bg-[#00b29a] text-white"
+                                    : "bg-slate-100 text-muted-foreground"
+                                )}
+                              >
+                                <Icon className="h-3.5 w-3.5" />
+                              </div>
+                              <CustomRadioIndicator checked={selected} tone="teal" />
+                            </div>
+                            <div>
+                              <p className="text-xs font-bold text-foreground leading-tight">{m.title}</p>
+                              <p className="text-[10px] text-muted-foreground mt-0.5 leading-tight">{m.subtitle}</p>
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    {/* Essential Delivery Inputs (Shared Top-Level) */}
+                    {isPhysical && (
+                      <div className="rounded-xl border border-border bg-white p-4 space-y-4">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                          {fulfillmentMethod === "carrier" && (
+                            <div className="space-y-1.5">
+                              <Label className="text-xs font-semibold" required>
+                                Courier / Carrier Name
+                              </Label>
+                              <input
+                                type="text"
+                                value={carrier}
+                                onChange={(e) => {
+                                  setValidationError(null);
+                                  setCarrier(e.target.value);
+                                }}
+                                placeholder="e.g., DHL, FedEx, GIG Logistics"
+                                className="h-10 px-3 text-sm border border-border rounded-lg bg-white w-full focus:outline-none focus:ring-2 focus:ring-[#00b29a]/20 focus:border-[#00b29a]"
+                              />
+                            </div>
+                          )}
+
+                          <div className="space-y-1.5">
+                            <Label className="text-xs font-semibold" required>
+                              Expected Arrival Date
+                            </Label>
+                            <DatePicker
+                              date={parseLocalDate(expectedDeliveryDate)}
+                              onSelect={(d) => {
+                                setValidationError(null);
+                                setExpectedDeliveryDate(d ? format(d, "yyyy-MM-dd") : "");
+                              }}
+                              disabled={(d) => d < new Date(new Date().setHours(0, 0, 0, 0))}
+                              className="h-10 bg-white w-full"
+                            />
                           </div>
-                        )}
-                        <div className={cn("space-y-1.5", fulfillmentMethod !== "carrier" && "sm:col-span-2")}>
-                          <Label className="text-xs font-semibold">
-                            Packing Slip # <span className="text-muted-foreground font-normal">(Optional)</span>
-                          </Label>
-                          <input
-                            type="text"
-                            value={packingSlipNumber}
-                            onChange={(e) => setPackingSlipNumber(e.target.value)}
-                            placeholder="Optional"
-                            className="h-9 px-3 text-sm border border-border rounded-lg bg-white w-full focus:outline-none focus:ring-2 focus:ring-[#00b29a]/20 focus:border-[#00b29a]"
-                          />
+
+                          {fulfillmentMethod === "carrier" ? (
+                            <div className="space-y-1.5 sm:col-span-2">
+                              <Label className="text-xs font-semibold" required>
+                                Tracking Number
+                              </Label>
+                              <input
+                                type="text"
+                                value={trackingNumber}
+                                onChange={(e) => {
+                                  setValidationError(null);
+                                  setTrackingNumber(e.target.value);
+                                }}
+                                placeholder="e.g., 1Z999AA10123456784"
+                                className="h-10 px-3 text-sm border border-border rounded-lg bg-white w-full focus:outline-none focus:ring-2 focus:ring-[#00b29a]/20 focus:border-[#00b29a]"
+                              />
+                            </div>
+                          ) : (
+                            <div className="space-y-1.5">
+                              <div className="flex items-center justify-between gap-2">
+                                <Label className="text-xs font-semibold">
+                                  Waybill / Delivery Note # <span className="text-muted-foreground font-normal">(Optional)</span>
+                                </Label>
+                                <button
+                                  type="button"
+                                  onClick={generateUniqueWaybillNumber}
+                                  className="text-[11px] font-semibold text-[#00b29a] hover:underline"
+                                >
+                                  Auto-generate
+                                </button>
+                              </div>
+                              <Input
+                                value={fulfillmentReference}
+                                onChange={(e) => {
+                                  setValidationError(null);
+                                  setFulfillmentReference(e.target.value);
+                                }}
+                                placeholder={`e.g., WB-2026-0${nextShipmentNumber} (leave blank to auto-generate)`}
+                                className={cn(
+                                  "h-10 bg-white",
+                                  isDuplicateReference && "border-red-400 focus:border-red-500 focus:ring-red-200"
+                                )}
+                              />
+                              {isDuplicateReference ? (
+                                <p className="text-[11px] text-red-600 font-medium">
+                                  &ldquo;{trimmedRef}&rdquo; was already used on a previous shipment. Click{" "}
+                                  <button
+                                    type="button"
+                                    onClick={generateUniqueWaybillNumber}
+                                    className="underline font-bold"
+                                  >
+                                    Auto-generate
+                                  </button>{" "}
+                                  or enter a unique number for Shipment #{nextShipmentNumber}.
+                                </p>
+                              ) : (
+                                <p className="text-[11px] text-muted-foreground">
+                                  Must be a unique number for this shipment (or leave blank to auto-generate).
+                                </p>
+                              )}
+                            </div>
+                          )}
                         </div>
-                        <div className="space-y-1.5 sm:col-span-2">
+
+                        {/* Progressive Disclosure for Extra Paperwork / Notes */}
+                        <div className="pt-2 border-t border-border/50">
+                          <button
+                            type="button"
+                            onClick={() => setShowOptionalPaperwork((v) => !v)}
+                            className="flex items-center gap-1.5 text-xs font-semibold text-[#087f70] hover:underline"
+                          >
+                            {showOptionalPaperwork ? (
+                              <>
+                                <ChevronUp className="h-3.5 w-3.5" />
+                                Hide extra reference fields &amp; notes
+                              </>
+                            ) : (
+                              <>
+                                <ChevronDown className="h-3.5 w-3.5" />
+                                + Add packing slip # or delivery notes (optional)
+                              </>
+                            )}
+                          </button>
+
+                          {showOptionalPaperwork && (
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 mt-3 pt-2">
+                              {fulfillmentMethod === "carrier" && (
+                                <div className="space-y-1.5">
+                                  <div className="flex items-center justify-between gap-2">
+                                    <Label className="text-xs font-semibold">
+                                      Waybill / Delivery Note # <span className="text-muted-foreground font-normal">(Optional)</span>
+                                    </Label>
+                                    <button
+                                      type="button"
+                                      onClick={generateUniqueWaybillNumber}
+                                      className="text-[11px] font-semibold text-[#00b29a] hover:underline"
+                                    >
+                                      Auto-generate
+                                    </button>
+                                  </div>
+                                  <Input
+                                    value={fulfillmentReference}
+                                    onChange={(e) => {
+                                      setValidationError(null);
+                                      setFulfillmentReference(e.target.value);
+                                    }}
+                                    placeholder={`e.g., WB-2026-0${nextShipmentNumber} (or leave blank)`}
+                                    className={cn(
+                                      "h-9 bg-white",
+                                      isDuplicateReference && "border-red-400 focus:border-red-500 focus:ring-red-200"
+                                    )}
+                                  />
+                                  {isDuplicateReference && (
+                                    <p className="text-[11px] text-red-600 font-medium">
+                                      Already used on an earlier shipment — must be unique per delivery.
+                                    </p>
+                                  )}
+                                </div>
+                              )}
+                              <div className={cn("space-y-1.5", fulfillmentMethod !== "carrier" && "sm:col-span-2")}>
+                                <Label className="text-xs font-semibold">
+                                  Packing Slip # <span className="text-muted-foreground font-normal">(Optional)</span>
+                                </Label>
+                                <input
+                                  type="text"
+                                  value={packingSlipNumber}
+                                  onChange={(e) => setPackingSlipNumber(e.target.value)}
+                                  placeholder="Optional"
+                                  className="h-9 px-3 text-sm border border-border rounded-lg bg-white w-full focus:outline-none focus:ring-2 focus:ring-[#00b29a]/20 focus:border-[#00b29a]"
+                                />
+                              </div>
+                              <div className="space-y-1.5 sm:col-span-2">
+                                <Label className="text-xs font-semibold">
+                                  Delivery Notes <span className="text-muted-foreground font-normal">(Optional)</span>
+                                </Label>
+                                <textarea
+                                  value={notes}
+                                  onChange={(e) => setNotes(e.target.value)}
+                                  placeholder="Any instructions for the buyer's receiving team..."
+                                  rows={2}
+                                  className="w-full text-sm border border-border rounded-lg px-3 py-2 bg-white resize-none focus:outline-none focus:ring-2 focus:ring-[#00b29a]/20 focus:border-[#00b29a]"
+                                />
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                    {!isPhysical && (
+                      <div className="rounded-xl border border-border bg-white p-4 space-y-3">
+                        <div className="space-y-1.5">
                           <Label className="text-xs font-semibold">
-                            Delivery Notes <span className="text-muted-foreground font-normal">(Optional)</span>
+                            Reference or Completion Note <span className="text-muted-foreground font-normal">(Optional)</span>
                           </Label>
                           <textarea
                             value={notes}
                             onChange={(e) => setNotes(e.target.value)}
-                            placeholder="Any instructions for the buyer's receiving team..."
-                            rows={2}
+                            placeholder="Add a link, license reference, or summary of completed work..."
+                            rows={3}
                             className="w-full text-sm border border-border rounded-lg px-3 py-2 bg-white resize-none focus:outline-none focus:ring-2 focus:ring-[#00b29a]/20 focus:border-[#00b29a]"
                           />
                         </div>
                       </div>
                     )}
-                  </div>
-                </div>
-              )}
+                  </>
+                ) : (
+                  /* ── PER-ITEM METHOD ASSIGNMENT (COMPACT 1-CLICK LIST + GROUPED SHIPPING DETAILS) ── */
+                  (() => {
+                    const carrierItems = activeFulfillmentItems.filter(
+                      (item) =>
+                        (itemDeliveryMethods[item.purchaseOrderLineItemId] || "carrier") ===
+                        "carrier"
+                    );
+                    const truckItems = activeFulfillmentItems.filter(
+                      (item) =>
+                        itemDeliveryMethods[item.purchaseOrderLineItemId] === "vendor_truck"
+                    );
+                    const nonPhysicalItems = activeFulfillmentItems.filter((item) => {
+                      const m = itemDeliveryMethods[item.purchaseOrderLineItemId];
+                      return m === "digital" || m === "service";
+                    });
 
-              {!isPhysical && (
-                <div className="rounded-xl border border-border bg-white p-4 space-y-3">
-                  <div className="space-y-1.5">
-                    <Label className="text-xs font-semibold">
-                      Reference or Completion Note <span className="text-muted-foreground font-normal">(Optional)</span>
-                    </Label>
-                    <textarea
-                      value={notes}
-                      onChange={(e) => setNotes(e.target.value)}
-                      placeholder="Add a link, license reference, or summary of completed work..."
-                      rows={3}
-                      className="w-full text-sm border border-border rounded-lg px-3 py-2 bg-white resize-none focus:outline-none focus:ring-2 focus:ring-[#00b29a]/20 focus:border-[#00b29a]"
-                    />
-                  </div>
-                </div>
-              )}
+                    const shortMethodOptions = [
+                      { id: "carrier", label: "Courier", icon: Truck },
+                      { id: "vendor_truck", label: "Own Vehicle", icon: Package },
+                      { id: "digital", label: "Digital", icon: Laptop },
+                      { id: "service", label: "Service", icon: Wrench },
+                    ] as const;
+
+                    return (
+                      <div className="space-y-3">
+                        {/* 1. Compact Scannable Item-to-Method Table (1 click to tag any item) */}
+                        <div className="rounded-xl border border-border bg-white overflow-hidden shadow-2xs">
+                          <div className="px-4 py-2.5 bg-slate-50/80 border-b border-border flex items-center justify-between gap-2 flex-wrap">
+                            <span className="text-xs font-bold text-foreground">
+                              1. Choose how each item is delivered
+                            </span>
+                            <span className="text-[11px] text-muted-foreground">
+                              Tap to change any item
+                            </span>
+                          </div>
+                          <div className="divide-y divide-border/60">
+                            {activeFulfillmentItems.map((item) => {
+                              const id = item.purchaseOrderLineItemId;
+                              const qty = getEffectiveItemQty(item);
+                              const itemMethod = itemDeliveryMethods[id] || "carrier";
+
+                              return (
+                                <div
+                                  key={id}
+                                  className="px-3.5 py-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2"
+                                >
+                                  <div className="min-w-0 flex items-center gap-2 flex-wrap">
+                                    <span className="text-xs font-bold text-foreground">
+                                      {item.name}
+                                    </span>
+                                    <span className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 border border-border">
+                                      {formatQtyWithUom(qty, item.unitOfMeasure)}
+                                    </span>
+                                  </div>
+
+                                  <div className="inline-flex items-center rounded-lg border border-border bg-slate-100/80 p-0.5 self-start sm:self-center shrink-0 flex-wrap">
+                                    {shortMethodOptions.map((opt) => {
+                                      const Icon = opt.icon;
+                                      const active = itemMethod === opt.id;
+                                      return (
+                                        <button
+                                          key={opt.id}
+                                          type="button"
+                                          onClick={() => {
+                                            setValidationError(null);
+                                            setItemDeliveryMethods((prev) => ({
+                                              ...prev,
+                                              [id]: opt.id,
+                                            }));
+                                          }}
+                                          className={cn(
+                                            "cursor-pointer px-2.5 py-1 rounded-md text-[11px] font-semibold transition-all flex items-center gap-1",
+                                            active
+                                              ? "bg-[#00b29a] text-white shadow-2xs"
+                                              : "text-muted-foreground hover:text-foreground"
+                                          )}
+                                        >
+                                          <Icon className="h-3 w-3 shrink-0" />
+                                          {opt.label}
+                                        </button>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+
+                        {/* 2. Grouped Courier Details (Enter ONCE for all Courier items by default!) */}
+                        {carrierItems.length > 0 && (
+                          <div className="rounded-xl border border-border bg-white p-4 space-y-3 shadow-2xs">
+                            <div className="flex items-center justify-between gap-2 flex-wrap">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <Truck className="h-4 w-4 text-[#00b29a] shrink-0" />
+                                <span className="text-xs font-bold text-foreground">
+                                  Courier / Carrier Shipping Details
+                                </span>
+                                <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-[#f0faf8] text-[#087f70] border border-[#cbf0eb]">
+                                  Applies to {carrierItems.length} item{carrierItems.length === 1 ? "" : "s"}
+                                </span>
+                              </div>
+
+                              {carrierItems.length > 1 && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setValidationError(null);
+                                    if (shareCarrierDetails) {
+                                      // Seed individual items with current shared values before splitting
+                                      const nextCarriers = { ...itemCarriers };
+                                      const nextDates = { ...itemExpectedDeliveryDates };
+                                      const nextTracking = { ...itemTrackingNumbers };
+                                      for (const ci of carrierItems) {
+                                        const cid = ci.purchaseOrderLineItemId;
+                                        if (!nextCarriers[cid] && carrier) nextCarriers[cid] = carrier;
+                                        if (!nextDates[cid] && expectedDeliveryDate)
+                                          nextDates[cid] = expectedDeliveryDate;
+                                        if (!nextTracking[cid] && trackingNumber)
+                                          nextTracking[cid] = trackingNumber;
+                                      }
+                                      setItemCarriers(nextCarriers);
+                                      setItemExpectedDeliveryDates(nextDates);
+                                      setItemTrackingNumbers(nextTracking);
+                                    }
+                                    setShareCarrierDetails((v) => !v);
+                                  }}
+                                  className="cursor-pointer text-[11px] font-semibold text-[#087f70] hover:underline"
+                                >
+                                  {shareCarrierDetails
+                                    ? "Using separate tracking numbers? Enter per item"
+                                    : `Use one tracking number for all ${carrierItems.length} courier items`}
+                                </button>
+                              )}
+                            </div>
+
+                            {shareCarrierDetails || carrierItems.length === 1 ? (
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                <div className="space-y-1">
+                                  <Label className="text-xs font-semibold" required>
+                                    Courier / Carrier Name
+                                  </Label>
+                                  <input
+                                    type="text"
+                                    value={carrier}
+                                    onChange={(e) => {
+                                      setValidationError(null);
+                                      setCarrier(e.target.value);
+                                    }}
+                                    placeholder="e.g., DHL, FedEx, GIG Logistics"
+                                    className="h-9 px-3 text-xs border border-border rounded-lg bg-white w-full focus:outline-none focus:ring-2 focus:ring-[#00b29a]/20 focus:border-[#00b29a]"
+                                  />
+                                </div>
+
+                                <div className="space-y-1">
+                                  <Label className="text-xs font-semibold" required>
+                                    Expected Arrival Date
+                                  </Label>
+                                  <DatePicker
+                                    date={parseLocalDate(expectedDeliveryDate)}
+                                    onSelect={(d) => {
+                                      setValidationError(null);
+                                      setExpectedDeliveryDate(d ? format(d, "yyyy-MM-dd") : "");
+                                    }}
+                                    disabled={(d) =>
+                                      d < new Date(new Date().setHours(0, 0, 0, 0))
+                                    }
+                                    className="h-9 bg-white w-full text-xs"
+                                  />
+                                </div>
+
+                                <div className="space-y-1 sm:col-span-2">
+                                  <Label className="text-xs font-semibold" required>
+                                    Tracking Number
+                                  </Label>
+                                  <input
+                                    type="text"
+                                    value={trackingNumber}
+                                    onChange={(e) => {
+                                      setValidationError(null);
+                                      setTrackingNumber(e.target.value);
+                                    }}
+                                    placeholder="e.g., 1Z999AA10123456784"
+                                    className="h-9 px-3 text-xs border border-border rounded-lg bg-white w-full focus:outline-none focus:ring-2 focus:ring-[#00b29a]/20 focus:border-[#00b29a]"
+                                  />
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="space-y-2.5 pt-1">
+                                {carrierItems.map((ci) => {
+                                  const cid = ci.purchaseOrderLineItemId;
+                                  return (
+                                    <div
+                                      key={cid}
+                                      className="p-3 rounded-lg border border-border bg-slate-50/50 space-y-2"
+                                    >
+                                      <p className="text-xs font-bold text-foreground">
+                                        {ci.name}
+                                      </p>
+                                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                                        <div className="space-y-1">
+                                          <Label className="text-[11px] font-semibold" required>
+                                            Courier Name
+                                          </Label>
+                                          <input
+                                            type="text"
+                                            value={itemCarriers[cid] || ""}
+                                            onChange={(e) => {
+                                              setValidationError(null);
+                                              setItemCarriers((prev) => ({
+                                                ...prev,
+                                                [cid]: e.target.value,
+                                              }));
+                                            }}
+                                            placeholder="e.g., DHL"
+                                            className="h-8 px-2.5 text-xs border border-border rounded-lg bg-white w-full focus:outline-none focus:ring-2 focus:ring-[#00b29a]/20 focus:border-[#00b29a]"
+                                          />
+                                        </div>
+                                        <div className="space-y-1">
+                                          <Label className="text-[11px] font-semibold" required>
+                                            Tracking Number
+                                          </Label>
+                                          <input
+                                            type="text"
+                                            value={itemTrackingNumbers[cid] || ""}
+                                            onChange={(e) => {
+                                              setValidationError(null);
+                                              setItemTrackingNumbers((prev) => ({
+                                                ...prev,
+                                                [cid]: e.target.value,
+                                              }));
+                                            }}
+                                            placeholder="Tracking #"
+                                            className="h-8 px-2.5 text-xs border border-border rounded-lg bg-white w-full focus:outline-none focus:ring-2 focus:ring-[#00b29a]/20 focus:border-[#00b29a]"
+                                          />
+                                        </div>
+                                        <div className="space-y-1">
+                                          <Label className="text-[11px] font-semibold" required>
+                                            Expected Arrival
+                                          </Label>
+                                          <DatePicker
+                                            date={parseLocalDate(itemExpectedDeliveryDates[cid])}
+                                            onSelect={(d) => {
+                                              setValidationError(null);
+                                              setItemExpectedDeliveryDates((prev) => ({
+                                                ...prev,
+                                                [cid]: d ? format(d, "yyyy-MM-dd") : "",
+                                              }));
+                                            }}
+                                            disabled={(d) =>
+                                              d < new Date(new Date().setHours(0, 0, 0, 0))
+                                            }
+                                            className="h-8 bg-white w-full text-xs"
+                                          />
+                                        </div>
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            )}
+                          </div>
+                        )}
+
+                        {/* 3. Grouped Own Vehicle Details (Enter ONCE for all Own Vehicle items) */}
+                        {truckItems.length > 0 && (
+                          <div className="rounded-xl border border-border bg-white p-4 space-y-3 shadow-2xs">
+                            <div className="flex items-center justify-between gap-2 flex-wrap">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <Package className="h-4 w-4 text-[#00b29a] shrink-0" />
+                                <span className="text-xs font-bold text-foreground">
+                                  Own Vehicle / Rider Details
+                                </span>
+                                <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-[#f0faf8] text-[#087f70] border border-[#cbf0eb]">
+                                  Applies to {truckItems.length} item{truckItems.length === 1 ? "" : "s"}
+                                </span>
+                              </div>
+                            </div>
+
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                              <div className="space-y-1">
+                                <Label className="text-xs font-semibold" required>
+                                  Expected Arrival Date
+                                </Label>
+                                <DatePicker
+                                  date={parseLocalDate(expectedDeliveryDate)}
+                                  onSelect={(d) => {
+                                    setValidationError(null);
+                                    setExpectedDeliveryDate(d ? format(d, "yyyy-MM-dd") : "");
+                                  }}
+                                  disabled={(d) =>
+                                    d < new Date(new Date().setHours(0, 0, 0, 0))
+                                  }
+                                  className="h-9 bg-white w-full text-xs"
+                                />
+                              </div>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* 4. Non-Physical Confirmation Strip */}
+                        {nonPhysicalItems.length > 0 && (
+                          <div className="rounded-xl border border-[#cbf0eb] bg-[#f0faf8]/70 px-3.5 py-2.5 flex items-center gap-2 text-xs text-[#087f70]">
+                            <CheckCircle2 className="h-4 w-4 text-[#00b29a] shrink-0" />
+                            <span>
+                              No physical shipping details needed for{" "}
+                              <strong>
+                                {nonPhysicalItems.map((i) => i.name).join(", ")}
+                              </strong>
+                              .
+                            </span>
+                          </div>
+                        )}
+
+                        {/* 5. Optional Reference & Notes */}
+                        <div className="rounded-xl border border-border bg-white p-3.5">
+                          <button
+                            type="button"
+                            onClick={() => setShowOptionalPaperwork((v) => !v)}
+                            className="flex items-center gap-1.5 text-xs font-semibold text-[#087f70] hover:underline"
+                          >
+                            {showOptionalPaperwork ? (
+                              <>
+                                <ChevronUp className="h-3.5 w-3.5" />
+                                Hide waybill reference &amp; notes
+                              </>
+                            ) : (
+                              <>
+                                <ChevronDown className="h-3.5 w-3.5" />
+                                + Add waybill reference #, packing slip, or notes (optional)
+                              </>
+                            )}
+                          </button>
+
+                          {showOptionalPaperwork && (
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3 pt-2 border-t border-border/50">
+                              <div className="space-y-1">
+                                <div className="flex items-center justify-between gap-2">
+                                  <Label className="text-xs font-semibold">
+                                    Waybill / Reference #{" "}
+                                    <span className="text-muted-foreground font-normal">
+                                      (Optional)
+                                    </span>
+                                  </Label>
+                                  <button
+                                    type="button"
+                                    onClick={generateUniqueWaybillNumber}
+                                    className="text-[11px] font-semibold text-[#00b29a] hover:underline"
+                                  >
+                                    Auto-generate
+                                  </button>
+                                </div>
+                                <Input
+                                  value={fulfillmentReference}
+                                  onChange={(e) => {
+                                    setValidationError(null);
+                                    setFulfillmentReference(e.target.value);
+                                  }}
+                                  placeholder={`e.g., FUL-2026-00${nextShipmentNumber} (or leave blank)`}
+                                  className={cn(
+                                    "h-9 bg-white",
+                                    isDuplicateReference &&
+                                      "border-red-400 focus:border-red-500 focus:ring-red-200"
+                                  )}
+                                />
+                                {isDuplicateReference && (
+                                  <p className="text-[11px] text-red-600 font-medium">
+                                    Already used on an earlier shipment — must be unique.
+                                  </p>
+                                )}
+                              </div>
+
+                              <div className="space-y-1">
+                                <Label className="text-xs font-semibold">
+                                  Delivery Notes{" "}
+                                  <span className="text-muted-foreground font-normal">
+                                    (Optional)
+                                  </span>
+                                </Label>
+                                <input
+                                  type="text"
+                                  value={notes}
+                                  onChange={(e) => setNotes(e.target.value)}
+                                  placeholder="Any instructions or references for the buyer..."
+                                  className="h-9 px-3 text-xs border border-border rounded-lg bg-white w-full focus:outline-none focus:ring-2 focus:ring-[#00b29a]/20 focus:border-[#00b29a]"
+                                />
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })()
+                )}
+              </div>
 
               {/* Branded Custom Checkbox Dispatch Toggle (Zero Native Browser Checkbox Styles) */}
               {isPhysical && (
@@ -1443,28 +2021,21 @@ export function FulfillmentModal({
           )}
         </div>
 
-        {/* ── Clean Single-Action Footer with Clear Guidance ── */}
+        {/* ── Clean Single-Action Footer (No Truncated Premature Validation Warnings) ── */}
         <div className="px-6 py-4 border-t border-border bg-white flex items-center justify-between gap-3 shrink-0">
           {step === 1 && !isFull ? (
             <>
               <Button variant="outline" onClick={onClose} disabled={isSubmitting}>
                 Cancel
               </Button>
-              <div className="flex items-center gap-3 min-w-0">
-                {validateStep1() && (
-                  <span className="hidden sm:inline-block text-[11px] font-medium text-amber-700 text-right truncate max-w-[280px]">
-                    {validateStep1()}
-                  </span>
-                )}
-                <Button
-                  variant="primary"
-                  onClick={handleContinueToStep2}
-                  disabled={!!validateStep1() || isSubmitting}
-                >
-                  Continue to Delivery
-                  <ArrowRight className="h-4 w-4 ml-1.5" />
-                </Button>
-              </div>
+              <Button
+                variant="primary"
+                onClick={handleContinueToStep2}
+                disabled={!!validateStep1() || isSubmitting}
+              >
+                Continue to Delivery
+                <ArrowRight className="h-4 w-4 ml-1.5" />
+              </Button>
             </>
           ) : (
             <>
@@ -1485,35 +2056,28 @@ export function FulfillmentModal({
                   Back to Quantities
                 </Button>
               )}
-              <div className="flex items-center gap-3 min-w-0">
-                {validateStep2() && (
-                  <span className="hidden sm:inline-block text-[11px] font-medium text-amber-700 text-right truncate max-w-[280px]">
-                    {validateStep2()}
-                  </span>
-                )}
-                <Button
-                  variant="primary"
-                  onClick={handleFinalSubmit}
-                  loading={isSubmitting}
-                  disabled={!!validateStep2() || isSubmitting}
-                >
-                  {isPhysical ? (
-                    dispatchNow ? (
-                      <>
-                        <Send className="h-4 w-4 mr-1.5" />
-                        Confirm &amp; Dispatch Now
-                      </>
-                    ) : (
-                      "Save as Packed (Dispatch Later)"
-                    )
-                  ) : (
+              <Button
+                variant="primary"
+                onClick={handleFinalSubmit}
+                loading={isSubmitting}
+                disabled={!!validateStep2() || isSubmitting}
+              >
+                {isPhysical ? (
+                  dispatchNow ? (
                     <>
-                      <CheckCircle2 className="h-4 w-4 mr-1.5" />
-                      Complete Delivery
+                      <Send className="h-4 w-4 mr-1.5" />
+                      Confirm &amp; Dispatch Now
                     </>
-                  )}
-                </Button>
-              </div>
+                  ) : (
+                    "Save as Packed (Dispatch Later)"
+                  )
+                ) : (
+                  <>
+                    <CheckCircle2 className="h-4 w-4 mr-1.5" />
+                    Complete Delivery
+                  </>
+                )}
+              </Button>
             </>
           )}
         </div>

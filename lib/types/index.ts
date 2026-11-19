@@ -251,7 +251,9 @@ export type FulfillmentDeliveryState =
   | "dispatched"
   | "awaiting_receipt"
   | "partially_received"
+  | "partially_received_with_exceptions"
   | "received"
+  | "received_with_exceptions"
   | "disputed"
   | "cancelled";
 
@@ -292,6 +294,7 @@ export interface OrderLineItem {
   departmentId?: string;
   accountingResolutionStatus?: string;
   deliveryDate?: string;
+  promisedDeliveryDate?: string;
 
   // ── Fulfillment tracking (backend-confirmed) ──
   deliveredQuantity?: number;
@@ -385,12 +388,14 @@ export interface DeliveryReceiptLineItem {
   finalQuantityAccepted?: number | null;
   finalQuantityRejected?: number | null;
   finalQuantityMissing?: number | null;
-  resolutionStatus?: ExceptionResolutionStatus;
+  finalDecision?: FinalDecisionType | null;
+  resolutionStatus?: ExceptionResolutionStatus | null;
   vendorDisposition?: VendorResolutionAction | null;
   /** Buyer's suggested handling for the rejected/missing units on this line (non-binding) */
   recommendedDisposition?: RecommendedDisposition | null;
+  companyRecommendedDisposition?: RecommendedDisposition | null;
   /** Split allocations returned by the backend after a split backorder/forfeit submission */
-  dispositionAllocations?: ReceiptDispositionAllocation[];
+  dispositionAllocations?: ReceiptDispositionAllocation[] | null;
   expectedRedeliveryDate?: string | null;
   vendorResponseReason?: string | null;
   notes?: string | null;
@@ -587,6 +592,11 @@ export interface FulfillmentLineItem {
   quantityOrdered: number;
   quantityShipped: number;
   quantityReady?: number;
+  fulfillmentMethod?: FulfillmentMethod | null;
+  expectedDeliveryDate?: string | null;
+  carrier?: string | null;
+  trackingNumber?: string | null;
+  packingSlipNumber?: string | null;
   remainingDisposition?: RemainingDisposition | null;
   expectedReadyDate?: string | null;
   dispositionReason?: string;
@@ -604,13 +614,15 @@ export interface FulfillmentLineItem {
   finalQuantityAccepted?: number | null;
   finalQuantityRejected?: number | null;
   finalQuantityMissing?: number | null;
+  finalDecision?: FinalDecisionType | null;
   inspectionOutcome?: InspectionOutcome;
-  resolutionStatus?: ExceptionResolutionStatus;
+  resolutionStatus?: ExceptionResolutionStatus | null;
   vendorDisposition?: VendorResolutionAction | null;
   /** Buyer's suggested handling for the rejected/missing units on this line (non-binding) */
   recommendedDisposition?: RecommendedDisposition | null;
+  companyRecommendedDisposition?: RecommendedDisposition | null;
   /** Split allocations returned by the backend (e.g. 8 backordered + 2 forfeited on this line) */
-  dispositionAllocations?: ReceiptDispositionAllocation[];
+  dispositionAllocations?: ReceiptDispositionAllocation[] | null;
   expectedRedeliveryDate?: string | null;
   vendorResponseReason?: string | null;
   vendorDispositionReason?: string | null;
@@ -626,7 +638,7 @@ export interface Fulfillment {
   fulfillmentReference?: string | null;
   declaration?: FulfillmentDeclaration | null;
   fulfillmentMethod?: FulfillmentMethod | null;
-  status: "submitted" | "cancelled";
+  status: "submitted" | "dispatched" | "confirmed" | "confirmed_with_exceptions" | "cancelled" | string;
   createdAt?: string;
   shippedAt: string;
   readyAt?: string | null;
@@ -679,7 +691,8 @@ export interface OrderLegalEntityRef {
   code: string;
   legalName: string;
   baseCurrency: string;
-  readinessStatus?: "provisional" | string;
+  status?: "active" | "inactive" | string;
+  readinessStatus?: "provisional" | "payment_workflow_ready" | string;
 }
 
 /** Row shape from the list endpoint — lighter than the detail shape. */
@@ -719,19 +732,19 @@ export interface OrderListItem {
 export interface TimelineEvent {
   action: string;
   timestamp: string;
-  performedBy: {
+  performedBy?: {
     actorId?: string;
-    actorType: "company_user" | "vendor" | "system" | Record<string, unknown> | string;
-    firstName?: string;
-    lastName?: string;
-    roleName?: string;
+    actorType: "company_user" | "user" | "vendor" | "system" | Record<string, unknown> | string;
+    firstName?: string | null;
+    lastName?: string | null;
+    roleName?: string | null;
     roleNames?: string[];
-    vendorId?: string;
-    email?: string;
-    vendorName?: string;
+    vendorId?: string | null;
+    email?: string | null;
+    vendorName?: string | null;
     [key: string]: unknown;
-  };
-  notes?: string;
+  } | null;
+  notes?: string | null;
 }
 
 export interface Order {
@@ -794,6 +807,7 @@ export interface Order {
   cancelledAt?: string;
   cancellationReason?: string;
   deliveryDate?: string;
+  promisedDeliveryDate?: string;
   currency: string;
   legalEntity?: OrderLegalEntityRef | null;
   subtotal: number;
@@ -829,10 +843,15 @@ export interface OrderFilters {
 
 /**
  * Payload shape for acknowledging an order.
- * Vendor enters per-item delivery dates before acknowledging.
+ * Vendor enters per-item promised delivery dates before acknowledging.
  */
+export interface AcknowledgeOrderLineItemPayload {
+  purchaseOrderLineItemId: string;
+  promisedDeliveryDate: string;
+}
+
 export interface AcknowledgeOrderPayload {
-  lineItems: { purchaseOrderLineItemId: string; deliveryDate: string }[];
+  lineItems: AcknowledgeOrderLineItemPayload[];
 }
 
 export type DeliveryType = "full" | "partial";
@@ -840,6 +859,11 @@ export type DeliveryType = "full" | "partial";
 export interface CreateFulfillmentLineItemPayload {
   purchaseOrderLineItemId: string;
   quantityReady: number;
+  fulfillmentMethod?: FulfillmentMethod;
+  expectedDeliveryDate?: string;
+  carrier?: string;
+  trackingNumber?: string;
+  packingSlipNumber?: string;
   remainingDisposition?: RemainingDisposition;
   expectedReadyDate?: string;
   reason?: string;
@@ -849,7 +873,7 @@ export interface CreateFulfillmentLineItemPayload {
 export interface CreateFulfillmentPayload {
   fulfillmentReference?: string;
   declaration: FulfillmentDeclaration;
-  fulfillmentMethod: FulfillmentMethod;
+  fulfillmentMethod?: FulfillmentMethod;
   readyAt?: string;
   expectedDeliveryDate?: string;
   carrier?: string;
@@ -877,7 +901,7 @@ export interface DispatchFulfillmentPayload {
  */
 export interface FulfillmentPayload {
   declaration: DeliveryType;
-  fulfillmentMethod: "carrier" | "vendor_truck" | "digital" | "service";
+  fulfillmentMethod?: "carrier" | "vendor_truck" | "digital" | "service";
   expectedDeliveryDate?: string;
   carrier?: string;
   trackingNumber?: string;
@@ -886,6 +910,11 @@ export interface FulfillmentPayload {
   lineItems: {
     purchaseOrderLineItemId: string;
     quantityReady: number;
+    fulfillmentMethod?: "carrier" | "vendor_truck" | "digital" | "service";
+    expectedDeliveryDate?: string;
+    carrier?: string;
+    trackingNumber?: string;
+    packingSlipNumber?: string;
     remainingDisposition?: "backordered" | "cannot_fulfill";
     expectedReadyDate?: string;
     reason?: string;
@@ -1255,11 +1284,23 @@ export interface ChatThread {
 // API RESPONSE WRAPPERS
 // ─────────────────────────────────────────────
 
-/** Generic { message, status, data } envelope used by every endpoint. */
+export interface PaginationMeta {
+  totalCount: number;
+  totalPages: number;
+  currentPage: number;
+  limit: number;
+}
+
+export type OrderListWithMeta = OrderListItem[] & {
+  meta?: PaginationMeta;
+};
+
+/** Generic { message, status, data, meta? } envelope used by every endpoint. */
 export interface ApiEnvelope<T> {
   message: string;
   status: number;
   data: T;
+  meta?: PaginationMeta;
 }
 
 export interface ApiError {
