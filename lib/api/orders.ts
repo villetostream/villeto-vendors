@@ -5,6 +5,7 @@
 
 import { apiClient, uploadClient } from "./client";
 import {
+  AcknowledgeOrderLineItemPayload,
   AcknowledgeOrderPayload,
   AcknowledgeReceiptPayload,
   ApiEnvelope,
@@ -20,6 +21,7 @@ import {
   OrderFilters,
   OrderLineItem,
   OrderListItem,
+  OrderListWithMeta,
   ReceiptEvidenceItem,
 } from "@/lib/types";
 
@@ -28,11 +30,13 @@ import {
 /**
  * GET /vendor-portal/orders?page=&limit=&status=
  */
-export async function getOrders(filters: OrderFilters = {}): Promise<OrderListItem[]> {
+export async function getOrders(filters: OrderFilters = {}): Promise<OrderListWithMeta> {
   const { data } = await apiClient.get<ApiEnvelope<OrderListItem[]>>("/vendor-portal/orders", {
     params: filters,
   });
-  return data.data;
+  return Object.assign([...(data.data ?? [])], {
+    meta: data.meta,
+  });
 }
 
 /**

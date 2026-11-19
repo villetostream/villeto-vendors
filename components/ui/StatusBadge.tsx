@@ -197,11 +197,19 @@ export function DeliveryStatusBadge({
 
   type StateConfig = { label: string; bg: string; color: string; border: string };
   const stateMap: Record<string, StateConfig> = {
-    partially_dispatched:                { label: "Partially Fulfilled",              bg: "bg-blue-50",    color: "text-blue-700",    border: "border-blue-200" },
-    dispatched:                          { label: "Fully Fulfilled",                  bg: "bg-green-50",   color: "text-green-700",   border: "border-green-200" },
-    partially_received:                  { label: "Partially Received",               bg: "bg-emerald-50", color: "text-emerald-700", border: "border-emerald-200" },
-    received:                            { label: "Fully Received",                   bg: "bg-teal-50",    color: "text-teal-700",    border: "border-teal-200" },
-    ready:                               { label: "Fulfilled",                        bg: "bg-indigo-50",  color: "text-indigo-700",  border: "border-indigo-200" },
+    awaiting_dispatch:                   { label: "Awaiting Dispatch",                bg: "bg-purple-50",  color: "text-purple-700",  border: "border-purple-200" },
+    partially_dispatched:                { label: "Partially Dispatched",             bg: "bg-blue-50",    color: "text-blue-700",    border: "border-blue-200" },
+    dispatched:                          { label: "Dispatched",                       bg: "bg-blue-50",    color: "text-blue-700",    border: "border-blue-200" },
+    awaiting_receipt:                    { label: "Awaiting Inspection",              bg: "bg-amber-50",   color: "text-amber-800",   border: "border-amber-200" },
+    partially_received:                  { label: "Partially Received",               bg: "bg-teal-50",    color: "text-teal-700",    border: "border-teal-200" },
+    partially_received_with_exceptions:  isResolved
+      ? { label: "Partially Received (Exceptions Settled)", bg: "bg-emerald-50", color: "text-emerald-800", border: "border-emerald-200" }
+      : { label: "Partially Received (Exceptions)", bg: "bg-amber-50",   color: "text-amber-800",   border: "border-amber-200" },
+    received:                            { label: "Received",                         bg: "bg-teal-50",    color: "text-teal-700",    border: "border-teal-200" },
+    received_with_exceptions:            isResolved
+      ? { label: "Received (Exceptions Settled)", bg: "bg-emerald-50", color: "text-emerald-800", border: "border-emerald-200" }
+      : { label: "Received (Exceptions)",           bg: "bg-amber-50",   color: "text-amber-800",   border: "border-amber-200" },
+    ready:                               { label: "Ready for Delivery",               bg: "bg-purple-50",  color: "text-purple-700",  border: "border-purple-200" },
     not_delivered:                       { label: "Not Delivered",                    bg: "bg-slate-50",   color: "text-slate-600",   border: "border-slate-200" },
     partially_delivered:                 { label: "Partially Delivered",              bg: "bg-blue-50",    color: "text-blue-700",    border: "border-blue-200" },
     partial_delivery_with_exceptions:    isResolved

@@ -9,7 +9,7 @@ import { getVendorSummary } from "@/lib/api/vendor";
 import { useCompanyStore, queryKeys } from "@/lib/stores/companyStore";
 import { useCompany } from "@/lib/hooks/useCompany";
 import { Button } from "@/components/ui/Button";
-import { OrderStatusBadge, DeliveryStatusBadge, ExceptionResolutionBadge } from "@/components/ui/StatusBadge";
+import { OrderStatusBadge, DeliveryStatusBadge } from "@/components/ui/StatusBadge";
 import { StatCardSkeleton, TableSkeleton } from "@/components/ui/Skeleton";
 import { EmptyState, ErrorState } from "@/components/ui/Spinner";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/Select";
@@ -196,10 +196,12 @@ export default function DashboardPage() {
               </thead>
               <tbody>
                 {orders.map((order) => {
+                  const hasOpenExceptions = (order.openExceptionCount ?? 0) > 0;
                   const needsVendorAction =
                     order.vendorResponseRequired === true ||
                     order.vendorActionRequired === true ||
-                    order.resolutionStatus === "awaiting_vendor_response";
+                    order.resolutionStatus === "awaiting_vendor_response" ||
+                    order.resolutionStatus === "awaiting_vendor_disposition";
                   const deliveryLabelStatus =
                     order.deliveryOutcome && order.deliveryOutcome !== "not_delivered"
                       ? order.deliveryOutcome
@@ -207,6 +209,7 @@ export default function DashboardPage() {
                       ? order.deliveryState
                       : null;
                   const isExceptionsResolved =
+                    !hasOpenExceptions &&
                     order.vendorResponseRequired === false &&
                     !order.companyActionRequired &&
                     !needsVendorAction;
@@ -225,36 +228,33 @@ export default function DashboardPage() {
                       </td>
                       <td className="px-5 py-3.5">
                         <div className="flex flex-col items-start gap-1">
-                          <div className="flex items-center gap-1.5 flex-wrap">
-                            {deliveryLabelStatus && !["cancelled", "closed"].includes(order.status) ? (
-                              <DeliveryStatusBadge
-                                status={deliveryLabelStatus}
-                                transportScope={order.fulfillmentTransportScope}
-                                isResolved={isExceptionsResolved}
-                              />
-                            ) : (
-                              <OrderStatusBadge
-                                status={order.status}
-                                isResolved={isExceptionsResolved}
-                              />
-                            )}
-                            {needsVendorAction ? (
-                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-red-50 text-red-700 border border-red-200">
-                                <AlertCircle className="h-3 w-3 text-red-500" />
-                                Action Required
-                                {order.openExceptionCount && order.openExceptionCount > 0
-                                  ? ` (${order.openExceptionCount})`
-                                  : ""}
-                              </span>
-                            ) : order.companyActionRequired === true ? (
-                              <ExceptionResolutionBadge
-                                status={order.resolutionStatus || "under_company_review"}
-                              />
-                            ) : order.resolutionStatus &&
-                              order.resolutionStatus !== "not_required" ? (
-                              <ExceptionResolutionBadge status={order.resolutionStatus} />
-                            ) : null}
-                          </div>
+                          {deliveryLabelStatus && !["cancelled", "closed"].includes(order.status) ? (
+                            <DeliveryStatusBadge
+                              status={deliveryLabelStatus}
+                              transportScope={order.fulfillmentTransportScope}
+                              isResolved={isExceptionsResolved}
+                            />
+                          ) : (
+                            <OrderStatusBadge
+                              status={order.status}
+                              isResolved={isExceptionsResolved}
+                            />
+                          )}
+                          {needsVendorAction ? (
+                            <span className="text-[11px] font-semibold text-red-600 inline-flex items-center gap-1">
+                              <AlertCircle className="h-3 w-3 text-red-500 shrink-0" />
+                              Action Required{hasOpenExceptions ? ` (${order.openExceptionCount})` : ""}
+                            </span>
+                          ) : order.companyActionRequired === true ? (
+                            <span className="text-[11px] text-purple-700 font-medium">
+                              Dispute under buyer review
+                            </span>
+                          ) : hasOpenExceptions ? (
+                            <span className="text-[11px] font-semibold text-amber-700 inline-flex items-center gap-1">
+                              <AlertCircle className="h-3 w-3 text-amber-600 shrink-0" />
+                              {order.openExceptionCount} open exception{order.openExceptionCount === 1 ? "" : "s"}
+                            </span>
+                          ) : null}
                           {order.fulfillmentState === "backordered" && (
                             <span className="text-[11px] text-amber-700">
                               Contains backordered items

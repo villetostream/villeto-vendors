@@ -317,9 +317,10 @@ export function enrichFulfillmentsWithReceipts(
         return undefined;
       })();
 
-      // Extract recommendedDisposition from decisionHistory if rLi.recommendedDisposition is missing
+      // Extract recommendedDisposition from line item or decisionHistory
       const historyRecommendedDisposition = (() => {
-        if (rLi.recommendedDisposition) return rLi.recommendedDisposition;
+        const directRec = rLi.companyRecommendedDisposition ?? rLi.recommendedDisposition;
+        if (directRec) return directRec;
         if (!matchedReceipt.decisionHistory) return undefined;
         for (const dh of [...matchedReceipt.decisionHistory].reverse()) {
           if (dh.lineItems && Array.isArray(dh.lineItems)) {
@@ -329,8 +330,9 @@ export function enrichFulfillmentsWithReceipts(
                 dhl.purchaseOrderLineItemId === rLi.purchaseOrderLineItemId ||
                 (dhl.name && dhl.name.trim().toLowerCase() === li.name?.trim().toLowerCase())
             );
-            if (match?.recommendedDisposition) {
-              return match.recommendedDisposition;
+            const matchRec = match?.companyRecommendedDisposition ?? match?.recommendedDisposition;
+            if (matchRec) {
+              return matchRec;
             }
           }
         }
@@ -346,7 +348,9 @@ export function enrichFulfillmentsWithReceipts(
 
       const lineResolutionStatus =
         rLi.resolutionStatus ??
-        (lineDisposition === "backorder"
+        (matchedReceipt.resolutionStatus === "resolved_after_dispute"
+          ? "resolved_after_dispute"
+          : lineDisposition === "backorder"
           ? "backordered"
           : lineDisposition === "forfeit"
           ? "forfeited"
@@ -354,8 +358,6 @@ export function enrichFulfillmentsWithReceipts(
           ? "under_company_review"
           : isSingleExceptionLine
           ? matchedReceipt.resolutionStatus
-          : matchedReceipt.resolutionStatus === "resolved_after_dispute"
-          ? "resolved_after_dispute"
           : li.resolutionStatus);
 
       return {
@@ -366,6 +368,7 @@ export function enrichFulfillmentsWithReceipts(
         quantityAccepted: rLi.quantityAccepted ?? li.quantityAccepted,
         quantityRejected: rLi.quantityRejected ?? li.quantityRejected,
         quantityMissing: rLi.quantityMissing ?? li.quantityMissing,
+        quantityAwaitingReceipt: 0,
         exceptionReason:
           rLi.exceptionReason ??
           (rLi as any).rejectionReason ??
@@ -386,7 +389,17 @@ export function enrichFulfillmentsWithReceipts(
         resolutionStatus: lineResolutionStatus,
         vendorDisposition: lineDisposition,
         recommendedDisposition:
-          historyRecommendedDisposition ?? rLi.recommendedDisposition ?? li.recommendedDisposition,
+          historyRecommendedDisposition ??
+          rLi.companyRecommendedDisposition ??
+          rLi.recommendedDisposition ??
+          li.companyRecommendedDisposition ??
+          li.recommendedDisposition,
+        companyRecommendedDisposition:
+          historyRecommendedDisposition ??
+          rLi.companyRecommendedDisposition ??
+          rLi.recommendedDisposition ??
+          li.companyRecommendedDisposition ??
+          li.recommendedDisposition,
         dispositionAllocations: historyAllocations ?? rLi.dispositionAllocations ?? li.dispositionAllocations,
         expectedRedeliveryDate:
           rLi.expectedRedeliveryDate ??
@@ -503,7 +516,8 @@ export function enrichFulfillmentsWithReceipts(
           resolutionStatus: li.resolutionStatus,
           vendorDisposition: li.vendorDisposition,
           recommendedDisposition: (() => {
-            if (li.recommendedDisposition) return li.recommendedDisposition;
+            const directRec = li.companyRecommendedDisposition ?? li.recommendedDisposition;
+            if (directRec) return directRec;
             if (!r.decisionHistory) return undefined;
             for (const dh of [...r.decisionHistory].reverse()) {
               if (dh.lineItems && Array.isArray(dh.lineItems)) {
@@ -513,13 +527,15 @@ export function enrichFulfillmentsWithReceipts(
                     dhl.purchaseOrderLineItemId === li.purchaseOrderLineItemId ||
                     (dhl.name && dhl.name.trim().toLowerCase() === li.name?.trim().toLowerCase())
                 );
-                if (match?.recommendedDisposition) {
-                  return match.recommendedDisposition;
+                const matchRec = match?.companyRecommendedDisposition ?? match?.recommendedDisposition;
+                if (matchRec) {
+                  return matchRec;
                 }
               }
             }
             return undefined;
           })(),
+          companyRecommendedDisposition: li.companyRecommendedDisposition ?? li.recommendedDisposition,
           dispositionAllocations: li.dispositionAllocations,
           expectedRedeliveryDate: li.expectedRedeliveryDate,
           vendorResponseReason: li.vendorResponseReason,
@@ -702,18 +718,12 @@ export function formatCurrency(amount: number, currency: string): string {
 // DATE FORMATTING
 // ─────────────────────────────────────────────
 
-export function parseLocalDate(dateStr?: string | null): Date | undefined {
-  if (!dateStr) return undefined;
-  const match = dateStr.match(/^(\d{4})-(\d{2})-(\d{2})/);
-  if (match) {
-    const year = parseInt(match[1], 10);
-    const month = parseInt(match[2], 10) - 1;
-    const day = parseInt(match[3], 10);
-    return new Date(year, month, day);
-  }
-  const d = new Date(dateStr);
-  return isNaN(d.getTime()) ? undefined : d;
-}
+export {
+  parseLocalDate,
+  toIsoDateString,
+  isPastCalendarDate,
+  resolveAcknowledgePromiseDate,
+} from "./dates";
 
 export function formatDate(dateStr?: string | null): string {
   if (!dateStr) return "—";

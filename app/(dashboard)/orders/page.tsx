@@ -7,7 +7,7 @@ import { Search, ChevronLeft, ChevronRight, MoreVertical, AlertCircle } from "lu
 import { useDebounce } from "use-debounce";
 import { useOrders } from "@/lib/hooks/useOrders";
 import { useCompany } from "@/lib/hooks/useCompany";
-import { OrderStatusBadge, DeliveryStatusBadge, ExceptionResolutionBadge } from "@/components/ui/StatusBadge";
+import { OrderStatusBadge, DeliveryStatusBadge } from "@/components/ui/StatusBadge";
 import { TableSkeleton } from "@/components/ui/Skeleton";
 import { EmptyState, ErrorState } from "@/components/ui/Spinner";
 import { formatCurrency, cn } from "@/lib/utils";
@@ -81,11 +81,10 @@ export default function OrdersPage() {
   const { data, isLoading, isError, refetch, isFetching } = useOrders(filters);
 
   const orders = data ?? [];
-  // NOTE: the list endpoint doesn't return a total count yet (flagged
-  // with backend as an enhancement). Without it we can't render "Page X
-  // of Y" or a real page-number control — only infer whether there's
-  // likely a next page from whether this page came back full.
-  const hasNextPage = orders.length === limit;
+  const meta = data?.meta;
+  const hasNextPage = meta
+    ? page < meta.totalPages
+    : orders.length === limit;
 
   // Client-side search — the endpoint doesn't take a `search` param yet,
   // so this only filters what's already on the current page, not across
@@ -207,16 +206,23 @@ export default function OrdersPage() {
                 </thead>
               <tbody>
                 {visibleOrders.map((order) => {
+                  const hasOpenExceptions = (order.openExceptionCount ?? 0) > 0;
                   const needsVendorAction =
                     order.vendorResponseRequired === true ||
                     order.vendorActionRequired === true ||
-                    order.resolutionStatus === "awaiting_vendor_response";
+                    order.resolutionStatus === "awaiting_vendor_response" ||
+                    order.resolutionStatus === "awaiting_vendor_disposition";
                   const deliveryLabelStatus =
                     order.deliveryOutcome && order.deliveryOutcome !== "not_delivered"
                       ? order.deliveryOutcome
                       : order.deliveryState && order.deliveryState !== "not_started"
                       ? order.deliveryState
                       : null;
+                  const isExceptionsResolved =
+                    !hasOpenExceptions &&
+                    order.vendorResponseRequired === false &&
+                    !order.companyActionRequired &&
+                    !needsVendorAction;
 
                   return (
                     <tr 
@@ -232,37 +238,33 @@ export default function OrdersPage() {
                       </td>
                       <td className="px-5 py-3.5">
                         <div className="flex flex-col items-start gap-1">
-                          <div className="flex items-center gap-1.5 flex-wrap">
-                            {deliveryLabelStatus && !["cancelled", "closed"].includes(order.status) ? (
-                              <DeliveryStatusBadge
-                                status={deliveryLabelStatus}
-                                transportScope={order.fulfillmentTransportScope}
-                                isResolved={
-                                  order.vendorResponseRequired === false &&
-                                  !order.companyActionRequired &&
-                                  !needsVendorAction
-                                }
-                              />
-                            ) : (
-                              <OrderStatusBadge status={order.status} />
-                            )}
-                            {needsVendorAction ? (
-                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-red-50 text-red-700 border border-red-200">
-                                <AlertCircle className="h-3 w-3 text-red-500" />
-                                Action Required
-                                {order.openExceptionCount && order.openExceptionCount > 0
-                                  ? ` (${order.openExceptionCount})`
-                                  : ""}
-                              </span>
-                            ) : order.companyActionRequired === true ? (
-                              <ExceptionResolutionBadge
-                                status={order.resolutionStatus || "under_company_review"}
-                              />
-                            ) : order.resolutionStatus &&
-                              order.resolutionStatus !== "not_required" ? (
-                              <ExceptionResolutionBadge status={order.resolutionStatus} />
-                            ) : null}
-                          </div>
+                          {deliveryLabelStatus && !["cancelled", "closed"].includes(order.status) ? (
+                            <DeliveryStatusBadge
+                              status={deliveryLabelStatus}
+                              transportScope={order.fulfillmentTransportScope}
+                              isResolved={isExceptionsResolved}
+                            />
+                          ) : (
+                            <OrderStatusBadge
+                              status={order.status}
+                              isResolved={isExceptionsResolved}
+                            />
+                          )}
+                          {needsVendorAction ? (
+                            <span className="text-[11px] font-semibold text-red-600 inline-flex items-center gap-1">
+                              <AlertCircle className="h-3 w-3 text-red-500 shrink-0" />
+                              Action Required{hasOpenExceptions ? ` (${order.openExceptionCount})` : ""}
+                            </span>
+                          ) : order.companyActionRequired === true ? (
+                            <span className="text-[11px] text-purple-700 font-medium">
+                              Dispute under buyer review
+                            </span>
+                          ) : hasOpenExceptions ? (
+                            <span className="text-[11px] font-semibold text-amber-700 inline-flex items-center gap-1">
+                              <AlertCircle className="h-3 w-3 text-amber-600 shrink-0" />
+                              {order.openExceptionCount} open exception{order.openExceptionCount === 1 ? "" : "s"}
+                            </span>
+                          ) : null}
                           {order.fulfillmentState === "backordered" && (
                             <span className="text-[11px] text-amber-700">
                               Contains backordered items
@@ -296,7 +298,11 @@ export default function OrdersPage() {
         {!isLoading && !isError && orders.length > 0 && (
           <div className="shrink-0 flex flex-col gap-3 px-5 py-3.5 border-t border-dashboard-border bg-white sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <span>Page {page}</span>
+              <span>
+                Page {meta?.currentPage ?? page}
+                {meta?.totalPages ? ` of ${meta.totalPages}` : ""}
+                {meta?.totalCount != null ? ` (${meta.totalCount} total)` : ""}
+              </span>
               <label htmlFor="orders-per-page" className="sr-only">Results per page</label>
               <select
                 id="orders-per-page"

@@ -240,7 +240,7 @@ export function ItemFulfillmentDrawer({
           <button
             type="button"
             onClick={onClose}
-            className="p-1.5 rounded-xl hover:bg-muted text-muted-foreground hover:text-foreground transition-colors shrink-0"
+            className="p-1.5 rounded-xl hover:bg-muted text-muted-foreground hover:text-foreground transition-colors shrink-0 outline-none focus:outline-none focus:ring-0"
           >
             <X className="h-5 w-5" />
           </button>
@@ -586,7 +586,9 @@ export function ItemFulfillmentDrawer({
             ) : (
               <div className="space-y-5 relative before:absolute before:inset-0 before:ml-[1.25rem] before:-translate-x-px before:h-full before:w-0.5 before:bg-gradient-to-b before:from-transparent before:via-border before:to-transparent">
                 {relevantFulfillments.map(({ notice, lineItem: li, index: fIdx }) => {
-                  const method = notice.fulfillmentMethod || "unknown";
+                  const method = li.fulfillmentMethod || notice.fulfillmentMethod || "unknown";
+                  const effectiveCarrier = li.carrier || notice.carrier;
+                  const effectiveTracking = li.trackingNumber || notice.trackingNumber;
                   const isPhysical = ["carrier", "vendor_truck"].includes(method);
                   let Icon = Package;
                   if (isPhysical) Icon = Truck;
@@ -604,6 +606,9 @@ export function ItemFulfillmentDrawer({
                   const liMissing =
                     li.finalQuantityMissing ?? li.quantityMissing ?? 0;
                   const liExceptions = liRejected + liMissing;
+                  const origRejected = li.quantityRejected || 0;
+                  const origMissing = li.quantityMissing || 0;
+                  const origExceptions = origRejected + origMissing;
 
                   const parsedReason = parseExceptionReason(
                     li.exceptionReason || li.rejectionReason || notice.rejectionReason || ""
@@ -634,9 +639,12 @@ export function ItemFulfillmentDrawer({
                           notice.vendorActionRequired === true)));
 
                   const isDisputedUnderReview =
-                    notice.resolutionStatus === "under_company_review" ||
-                    li.resolutionStatus === "under_company_review" ||
-                    li.vendorDisposition === "dispute";
+                    !isFinalResolved &&
+                    !isFinalDecisionPending &&
+                    !notice.finalDecision &&
+                    (notice.resolutionStatus === "under_company_review" ||
+                      li.resolutionStatus === "under_company_review" ||
+                      li.vendorDisposition === "dispute");
 
                   return (
                     <div
@@ -657,11 +665,6 @@ export function ItemFulfillmentDrawer({
                               <span className="text-sm font-bold text-foreground">
                                 Shipment #{fIdx + 1}
                               </span>
-                              {notice.receiptNumber && (
-                                <span className="text-[11px] font-mono bg-muted px-2 py-0.5 rounded-md border border-border text-foreground">
-                                  {notice.receiptNumber}
-                                </span>
-                              )}
                               {/* Shipment Dispatch Pill */}
                               {isPhysical && (
                                 <span
@@ -716,14 +719,14 @@ export function ItemFulfillmentDrawer({
                           <span className="font-medium text-foreground">
                             Via {methodLabel[method] || method}
                           </span>
-                          {notice.carrier && (
+                          {effectiveCarrier && (
                             <span className="border-l border-border pl-3">
-                              Carrier: <strong className="text-foreground">{notice.carrier}</strong>
+                              Carrier: <strong className="text-foreground">{effectiveCarrier}</strong>
                             </span>
                           )}
-                          {notice.trackingNumber && (
+                          {effectiveTracking && (
                             <span className="border-l border-border pl-3 font-mono">
-                              Tracking: <strong className="text-foreground">{notice.trackingNumber}</strong>
+                              Tracking: <strong className="text-foreground">{effectiveTracking}</strong>
                             </span>
                           )}
                           {notice.licensePlate && (
@@ -769,23 +772,45 @@ export function ItemFulfillmentDrawer({
                           </div>
                         </div>
 
-                        {/* ── Buyer Inspection Findings & Evidence (if exceptions reported) ── */}
-                        {liExceptions > 0 && (
-                          <div className="p-3.5 rounded-xl bg-red-50/90 border border-red-200 space-y-2.5 text-xs">
+                        {/* ── Buyer Inspection Findings & Evidence (if exceptions reported or resolved post-dispute) ── */}
+                        {(liExceptions > 0 || (isFinalResolved && origExceptions > 0)) && (
+                          <div
+                            className={cn(
+                              "p-3.5 rounded-xl border space-y-2.5 text-xs",
+                              isFinalResolved && liExceptions === 0
+                                ? "bg-emerald-50/70 border-emerald-200"
+                                : "bg-red-50/90 border-red-200"
+                            )}
+                          >
                             <div className="flex items-center justify-between gap-2 flex-wrap">
-                              <div className="flex items-center gap-1.5 font-bold text-red-950">
-                                <AlertCircle className="h-4 w-4 text-red-600 shrink-0" />
-                                <span>Buyer Inspection Discrepancy</span>
+                              <div
+                                className={cn(
+                                  "flex items-center gap-1.5 font-bold",
+                                  isFinalResolved && liExceptions === 0
+                                    ? "text-emerald-950"
+                                    : "text-red-950"
+                                )}
+                              >
+                                {isFinalResolved && liExceptions === 0 ? (
+                                  <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
+                                ) : (
+                                  <AlertCircle className="h-4 w-4 text-red-600 shrink-0" />
+                                )}
+                                <span>
+                                  {isFinalResolved && liExceptions === 0
+                                    ? "Buyer Inspection Discrepancy (Resolved)"
+                                    : "Buyer Inspection Discrepancy"}
+                                </span>
                               </div>
                               <div className="flex items-center gap-1.5 flex-wrap">
-                                {liRejected > 0 && (
+                                {(liRejected || origRejected) > 0 && (
                                   <span className="text-[10px] font-bold bg-red-200 text-red-900 px-1.5 py-0.5 rounded">
-                                    {liRejected} rejected
+                                    {liExceptions > 0 ? liRejected : `${origRejected} originally`} rejected
                                   </span>
                                 )}
-                                {liMissing > 0 && (
+                                {(liMissing || origMissing) > 0 && (
                                   <span className="text-[10px] font-bold bg-amber-200 text-amber-900 px-1.5 py-0.5 rounded">
-                                    {liMissing} missing
+                                    {liExceptions > 0 ? liMissing : `${origMissing} originally`} missing
                                   </span>
                                 )}
                                 {parsedReason.categories?.map((cat, i) => (
@@ -801,17 +826,17 @@ export function ItemFulfillmentDrawer({
 
                             {/* Detailed Buyer Note with expandable text */}
                             {parsedReason.text ? (
-                              <div className="bg-white/70 border border-red-200/70 p-2.5 rounded-lg">
+                              <div className="bg-white/70 border border-border/70 p-2.5 rounded-lg">
                                 <ExpandableText
                                   prefix="Buyer Note:"
-                                  prefixClass="text-red-950 font-bold"
+                                  prefixClass="text-foreground font-bold"
                                   text={parsedReason.text}
                                   maxLength={100}
-                                  className="text-red-900"
+                                  className="text-foreground/90"
                                 />
                               </div>
                             ) : (
-                              <p className="text-red-800/80 italic">
+                              <p className="text-muted-foreground italic">
                                 No specific inspection note provided by buyer.
                               </p>
                             )}
@@ -833,14 +858,13 @@ export function ItemFulfillmentDrawer({
                               );
                             })()}
 
-                            {/* Photo Evidence Gallery */}
-                            {notice.evidence && notice.evidence.length > 0 && (
+                            {/* Photo Evidence Gallery (Buyer & Vendor) */}
+                            {((notice.evidence && notice.evidence.length > 0) ||
+                              (notice.vendorEvidence && notice.vendorEvidence.length > 0)) && (
                               <div className="pt-1">
-                                <p className="text-[11px] font-semibold text-red-950 mb-1.5">
-                                  Inspection Evidence Photos ({notice.evidence.length})
-                                </p>
                                 <EvidenceGallery
                                   buyerEvidence={notice.evidence}
+                                  vendorEvidence={notice.vendorEvidence}
                                   compact
                                   variant="thumbnails"
                                 />
@@ -848,7 +872,14 @@ export function ItemFulfillmentDrawer({
                             )}
 
                             {/* Resolution Status / Action Required Trigger */}
-                            <div className="pt-2 border-t border-red-200/70 flex items-center justify-between gap-3 flex-wrap">
+                            <div
+                              className={cn(
+                                "pt-2 border-t flex items-center justify-between gap-3 flex-wrap",
+                                isFinalResolved && liExceptions === 0
+                                  ? "border-emerald-200/80"
+                                  : "border-red-200/70"
+                              )}
+                            >
                               {isFinalDecisionPending ? (
                                 <>
                                   <div>
@@ -905,10 +936,10 @@ export function ItemFulfillmentDrawer({
                                     <ShieldAlert className="h-3.5 w-3.5 text-purple-600" />
                                     <span>Dispute Submitted · Under Company Review</span>
                                   </div>
-                                  {(li.vendorDispositionReason || notice.vendorResponseReason) && (
+                                  {(li.vendorDispositionReason || li.vendorResponseReason || notice.vendorResponseReason) && (
                                     <p className="text-purple-900">
                                       <span className="font-semibold">Your Dispute Note: </span>
-                                      {li.vendorDispositionReason || notice.vendorResponseReason}
+                                      {li.vendorDispositionReason || li.vendorResponseReason || notice.vendorResponseReason}
                                     </p>
                                   )}
                                 </div>
@@ -921,6 +952,18 @@ export function ItemFulfillmentDrawer({
                                       {formatFinalDecisionLabel(notice.finalDecision)}
                                     </span>
                                   </div>
+                                  {(li.vendorDispositionReason || li.vendorResponseReason || notice.vendorResponseReason) && (
+                                    <p className="text-emerald-900">
+                                      <span className="font-semibold">Your Dispute Note: </span>
+                                      {li.vendorDispositionReason || li.vendorResponseReason || notice.vendorResponseReason}
+                                    </p>
+                                  )}
+                                  {notice.resolutionNote && (
+                                    <p className="text-emerald-900">
+                                      <span className="font-semibold">Buyer Resolution Note: </span>
+                                      {notice.resolutionNote}
+                                    </p>
+                                  )}
                                   {notice.resolvedAt && (
                                     <p className="text-[11px] text-muted-foreground">
                                       Resolved on {formatDateTime(notice.resolvedAt)}
