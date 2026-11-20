@@ -190,6 +190,8 @@ export function FulfillmentModal({
 
   const [fulfillmentReference, setFulfillmentReference] = useState("");
   const [expectedDeliveryDate, setExpectedDeliveryDate] = useState("");
+  const [carrierExpectedDeliveryDate, setCarrierExpectedDeliveryDate] = useState("");
+  const [truckExpectedDeliveryDate, setTruckExpectedDeliveryDate] = useState("");
   const [carrier, setCarrier] = useState("");
   const [trackingNumber, setTrackingNumber] = useState("");
   const [packingSlipNumber, setPackingSlipNumber] = useState("");
@@ -234,6 +236,8 @@ export function FulfillmentModal({
       setShareTruckDetails(true);
       setFulfillmentReference("");
       setExpectedDeliveryDate("");
+      setCarrierExpectedDeliveryDate("");
+      setTruckExpectedDeliveryDate("");
       setCarrier("");
       setTrackingNumber("");
       setPackingSlipNumber("");
@@ -392,7 +396,7 @@ export function FulfillmentModal({
         carrier: shareCarrierDetails ? carrier : itemCarriers[id],
         trackingNumber: shareCarrierDetails ? trackingNumber : itemTrackingNumbers[id],
         expectedDeliveryDate: shareCarrierDetails
-          ? expectedDeliveryDate
+          ? (carrierExpectedDeliveryDate || expectedDeliveryDate)
           : itemExpectedDeliveryDates[id],
         packingSlipNumber: shareCarrierDetails
           ? packingSlipNumber
@@ -403,7 +407,7 @@ export function FulfillmentModal({
       return {
         fulfillmentMethod: method,
         expectedDeliveryDate: shareTruckDetails
-          ? expectedDeliveryDate
+          ? truckExpectedDeliveryDate
           : itemExpectedDeliveryDates[id],
         packingSlipNumber: shareTruckDetails
           ? packingSlipNumber
@@ -1314,6 +1318,14 @@ export function FulfillmentModal({
                           const nextTracking = { ...itemTrackingNumbers };
                           const nextPackingSlips = { ...itemPackingSlips };
 
+                          if (expectedDeliveryDate) {
+                            if (!carrierExpectedDeliveryDate) {
+                              setCarrierExpectedDeliveryDate(expectedDeliveryDate);
+                            }
+                            if (!truckExpectedDeliveryDate) {
+                              setTruckExpectedDeliveryDate(expectedDeliveryDate);
+                            }
+                          }
                           for (const item of activeFulfillmentItems) {
                             const id = item.purchaseOrderLineItemId;
                             if (!nextMethods[id]) {
@@ -1715,8 +1727,8 @@ export function FulfillmentModal({
                                       for (const ci of carrierItems) {
                                         const cid = ci.purchaseOrderLineItemId;
                                         if (!nextCarriers[cid] && carrier) nextCarriers[cid] = carrier;
-                                        if (!nextDates[cid] && expectedDeliveryDate)
-                                          nextDates[cid] = expectedDeliveryDate;
+                                        if (!nextDates[cid] && (carrierExpectedDeliveryDate || expectedDeliveryDate))
+                                          nextDates[cid] = carrierExpectedDeliveryDate || expectedDeliveryDate;
                                         if (!nextTracking[cid] && trackingNumber)
                                           nextTracking[cid] = trackingNumber;
                                       }
@@ -1758,10 +1770,10 @@ export function FulfillmentModal({
                                     Expected Arrival Date
                                   </Label>
                                   <DatePicker
-                                    date={parseLocalDate(expectedDeliveryDate)}
+                                    date={parseLocalDate(carrierExpectedDeliveryDate || expectedDeliveryDate)}
                                     onSelect={(d) => {
                                       setValidationError(null);
-                                      setExpectedDeliveryDate(d ? format(d, "yyyy-MM-dd") : "");
+                                      setCarrierExpectedDeliveryDate(d ? format(d, "yyyy-MM-dd") : "");
                                     }}
                                     disabled={(d) =>
                                       d < new Date(new Date().setHours(0, 0, 0, 0))
@@ -1876,26 +1888,90 @@ export function FulfillmentModal({
                                   Applies to {truckItems.length} item{truckItems.length === 1 ? "" : "s"}
                                 </span>
                               </div>
+
+                              {truckItems.length > 1 && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setValidationError(null);
+                                    if (shareTruckDetails) {
+                                      const nextDates = { ...itemExpectedDeliveryDates };
+                                      for (const ti of truckItems) {
+                                        const tid = ti.purchaseOrderLineItemId;
+                                        if (!nextDates[tid] && truckExpectedDeliveryDate) {
+                                          nextDates[tid] = truckExpectedDeliveryDate;
+                                        }
+                                      }
+                                      setItemExpectedDeliveryDates(nextDates);
+                                    }
+                                    setShareTruckDetails((v) => !v);
+                                  }}
+                                  className="cursor-pointer text-[11px] font-semibold text-[#087f70] hover:underline"
+                                >
+                                  {shareTruckDetails
+                                    ? "Using separate arrival dates? Enter per item"
+                                    : `Use same arrival date for all ${truckItems.length} vehicle items`}
+                                </button>
+                              )}
                             </div>
 
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                              <div className="space-y-1">
-                                <Label className="text-xs font-semibold" required>
-                                  Expected Arrival Date
-                                </Label>
-                                <DatePicker
-                                  date={parseLocalDate(expectedDeliveryDate)}
-                                  onSelect={(d) => {
-                                    setValidationError(null);
-                                    setExpectedDeliveryDate(d ? format(d, "yyyy-MM-dd") : "");
-                                  }}
-                                  disabled={(d) =>
-                                    d < new Date(new Date().setHours(0, 0, 0, 0))
-                                  }
-                                  className="h-9 bg-white w-full text-xs"
-                                />
+                            {shareTruckDetails || truckItems.length === 1 ? (
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                <div className="space-y-1">
+                                  <Label className="text-xs font-semibold" required>
+                                    Expected Arrival Date
+                                  </Label>
+                                  <DatePicker
+                                    date={parseLocalDate(truckExpectedDeliveryDate)}
+                                    onSelect={(d) => {
+                                      setValidationError(null);
+                                      setTruckExpectedDeliveryDate(d ? format(d, "yyyy-MM-dd") : "");
+                                    }}
+                                    disabled={(d) =>
+                                      d < new Date(new Date().setHours(0, 0, 0, 0))
+                                    }
+                                    className="h-9 bg-white w-full text-xs"
+                                  />
+                                </div>
                               </div>
-                            </div>
+                            ) : (
+                              <div className="space-y-2.5 pt-1">
+                                {truckItems.map((ti) => {
+                                  const tid = ti.purchaseOrderLineItemId;
+                                  return (
+                                    <div
+                                      key={tid}
+                                      className="p-3 rounded-lg border border-border bg-slate-50/50 space-y-2"
+                                    >
+                                      <p className="text-xs font-bold text-foreground">
+                                        {ti.name}
+                                      </p>
+                                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                                        <div className="space-y-1">
+                                          <Label className="text-[11px] font-semibold" required>
+                                            Expected Arrival Date
+                                          </Label>
+                                          <DatePicker
+                                            date={parseLocalDate(itemExpectedDeliveryDates[tid])}
+                                            onSelect={(d) => {
+                                              setValidationError(null);
+                                              setItemExpectedDeliveryDates((prev) => ({
+                                                ...prev,
+                                                [tid]: d ? format(d, "yyyy-MM-dd") : "",
+                                              }));
+                                            }}
+                                            disabled={(d) =>
+                                              d < new Date(new Date().setHours(0, 0, 0, 0))
+                                            }
+                                            className="h-8 bg-white w-full text-xs"
+                                          />
+                                        </div>
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            )}
                           </div>
                         )}
 

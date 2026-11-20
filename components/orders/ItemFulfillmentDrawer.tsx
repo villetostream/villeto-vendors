@@ -59,7 +59,7 @@ function formatFinalDecisionLabel(decision?: string | null): string {
     case "uphold_buyer_finding":
       return "Buyer Finding Upheld";
     case "accept_vendor_dispute":
-      return "Vendor Dispute Accepted";
+      return "Your Dispute Accepted";
     case "revise_buyer_finding":
       return "Buyer Finding Revised";
     default:

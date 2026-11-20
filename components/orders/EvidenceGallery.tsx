@@ -55,7 +55,7 @@ export function EvidenceGallery({
       if (!safeUrl) return [];
       return [{
         url: safeUrl,
-        label: ev.originalName || `Vendor Dispute Photo #${idx + 1}`,
+        label: ev.originalName || `Your Dispute Photo #${idx + 1}`,
         source: "vendor" as const,
         mimeType: ev.mimeType,
       }];
@@ -198,7 +198,7 @@ export function EvidenceGallery({
                 )}
               >
                 {activeItem.source === "vendor"
-                  ? "Vendor Dispute Photo"
+                  ? "Your Dispute Photo"
                   : "Buyer Inspection Photo"}
               </span>
               <span className="text-sm font-medium truncate text-white/90">
