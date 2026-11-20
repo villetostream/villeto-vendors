@@ -25,6 +25,7 @@ import {
   CreateFulfillmentPayload,
   DispatchFulfillmentPayload,
   DisputeReceiptPayload,
+  DisputeReceiptLineItemPayload,
   FulfillmentExceptionDetail,
   FulfillmentExceptionFilters,
   OrderFilters,
@@ -489,30 +490,78 @@ export function useResolveReceiptException() {
             .join(" | ") ||
           "The units comply with the agreed specification.";
 
+        // Explicitly contested dispute lines
+        const disputedPayloadItems: DisputeReceiptLineItemPayload[] = disputeItems.map((item) => {
+          const lineId =
+            item.deliveryReceiptLineItemId ||
+            item.vendorDeliveryNoticeLineItemId ||
+            item.purchaseOrderLineItemId;
+          const totalDeliveredOnLine =
+            (item.quantityAccepted ?? 0) +
+            (item.quantityRejected ?? 0) +
+            (item.quantityMissing ?? 0);
+          const proposedAccepted =
+            item.proposedQuantityAccepted ?? totalDeliveredOnLine;
+          const proposedRejected = item.proposedQuantityRejected ?? 0;
+          const proposedMissing = item.proposedQuantityMissing ?? 0;
+
+          return {
+            deliveryReceiptLineItemId: lineId,
+            quantityAccepted: proposedAccepted,
+            quantityRejected: proposedRejected,
+            quantityMissing: proposedMissing,
+            ...(item.disputeReason?.trim() ? { reason: item.disputeReason.trim() } : {}),
+          };
+        });
+
+        // Any other exception line still awaiting a response on this receipt must be included
+        // with default buyer-inspected quantities to satisfy backend receipt-level dispute validation:
+        // "Provide proposed quantities for every exception line still awaiting a response"
+        const uncontestedPayloadItems: DisputeReceiptLineItemPayload[] = [];
+        if (
+          resolution.allAwaitingExceptionLines &&
+          resolution.allAwaitingExceptionLines.length > 0
+        ) {
+          const coveredIds = new Set(
+            [
+              ...ackItems.map((a) => a.deliveryReceiptLineItemId || a.purchaseOrderLineItemId),
+              ...disputeItems.map((d) => d.deliveryReceiptLineItemId || d.purchaseOrderLineItemId),
+            ].filter(Boolean)
+          );
+
+          for (const rawLine of resolution.allAwaitingExceptionLines) {
+            const rawReceiptLineId =
+              rawLine.deliveryReceiptLineItemId ||
+              (rawLine as any).id ||
+              rawLine.purchaseOrderLineItemId;
+            const poLineId = rawLine.purchaseOrderLineItemId;
+
+            if (
+              (rawReceiptLineId && coveredIds.has(rawReceiptLineId)) ||
+              (poLineId && coveredIds.has(poLineId))
+            ) {
+              continue;
+            }
+
+            const accepted = Number(rawLine.quantityAccepted ?? rawLine.quantityReceived ?? 0);
+            const rejected = Number(rawLine.quantityRejected ?? 0);
+            const missing = Number(rawLine.quantityMissing ?? 0);
+
+            if (rejected > 0 || missing > 0) {
+              uncontestedPayloadItems.push({
+                deliveryReceiptLineItemId: rawReceiptLineId,
+                quantityAccepted: accepted,
+                quantityRejected: rejected,
+                quantityMissing: missing,
+                reason: "Accepted buyer inspection finding",
+              });
+            }
+          }
+        }
+
         const disputePayload: DisputeReceiptPayload = {
           reason: combinedReason,
-          lineItems: disputeItems.map((item) => {
-            const lineId =
-              item.deliveryReceiptLineItemId ||
-              item.vendorDeliveryNoticeLineItemId ||
-              item.purchaseOrderLineItemId;
-            const totalDeliveredOnLine =
-              (item.quantityAccepted ?? 0) +
-              (item.quantityRejected ?? 0) +
-              (item.quantityMissing ?? 0);
-            const proposedAccepted =
-              item.proposedQuantityAccepted ?? totalDeliveredOnLine;
-            const proposedRejected = item.proposedQuantityRejected ?? 0;
-            const proposedMissing = item.proposedQuantityMissing ?? 0;
-
-            return {
-              deliveryReceiptLineItemId: lineId,
-              quantityAccepted: proposedAccepted,
-              quantityRejected: proposedRejected,
-              quantityMissing: proposedMissing,
-              ...(item.disputeReason?.trim() ? { reason: item.disputeReason.trim() } : {}),
-            };
-          }),
+          lineItems: [...disputedPayloadItems, ...uncontestedPayloadItems],
           ...(evidenceList.length > 0 ? { evidence: evidenceList } : {}),
         };
 

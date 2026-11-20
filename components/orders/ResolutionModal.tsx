@@ -47,7 +47,7 @@ function formatFinalDecisionLabel(decision?: string | null): string {
     case "uphold_buyer_finding":
       return "Buyer Finding Upheld";
     case "accept_vendor_dispute":
-      return "Vendor Dispute Accepted";
+      return "Your Dispute Accepted";
     case "revise_buyer_finding":
       return "Buyer Finding Revised";
     default:
@@ -406,6 +406,11 @@ export function ResolutionModal({
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [activeItemForUpload, setActiveItemForUpload] = useState<string | null>(null);
+  const [currentTargetId, setCurrentTargetId] = useState<string | null>(targetLineItemId);
+
+  useEffect(() => {
+    setCurrentTargetId(targetLineItemId);
+  }, [targetLineItemId]);
 
   useEffect(() => {
     if (open && fulfillment) {
@@ -461,32 +466,47 @@ export function ResolutionModal({
 
   const basePool =
     unresolvedExceptionItems.length > 0 ? unresolvedExceptionItems : allExceptionItems;
-  const activeItems = targetLineItemId
-    ? allExceptionItems.filter((li) => li.purchaseOrderLineItemId === targetLineItemId)
-    : basePool;
+  const targetMatches = currentTargetId
+    ? allExceptionItems.filter(
+        (li) =>
+          li.purchaseOrderLineItemId === currentTargetId ||
+          (li as any).deliveryReceiptLineItemId === currentTargetId ||
+          (li as any).vendorDeliveryNoticeLineItemId === currentTargetId
+      )
+    : [];
+  const activeItems =
+    currentTargetId && targetMatches.length > 0
+      ? targetMatches
+      : basePool;
   const displayedResolvedItems = alreadyResolvedExceptionItems.filter(
     (r) => !activeItems.some((a) => a.purchaseOrderLineItemId === r.purchaseOrderLineItemId)
   );
 
   const isMultiItem = activeItems.length > 1;
+  const selectedTargetItem = currentTargetId && activeItems.length === 1 ? activeItems[0] : null;
 
-  const totalDelivered =
-    fulfillment.totalDeliveredQuantity ??
-    fulfillment.lineItems.reduce((acc, li) => acc + getLineDeliveredQty(li), 0);
+  const totalDelivered = currentTargetId
+    ? activeItems.reduce((acc, li) => acc + getLineDeliveredQty(li), 0)
+    : fulfillment.totalDeliveredQuantity ??
+      fulfillment.lineItems.reduce((acc, li) => acc + getLineDeliveredQty(li), 0);
 
-  const totalAccepted =
-    fulfillment.totalAcceptedQuantity ??
-    fulfillment.lineItems.reduce(
-      (acc, li) => acc + (li.quantityAccepted ?? li.quantityReceived ?? 0),
-      0
-    );
+  const totalAccepted = currentTargetId
+    ? activeItems.reduce(
+        (acc, li) => acc + (li.quantityAccepted ?? li.quantityReceived ?? 0),
+        0
+      )
+    : fulfillment.totalAcceptedQuantity ??
+      fulfillment.lineItems.reduce(
+        (acc, li) => acc + (li.quantityAccepted ?? li.quantityReceived ?? 0),
+        0
+      );
 
-  const totalRejected = targetLineItemId
+  const totalRejected = currentTargetId
     ? activeItems.reduce((acc, li) => acc + (li.quantityRejected || 0), 0)
     : fulfillment.totalRejectedQuantity ??
       fulfillment.lineItems.reduce((acc, li) => acc + (li.quantityRejected || 0), 0);
 
-  const totalMissing = targetLineItemId
+  const totalMissing = currentTargetId
     ? activeItems.reduce((acc, li) => acc + (li.quantityMissing || 0), 0)
     : fulfillment.totalMissingQuantity ??
       fulfillment.lineItems.reduce((acc, li) => acc + (li.quantityMissing || 0), 0);
@@ -774,10 +794,15 @@ export function ResolutionModal({
         fulfillment.shipmentReference || fulfillment.fulfillmentReference || undefined,
       overallStatus,
       resolutions,
+      allAwaitingExceptionLines: unresolvedExceptionItems,
     });
   };
 
-  const buyerEvidenceList = fulfillment.evidence ?? [];
+  const buyerEvidenceList = (fulfillment.evidence ?? []).filter((ev: any) => {
+    if (!currentTargetId) return true;
+    if (!ev.purchaseOrderLineItemIds || ev.purchaseOrderLineItemIds.length === 0) return true;
+    return ev.purchaseOrderLineItemIds.includes(currentTargetId);
+  });
 
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
@@ -807,20 +832,30 @@ export function ResolutionModal({
               <DialogTitle className="text-lg font-bold text-foreground mt-0.5">
                 {isFinalDecisionMode
                   ? "Allocate Remaining Units — Final Decision"
+                  : selectedTargetItem
+                  ? `Resolve Item: ${selectedTargetItem.name}`
                   : "Review Buyer Inspection Findings"}
               </DialogTitle>
               <DialogDescription className="text-xs text-muted-foreground">
-                {isFinalDecisionMode
-                  ? <>
-                      The company has reviewed your dispute on{" "}
-                      <span className="font-semibold text-foreground">{fulfillmentTitle}</span>
-                      . Decide what happens to the remaining units.
-                    </>
-                  : <>
-                      Resolve rejected units for{" "}
-                      <span className="font-semibold text-foreground">{fulfillmentTitle}</span>
-                    </>
-                }
+                {isFinalDecisionMode ? (
+                  <>
+                    The company has reviewed your dispute on{" "}
+                    <span className="font-semibold text-foreground">{fulfillmentTitle}</span>
+                    . Decide what happens to the remaining units.
+                  </>
+                ) : selectedTargetItem ? (
+                  <>
+                    Resolve rejected or missing units for{" "}
+                    <span className="font-semibold text-foreground">{selectedTargetItem.name}</span>
+                    {" on "}
+                    <span className="font-semibold text-foreground">{fulfillmentTitle}</span>.
+                  </>
+                ) : (
+                  <>
+                    Resolve rejected units for{" "}
+                    <span className="font-semibold text-foreground">{fulfillmentTitle}</span>
+                  </>
+                )}
               </DialogDescription>
             </div>
 
@@ -858,6 +893,21 @@ export function ResolutionModal({
 
         {/* ── Scrollable Body ── */}
         <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4 bg-slate-50/40">
+          {/* Quick toggle banner if filtering by a single item but other items exist */}
+          {currentTargetId && allExceptionItems.length > 1 && (
+            <div className="px-3.5 py-2 rounded-xl bg-white border border-[#cbf0eb] text-xs flex items-center justify-between flex-wrap gap-2 shadow-2xs">
+              <span className="text-muted-foreground">
+                Resolving <strong className="text-foreground">{selectedTargetItem?.name || "selected item"}</strong> only ({totalRejected} rejected{totalMissing > 0 ? `, ${totalMissing} missing` : ""}).
+              </span>
+              <button
+                type="button"
+                onClick={() => setCurrentTargetId(null)}
+                className="text-[11px] font-semibold text-[#087f70] hover:underline"
+              >
+                Resolve all {allExceptionItems.length} affected items together &rarr;
+              </button>
+            </div>
+          )}
 
           {/* ── Orientation Sentence: Plain-language context for non-technical vendors ── */}
           <p className="text-xs text-muted-foreground leading-relaxed bg-white/70 border border-border/60 rounded-xl px-4 py-2.5">
@@ -1557,6 +1607,15 @@ export function ResolutionModal({
                             <strong>{unresolvedQty}</strong> awaiting units → Buyer will be asked to
                             accept <strong>{acceptedQty + split.disputeQty} total units</strong>.
                           </div>
+
+                          {currentTargetId && unresolvedExceptionItems.length > 1 && (
+                            <div className="text-[11px] text-amber-800 bg-amber-50/90 rounded-lg px-3 py-2 border border-amber-200 flex items-start gap-1.5">
+                              <AlertCircle className="h-3.5 w-3.5 text-amber-600 shrink-0 mt-0.5" />
+                              <span>
+                                Note: Lodging a dispute escalates this shipment to buyer review. The other {unresolvedExceptionItems.length - 1} awaiting item{unresolvedExceptionItems.length - 1 > 1 ? "s" : ""} on this shipment will retain their current buyer-inspected quantities.
+                              </span>
+                            </div>
+                          )}
 
                           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                             <div className="space-y-1">

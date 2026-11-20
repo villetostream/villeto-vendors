@@ -3,15 +3,23 @@
 import { useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import {
-  LayoutDashboard, ShoppingCart, FileText, User, LogOut, Building2, Settings,
+  LayoutDashboard,
+  ShoppingCart,
+  FileText,
+  User,
+  LogOut,
+  Building2,
+  Settings,
+  PanelLeftClose,
+  PanelLeftOpen,
 } from "lucide-react";
 import { VilletoLogo } from "@/components/shared/VilletoLogo";
 import { useAuthStore } from "@/lib/stores/authStore";
+import { useSidebarStore } from "@/lib/stores/sidebarStore";
 import { logout } from "@/lib/api/auth";
 import { cn, getInitials } from "@/lib/utils";
-import { toast } from "sonner";
 import {
   Dialog,
   DialogContent,
@@ -19,6 +27,12 @@ import {
   DialogDescription,
 } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 import Image from "next/image";
 import { useMyCompanies } from "@/lib/hooks/useVendorNetwork";
@@ -41,17 +55,30 @@ interface SidebarProps {
 
 export function Sidebar({ isMobileOpen = false, onMobileClose }: SidebarProps) {
   const pathname = usePathname();
-  const router = useRouter();
   const { user, clearAuth } = useAuthStore();
   const queryClient = useQueryClient();
   const [logoutModalOpen, setLogoutModalOpen] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
+
+  const { isCollapsed, toggleSidebar } = useSidebarStore();
 
   const { data: companiesData } = useMyCompanies({});
   const companies = companiesData?.data || [];
   const pendingInvitationsCount = companies.filter(
     (c: any) => c.nextAction === "accept_invitation"
   ).length;
+
+  // Keyboard shortcut: Ctrl+B or Cmd+B to toggle sidebar collapse
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "b") {
+        e.preventDefault();
+        toggleSidebar();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [toggleSidebar]);
 
   // Close the mobile drawer on Escape for keyboard users.
   useEffect(() => {
@@ -80,8 +107,6 @@ export function Sidebar({ isMobileOpen = false, onMobileClose }: SidebarProps) {
     } catch (error) {
       console.error("Logout API failed:", error);
     } finally {
-      // Always clear local state and redirect to login, even if the backend
-      // logout call fails (e.g. 401 Unauthorized because the token expired).
       clearAuth();
       queryClient.clear();
       window.location.replace("/auth/login");
@@ -89,7 +114,6 @@ export function Sidebar({ isMobileOpen = false, onMobileClose }: SidebarProps) {
   };
 
   const handleNavClick = () => {
-    // On mobile, tapping a nav link should also close the drawer.
     onMobileClose?.();
   };
 
@@ -109,26 +133,129 @@ export function Sidebar({ isMobileOpen = false, onMobileClose }: SidebarProps) {
         aria-modal={isMobileOpen ? true : undefined}
         aria-label="Main navigation"
         className={cn(
-          "flex flex-col w-[210px] shrink-0 bg-white border-r border-dashboard-border",
-          // Desktop: static flex child filling the height of DashboardShell.
-          "lg:static lg:h-full lg:z-auto lg:translate-x-0",
-          // Mobile: fixed overlay drawer that slides in/out.
-          "fixed inset-y-0 left-0 z-50 transition-transform duration-200 ease-out",
-          isMobileOpen ? "translate-x-0" : "-translate-x-full"
+          "flex flex-col shrink-0 bg-white border-r border-dashboard-border transition-all duration-200 ease-in-out relative",
+          // Desktop: width toggles between 210px and 68px
+          isCollapsed ? "lg:w-[68px]" : "lg:w-[210px]",
+          "lg:static lg:h-full lg:z-30 lg:translate-x-0",
+          // Mobile: fixed overlay drawer that slides in/out (always 210px on mobile)
+          "w-[210px] fixed inset-y-0 left-0 z-50",
+          isMobileOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"
         )}
       >
-        {/* Logo */}
-        <div className="px-5 py-5 border-b border-dashboard-border">
-          <VilletoLogo size="sm" />
+        {/* Floating toggle button centered on the divider line (Notion / Linear style) */}
+        <TooltipProvider delayDuration={150}>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                onClick={toggleSidebar}
+                aria-label={isCollapsed ? "Expand sidebar (Ctrl+B)" : "Collapse sidebar (Ctrl+B)"}
+                className="hidden lg:flex absolute -right-3 top-5 z-40 size-6 items-center justify-center rounded-full bg-white border border-dashboard-border shadow-xs hover:bg-dashboard-hover hover:border-slate-300 transition-all text-primary cursor-pointer focus:outline-none focus:ring-2 focus:ring-primary/20"
+              >
+                {isCollapsed ? (
+                  <PanelLeftOpen className="h-3.5 w-3.5" />
+                ) : (
+                  <PanelLeftClose className="h-3.5 w-3.5" />
+                )}
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="right">
+              <p className="text-xs font-medium">
+                {isCollapsed ? "Expand sidebar (Ctrl+B)" : "Collapse sidebar (Ctrl+B)"}
+              </p>
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+
+        {/* Logo Header */}
+        <div
+          className={cn(
+            "border-b border-dashboard-border h-16 shrink-0 flex items-center transition-all",
+            isCollapsed ? "px-2 justify-center" : "px-4"
+          )}
+        >
+          {isCollapsed ? (
+            <TooltipProvider delayDuration={150}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Link
+                    href="/dashboard"
+                    className="flex items-center justify-center p-2 rounded-xl hover:bg-dashboard-hover transition-colors"
+                  >
+                    <Image
+                      src="/images/villeto-logo-v.png"
+                      alt="Villeto"
+                      width={28}
+                      height={25}
+                      className="object-contain"
+                      priority
+                    />
+                  </Link>
+                </TooltipTrigger>
+                <TooltipContent side="right">
+                  <p className="text-xs font-medium">Villeto Dashboard</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          ) : (
+            <Link href="/dashboard" className="flex items-center">
+              <VilletoLogo size="sm" />
+            </Link>
+          )}
         </div>
 
-        {/* Nav */}
-        <nav className="flex-1 p-3 space-y-0.5 overflow-y-auto">
+        {/* Nav Items */}
+        <nav
+          className={cn(
+            "flex-1 space-y-1 overflow-y-auto",
+            isCollapsed ? "p-2" : "p-3 space-y-0.5"
+          )}
+        >
           {NAV_ITEMS.map(({ href, label, icon: Icon }) => {
             const isActive =
               href === "/dashboard"
                 ? pathname === "/dashboard"
                 : pathname.startsWith(href);
+
+            if (isCollapsed) {
+              return (
+                <TooltipProvider key={href} delayDuration={50}>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Link
+                        href={href}
+                        onClick={handleNavClick}
+                        aria-current={isActive ? "page" : undefined}
+                        className={cn(
+                          "relative flex items-center justify-center h-10 w-10 mx-auto rounded-xl transition-all",
+                          isActive
+                            ? "bg-primary/10 text-primary"
+                            : "text-muted-foreground hover:bg-dashboard-hover hover:text-foreground"
+                        )}
+                      >
+                        <Icon
+                          className={cn("h-5 w-5", isActive ? "text-primary" : "")}
+                          aria-hidden="true"
+                        />
+                        {href === "/companies" && pendingInvitationsCount > 0 && (
+                          <span className="absolute -top-1 -right-1 flex items-center justify-center rounded-full bg-red-500 h-4 min-w-[16px] px-1 text-[9px] font-bold text-white shadow-xs">
+                            {pendingInvitationsCount}
+                          </span>
+                        )}
+                      </Link>
+                    </TooltipTrigger>
+                    <TooltipContent side="right" sideOffset={12} className="font-medium text-xs">
+                      <span>{label}</span>
+                      {href === "/companies" && pendingInvitationsCount > 0 && (
+                        <span className="ml-1.5 text-red-500 font-bold">
+                          ({pendingInvitationsCount})
+                        </span>
+                      )}
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              );
+            }
 
             return (
               <Link
@@ -143,7 +270,11 @@ export function Sidebar({ isMobileOpen = false, onMobileClose }: SidebarProps) {
                     : "text-muted-foreground hover:bg-dashboard-hover hover:text-foreground"
                 )}
               >
-                <Icon className={cn("h-4.5 w-4.5", isActive ? "text-primary" : "")} size={18} aria-hidden="true" />
+                <Icon
+                  className={cn("h-4.5 w-4.5", isActive ? "text-primary" : "")}
+                  size={18}
+                  aria-hidden="true"
+                />
                 <span className="flex-1 text-left">{label}</span>
                 {href === "/companies" && pendingInvitationsCount > 0 && (
                   <span className="ml-auto flex items-center justify-center rounded-full bg-red-500 h-5 min-w-[20px] px-1 text-[10px] font-bold text-white">
@@ -155,40 +286,91 @@ export function Sidebar({ isMobileOpen = false, onMobileClose }: SidebarProps) {
           })}
         </nav>
 
-        {/* User + logout */}
-        <div className="p-3 border-t border-dashboard-border space-y-1">
-          <div className="flex items-center gap-3 px-3 py-2">
-            <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center text-primary text-xs font-bold shrink-0 overflow-hidden">
-              {user?.avatar_url ? (
-                <Image
-                  src={user.avatar_url}
-                  alt={user?.business_name ? `${user.business_name} logo` : "Business avatar"}
-                  width={32}
-                  height={32}
-                  className="h-full w-full object-cover"
-                />
-              ) : (
-                getInitials(user?.business_name ?? "V")
-              )}
-            </div>
-            <div className="min-w-0">
-              <p className="text-xs font-semibold text-foreground truncate">
-                {user?.business_name ?? "Business name"}
-              </p>
-              <p className="text-xs text-muted-foreground truncate">
-                {user?.email ?? "email@example.com"}
-              </p>
-            </div>
-          </div>
+        {/* User + Logout */}
+        {isCollapsed ? (
+          <div className="p-2 border-t border-dashboard-border flex flex-col items-center gap-2 shrink-0">
+            <TooltipProvider delayDuration={150}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <div className="h-9 w-9 rounded-full bg-primary/10 flex items-center justify-center text-primary text-xs font-bold shrink-0 overflow-hidden cursor-default">
+                    {user?.avatar_url ? (
+                      <Image
+                        src={user.avatar_url}
+                        alt={user?.business_name ? `${user.business_name} logo` : "Business avatar"}
+                        width={36}
+                        height={36}
+                        className="h-full w-full object-cover"
+                      />
+                    ) : (
+                      getInitials(user?.business_name ?? "V")
+                    )}
+                  </div>
+                </TooltipTrigger>
+                <TooltipContent side="right" sideOffset={12} className="max-w-xs text-left">
+                  <p className="font-semibold text-xs text-foreground truncate">
+                    {user?.business_name ?? "Business name"}
+                  </p>
+                  <p className="text-[11px] text-muted-foreground truncate">
+                    {user?.email ?? "email@example.com"}
+                  </p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
 
-          <button
-            onClick={() => setLogoutModalOpen(true)}
-            className="flex w-full items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-muted-foreground hover:bg-red-50 hover:text-red-600 transition-all"
-          >
-            <LogOut size={18} aria-hidden="true" />
-            Sign out
-          </button>
-        </div>
+            <TooltipProvider delayDuration={150}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={() => setLogoutModalOpen(true)}
+                    aria-label="Sign out"
+                    className="flex items-center justify-center h-9 w-9 rounded-xl text-muted-foreground hover:bg-red-50 hover:text-red-600 transition-all cursor-pointer"
+                  >
+                    <LogOut size={18} aria-hidden="true" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="right" sideOffset={12}>
+                  <p className="text-xs">Sign out</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          </div>
+        ) : (
+          <div className="p-3 border-t border-dashboard-border space-y-1 shrink-0">
+            <div className="flex items-center gap-3 px-3 py-2">
+              <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center text-primary text-xs font-bold shrink-0 overflow-hidden">
+                {user?.avatar_url ? (
+                  <Image
+                    src={user.avatar_url}
+                    alt={user?.business_name ? `${user.business_name} logo` : "Business avatar"}
+                    width={32}
+                    height={32}
+                    className="h-full w-full object-cover"
+                  />
+                ) : (
+                  getInitials(user?.business_name ?? "V")
+                )}
+              </div>
+              <div className="min-w-0">
+                <p className="text-xs font-semibold text-foreground truncate">
+                  {user?.business_name ?? "Business name"}
+                </p>
+                <p className="text-xs text-muted-foreground truncate">
+                  {user?.email ?? "email@example.com"}
+                </p>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setLogoutModalOpen(true)}
+              className="flex w-full items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-muted-foreground hover:bg-red-50 hover:text-red-600 transition-all cursor-pointer"
+            >
+              <LogOut size={18} aria-hidden="true" />
+              Sign out
+            </button>
+          </div>
+        )}
 
         <Dialog open={logoutModalOpen} onOpenChange={setLogoutModalOpen}>
           <DialogContent size="sm">

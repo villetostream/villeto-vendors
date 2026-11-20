@@ -31,6 +31,7 @@ import {
 } from "@/components/orders/ResolutionModal";
 import { EvidenceGallery } from "@/components/orders/EvidenceGallery";
 import { ExpandableText } from "@/components/ui/ExpandableText";
+import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from "@/components/ui/tooltip";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/Modal";
 import { DatePicker } from "@/components/ui/DatePicker";
 import { ErrorState, EmptyState } from "@/components/ui/Spinner";
@@ -131,9 +132,10 @@ function ExceptionBreakdown({
     );
   }
 
-  const hasHidden = rows.length > initialVisible;
-  const visibleRows = isExpanded || !hasHidden ? rows : rows.slice(0, initialVisible);
-  const hiddenCount = rows.length - initialVisible;
+  const threshold = Math.max(initialVisible, 2);
+  const hasHidden = rows.length > threshold;
+  const visibleRows = isExpanded || !hasHidden ? rows : rows.slice(0, threshold);
+  const hiddenCount = rows.length - threshold;
 
   return (
     <div className={cn("space-y-1.5 min-w-0", className)}>
@@ -223,20 +225,20 @@ function ExceptionBreakdown({
               e.stopPropagation();
               setIsExpanded((prev) => !prev);
             }}
-            className="inline-flex items-center gap-1.5 text-xs font-semibold text-red-800 hover:text-red-950 bg-red-100/70 hover:bg-red-200/70 transition-colors py-1 px-2.5 rounded-md border border-red-200/70 cursor-pointer"
+            className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-700 hover:text-slate-900 bg-white/90 hover:bg-white transition-all py-1.5 px-3 rounded-lg border border-slate-200/90 shadow-xs cursor-pointer"
           >
             {isExpanded ? (
               <>
-                <ChevronUp className="h-3.5 w-3.5 shrink-0" />
+                <ChevronUp className="h-3.5 w-3.5 shrink-0 text-slate-600" />
                 <span>Show fewer items</span>
               </>
             ) : (
               <>
-                <ChevronDown className="h-3.5 w-3.5 shrink-0" />
+                <ChevronDown className="h-3.5 w-3.5 shrink-0 text-slate-600" />
                 <span>
-                  +{hiddenCount} more affected item{hiddenCount > 1 ? "s" : ""}
-                  <span className="font-normal text-red-700/80 ml-1">
-                    ({rows.slice(initialVisible).map((r) => r.li.name).join(", ")})
+                  Show all {rows.length} affected items
+                  <span className="font-normal text-muted-foreground ml-1">
+                    (+{hiddenCount} more: {rows.slice(threshold).map((r) => r.li.name).join(", ")})
                   </span>
                 </span>
               </>
@@ -248,13 +250,118 @@ function ExceptionBreakdown({
   );
 }
 
+function DisputeNotesList({
+  items,
+  fallbackNote,
+}: {
+  items: Fulfillment["lineItems"];
+  fallbackNote?: string | null;
+}) {
+  const [isExpanded, setIsExpanded] = useState(false);
+
+  // Collect items that were disputed or have a recorded vendor response reason
+  const disputedItems = (items || []).filter(
+    (li) =>
+      li.vendorDisposition === "dispute" ||
+      li.resolutionStatus === "under_company_review" ||
+      li.resolutionStatus === "disputed" ||
+      Boolean(li.vendorResponseReason)
+  );
+
+  // If no individual line has a reason or disposition, fall back to notice-level vendorResponseReason
+  if (disputedItems.length === 0) {
+    if (!fallbackNote) return null;
+    return (
+      <p className="text-purple-800 pl-5.5 text-xs">
+        <span className="font-semibold">Your dispute note: </span>
+        <span className="italic">&ldquo;{fallbackNote}&rdquo;</span>
+      </p>
+    );
+  }
+
+  // Exactly 1 disputed item
+  if (disputedItems.length === 1) {
+    const item = disputedItems[0];
+    const qty = (item.quantityRejected || 0) + (item.quantityMissing || 0);
+    const reason = item.vendorResponseReason || fallbackNote;
+    return (
+      <div className="pl-5.5 text-xs text-purple-900">
+        <span className="font-semibold text-purple-950">Your dispute note: </span>
+        <span className="font-semibold text-purple-950">{item.name}{qty > 0 ? ` (${pluralizeUnits(qty)})` : ""}: </span>
+        <span className="italic text-purple-800">&ldquo;{reason}&rdquo;</span>
+      </div>
+    );
+  }
+
+  // Multiple disputed items: show 2 by default, collapse the rest
+  const initialVisible = 2;
+  const hasHidden = disputedItems.length > initialVisible;
+  const visibleItems = isExpanded ? disputedItems : disputedItems.slice(0, initialVisible);
+  const hiddenCount = disputedItems.length - initialVisible;
+
+  return (
+    <div className="pl-5.5 space-y-1.5 pt-0.5 text-xs">
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <span className="font-semibold text-purple-950">
+          Dispute notes ({disputedItems.length} items):
+        </span>
+        {hasHidden && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              setIsExpanded((prev) => !prev);
+            }}
+            className="text-[11px] font-semibold text-purple-800 hover:text-purple-950 underline inline-flex items-center gap-0.5 cursor-pointer"
+          >
+            {isExpanded ? (
+              <>
+                Show fewer items <ChevronUp className="h-3 w-3 shrink-0" />
+              </>
+            ) : (
+              <>
+                Show all {disputedItems.length} items <ChevronDown className="h-3 w-3 shrink-0" />
+              </>
+            )}
+          </button>
+        )}
+      </div>
+
+      <div className="space-y-1">
+        {visibleItems.map((item, idx) => {
+          const qty = (item.quantityRejected || 0) + (item.quantityMissing || 0);
+          const reason = item.vendorResponseReason || fallbackNote;
+          return (
+            <div
+              key={item.purchaseOrderLineItemId || idx}
+              className="px-2.5 py-1.5 rounded-lg bg-purple-100/70 border border-purple-200/80 text-xs text-purple-900 flex items-start gap-1.5"
+            >
+              <span className="font-semibold text-purple-950 shrink-0">
+                {item.name}{qty > 0 ? ` (${pluralizeUnits(qty)})` : ""}:
+              </span>
+              <span className="italic text-purple-800 break-words">
+                &ldquo;{reason}&rdquo;
+              </span>
+            </div>
+          );
+        })}
+      </div>
+
+      {!isExpanded && hasHidden && (
+        <p className="text-[11px] text-purple-700/90 italic">
+          +{hiddenCount} more disputed item{hiddenCount > 1 ? "s" : ""} ({disputedItems.slice(initialVisible).map((i) => i.name).join(", ")})
+        </p>
+      )}
+    </div>
+  );
+}
 
 function formatFinalDecisionLabel(decision?: string | null): string {
   switch (decision) {
     case "uphold_buyer_finding":
       return "Buyer Finding Upheld";
     case "accept_vendor_dispute":
-      return "Vendor Dispute Accepted";
+      return "Your Dispute Accepted";
     case "revise_buyer_finding":
       return "Buyer Finding Revised";
     default:
@@ -604,6 +711,7 @@ function FulfillmentHistorySection({
     vendor_truck: "Vendor Truck",
     digital: "Digital",
     service: "Service",
+    mixed: "Mixed Methods",
   };
 
   return (
@@ -617,11 +725,24 @@ function FulfillmentHistorySection({
       <div className="divide-y divide-border">
         {notices.map((notice, idx) => {
           const isExpanded = expandedId === notice.vendorDeliveryNoticeId;
-          const method = notice.fulfillmentMethod || "unknown";
+          const lineMethods = Array.from(
+            new Set(
+              notice.lineItems
+                .map((li) => (li.fulfillmentMethod ? String(li.fulfillmentMethod) : null))
+                .filter((m): m is string => Boolean(m))
+            )
+          );
+          const method: string =
+            notice.fulfillmentMethod ||
+            (lineMethods.length === 1
+              ? lineMethods[0]
+              : lineMethods.length > 1
+              ? "mixed"
+              : "unknown");
           const isPhysical =
             ["carrier", "vendor_truck"].includes(method) ||
             notice.lineItems.some((li) =>
-              ["carrier", "vendor_truck"].includes(li.fulfillmentMethod || "")
+              li.fulfillmentMethod ? ["carrier", "vendor_truck"].includes(String(li.fulfillmentMethod)) : false
             );
           
           let titlePrefix = "Fulfillment";
@@ -725,7 +846,7 @@ function FulfillmentHistorySection({
                       </span>
                     </div>
                     <p className="text-xs text-muted-foreground mt-0.5">
-                      {notice.readyAt ? formatDateTime(notice.readyAt) : "—"} · {methodLabel[method] || method} · {notice.declaration === "partial" ? "Partial" : "Full"} ({totalDelivered} units)
+                      {notice.readyAt ? formatDateTime(notice.readyAt) : "—"} · {methodLabel[method] || (method === "unknown" ? "Standard Delivery" : method)} · {notice.declaration === "partial" ? "Partial" : "Full"} ({totalDelivered} units)
                     </p>
                   </div>
                 </div>
@@ -773,7 +894,7 @@ function FulfillmentHistorySection({
                         ? `${unresolvedNoticeUnits} Exception${unresolvedNoticeUnits > 1 ? "s" : ""}`
                         : exceptionSummaryText || `${totalExceptionUnits} Exception`}
                     </span>
-                  ) : isPhysical && notice.dispatchStatus === "dispatched" ? (
+                  ) : isPhysical && notice.dispatchStatus === "dispatched" && explicitInfo.state !== "awaiting_receipt" ? (
                     <span className="text-xs px-2 py-0.5 rounded-full font-medium border bg-green-50 text-green-700 border-green-200">
                       Dispatched
                     </span>
@@ -829,12 +950,10 @@ function FulfillmentHistorySection({
                         <p className="text-purple-700 leading-relaxed pl-5.5">
                           Your dispute response has been submitted. The buyer must make the final decision before disputed units can be invoiced or closed.
                         </p>
-                        {notice.vendorResponseReason && (
-                          <p className="text-purple-800 pl-5.5">
-                            <span className="font-semibold">Your dispute note: </span>
-                            {notice.vendorResponseReason}
-                          </p>
-                        )}
+                        <DisputeNotesList
+                          items={notice.lineItems}
+                          fallbackNote={notice.vendorResponseReason}
+                        />
                         {unresolvedNoticeUnits > 0 && (
                           <div className="pt-2 pl-5.5 flex items-center justify-between gap-2 flex-wrap">
                             <span className="text-purple-900 font-semibold">
@@ -944,7 +1063,7 @@ function FulfillmentHistorySection({
                         {notice.fulfillmentReference || notice.shipmentReference || "—"}
                       </p>
                     </div>
-                    {["carrier", "vendor_truck"].includes(method) && (
+                    {["carrier", "vendor_truck"].includes(method) ? (
                       <>
                         <div>
                           <p className="text-xs text-muted-foreground">Carrier</p>
@@ -955,7 +1074,12 @@ function FulfillmentHistorySection({
                           <p className="text-sm font-medium">{notice.trackingNumber || "—"}</p>
                         </div>
                       </>
-                    )}
+                    ) : method === "mixed" ? (
+                      <div>
+                        <p className="text-xs text-muted-foreground">Delivery Methods</p>
+                        <p className="text-sm font-medium text-[#087f70]">Per-item (detailed below)</p>
+                      </div>
+                    ) : null}
                     <div>
                       <p className="text-xs text-muted-foreground">Packing Slip</p>
                       <p className="text-sm font-medium">{notice.packingSlipNumber || "—"}</p>
@@ -985,10 +1109,10 @@ function FulfillmentHistorySection({
                   <table className="w-full text-sm min-w-[560px]">
                     <thead>
                       <tr className="border-b border-border">
-                        <th className="py-2.5 text-left text-xs font-semibold text-muted-foreground">Item</th>
-                        <th className="py-2.5 text-left text-xs font-semibold text-muted-foreground">Fulfilled Qty</th>
-                        <th className="py-2.5 text-left text-xs font-semibold text-muted-foreground">Buyer Inspection</th>
-                        <th className="py-2.5 text-right text-xs font-semibold text-muted-foreground">Remainder / Resolution</th>
+                        <th className="py-2.5 text-left text-xs font-semibold text-muted-foreground w-[36%]">Item</th>
+                        <th className="py-2.5 text-left text-xs font-semibold text-muted-foreground w-[16%]">Fulfilled Qty</th>
+                        <th className="py-2.5 text-left text-xs font-semibold text-muted-foreground w-[22%]">Buyer Inspection</th>
+                        <th className="py-2.5 text-right text-xs font-semibold text-muted-foreground w-[26%]">Remainder / Resolution</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -997,6 +1121,12 @@ function FulfillmentHistorySection({
                           (item) => item.purchaseOrderLineItemId === li.purchaseOrderLineItemId
                         );
                         const uom = poLine?.unitOfMeasure;
+                        const itemMethod = li.fulfillmentMethod || method;
+                        const isNonPhysicalLine =
+                          itemMethod === "digital" ||
+                          itemMethod === "service" ||
+                          uom === "license" ||
+                          uom === "service";
                         const shippedQty = li.quantityReady ?? li.quantityShipped ?? 0;
                         const orderedQty = li.quantityOrdered ?? poLine?.quantity ?? 0;
                         const isLatestForLine = !notices
@@ -1045,10 +1175,23 @@ function FulfillmentHistorySection({
                         // A "final" outcome only exists once the company has actually decided.
                         // enrichFulfillmentsWithReceipts back-fills finalQuantityAccepted from
                         // quantityAccepted, so it must NOT be used on its own as a signal.
+                        const isLineResolved = isLineAlreadyResolved(li as any, notice);
+                        const unresolvedLineUnits = getLineUnresolvedQty(li as any, notice);
+
+                        // A line has a finalized dispute ruling only if:
+                        // 1. The shipment has a finalDecision AND this line was part of it (not previously resolved before dispute)
+                        // 2. OR this specific line has a finalDecision or finalQuantityAccepted set
+                        const isLinePartDisputeRuling =
+                          !isLineResolved &&
+                          (!!notice.finalDecision || li.finalDecision != null) &&
+                          (li.finalQuantityAccepted != null ||
+                            li.finalQuantityRejected != null ||
+                            li.resolutionStatus === "awaiting_vendor_disposition");
+
                         const hasFinalDecision =
                           isResolvedAfterDispute ||
                           li.resolutionStatus === "resolved_after_dispute" ||
-                          (!!notice.finalDecision && li.finalQuantityAccepted != null);
+                          isLinePartDisputeRuling;
 
                         const effectiveAccepted = hasFinalDecision
                           ? li.finalQuantityAccepted ?? itemAccepted
@@ -1059,6 +1202,12 @@ function FulfillmentHistorySection({
                         const effectiveMissing = hasFinalDecision
                           ? li.finalQuantityMissing ?? itemMissing
                           : itemMissing;
+
+                        const isFindingRevised =
+                          hasFinalDecision &&
+                          (effectiveAccepted !== itemAccepted ||
+                            effectiveRejected !== itemRejected ||
+                            effectiveMissing !== itemMissing);
 
                         // Rule: Use each receipt line's vendorDisposition, resolutionStatus, and expectedRedeliveryDate
                         const itemResolution = local?.itemResolutions?.[li.purchaseOrderLineItemId];
@@ -1087,7 +1236,10 @@ function FulfillmentHistorySection({
                                 </p>
                               )}
                               {(li.exceptionReason || li.rejectionReason) && (
-                                <p className="text-[11px] font-normal text-muted-foreground mt-0.5">
+                                <p
+                                  className="text-[11px] font-normal text-muted-foreground mt-0.5 truncate max-w-[340px]"
+                                  title={formatExceptionReason(li.exceptionReason || li.rejectionReason)}
+                                >
                                   {formatExceptionReason(li.exceptionReason || li.rejectionReason)}
                                 </p>
                               )}
@@ -1103,17 +1255,31 @@ function FulfillmentHistorySection({
                             <td className="py-3 text-xs">
                               {hasFinalDecision ? (
                                 <div className="space-y-1">
-                                  <span className="text-xs text-emerald-800 font-semibold bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-md inline-flex items-center gap-1.5">
-                                    <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
-                                    Final: {effectiveAccepted} Accepted
-                                    {effectiveRejected > 0 ? ` · ${effectiveRejected} Rejected` : ""}
-                                    {effectiveMissing > 0 ? ` · ${effectiveMissing} Missing` : ""}
-                                  </span>
-                                  <p className="text-[11px] text-muted-foreground">
-                                    Original Finding (History): {itemAccepted} Accepted
-                                    {itemRejected > 0 ? ` · ${itemRejected} Rejected` : ""}
-                                    {itemMissing > 0 ? ` · ${itemMissing} Missing` : ""}
-                                  </p>
+                                  <div className="inline-flex items-center gap-1.5 flex-wrap">
+                                    <span className="text-xs text-emerald-800 font-semibold bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-md inline-flex items-center gap-1">
+                                      <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
+                                      Final: {effectiveAccepted} Accepted
+                                    </span>
+                                    {effectiveRejected > 0 && (
+                                      <span className="text-xs text-red-700 font-semibold bg-red-50 border border-red-200/80 px-2 py-0.5 rounded-md inline-flex items-center gap-1">
+                                        <AlertCircle className="h-3.5 w-3.5 text-red-500 shrink-0" />
+                                        {effectiveRejected} Rejected
+                                      </span>
+                                    )}
+                                    {effectiveMissing > 0 && (
+                                      <span className="text-xs text-amber-800 font-semibold bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-md inline-flex items-center gap-1">
+                                        <AlertCircle className="h-3.5 w-3.5 text-amber-600 shrink-0" />
+                                        {effectiveMissing} Missing
+                                      </span>
+                                    )}
+                                  </div>
+                                  {isFindingRevised && (
+                                    <p className="text-[11px] text-muted-foreground">
+                                      Original Finding (History): {itemAccepted} Accepted
+                                      {itemRejected > 0 ? ` · ${itemRejected} Rejected` : ""}
+                                      {itemMissing > 0 ? ` · ${itemMissing} Missing` : ""}
+                                    </p>
+                                  )}
                                 </div>
                               ) : itemExceptionCount > 0 ? (
                                 <span className="text-xs text-red-700 font-semibold bg-red-50 border border-red-200/80 px-2.5 py-1 rounded-md inline-flex items-center gap-1.5">
@@ -1131,43 +1297,135 @@ function FulfillmentHistorySection({
                                   <CheckCircle2 className="h-3.5 w-3.5 text-green-600" /> All {itemAccepted} Accepted
                                 </span>
                               ) : (li.quantityReceived || 0) > 0 ? (
-                                <span>{li.quantityReceived} Received, {li.quantityAwaitingReceipt} Awaiting Inspection</span>
+                                <span>
+                                  {li.quantityReceived} Received, {li.quantityAwaitingReceipt}{" "}
+                                  {isNonPhysicalLine ? "Awaiting Confirmation" : "Awaiting Inspection"}
+                                </span>
                               ) : (
                                 <span className="text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-md font-medium inline-flex items-center gap-1">
                                   <Clock className="h-3 w-3 text-amber-600" />
-                                  Awaiting Inspection ({shippedQty})
+                                  {isNonPhysicalLine ? "Awaiting Confirmation" : "Awaiting Inspection"} ({shippedQty})
                                 </span>
                               )}
                             </td>
                             <td className="py-3 text-right">
                               {itemExceptionCount > 0 ? (
-                                hasFinalDecision ? (
-                                  <span className="text-xs px-2.5 py-0.5 rounded-full font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 inline-flex items-center gap-1">
-                                    <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" /> Resolved After Dispute
-                                  </span>
+                                unresolvedLineUnits > 0 &&
+                                (explicitInfo.state === "final_decision_received" ||
+                                  notice.finalDecision != null) ? (
+                                  <TooltipProvider delayDuration={150}>
+                                    <Tooltip>
+                                      <TooltipTrigger asChild>
+                                        <button
+                                          type="button"
+                                          onClick={() => onOpenFinalDecision?.(notice, idx)}
+                                          className="text-xs px-2.5 py-0.5 rounded-full font-semibold bg-amber-50 text-amber-800 border border-amber-300 inline-flex items-center gap-1.5 whitespace-nowrap cursor-pointer hover:bg-amber-100/80 transition-colors shadow-xs"
+                                        >
+                                          <AlertCircle className="h-3.5 w-3.5 text-amber-600 shrink-0" />
+                                          Allocate ({formatQtyWithUom(unresolvedLineUnits, uom)})
+                                        </button>
+                                      </TooltipTrigger>
+                                      <TooltipContent side="top" align="end" className="p-2.5 space-y-1 bg-white border border-amber-200 shadow-xl rounded-xl max-w-xs text-left">
+                                        <div className="flex items-center gap-1.5 font-bold text-[11px] text-amber-900">
+                                          <AlertCircle className="h-3.5 w-3.5 text-amber-600 shrink-0" />
+                                          <span>Buyer Ruling: {formatFinalDecisionLabel(notice.finalDecision)}</span>
+                                        </div>
+                                        <p className="text-xs text-amber-800 leading-relaxed">
+                                          Click to allocate {formatQtyWithUom(unresolvedLineUnits, uom)} to backorder or forfeit.
+                                        </p>
+                                      </TooltipContent>
+                                    </Tooltip>
+                                  </TooltipProvider>
                                 ) : lineDisposition === "dispute" ||
                                   lineResolutionStatus === "under_company_review" ||
                                   (!isVendorActionRequired && lineResolutionStatus === "disputed") ? (
-                                  <span className="text-xs px-2.5 py-0.5 rounded-full font-semibold bg-purple-50 text-purple-700 border border-purple-200 inline-flex items-center gap-1">
-                                    <ShieldAlert className="h-3.5 w-3.5 text-purple-600" /> Disputed (Under Review)
-                                  </span>
+                                  li.vendorResponseReason ? (
+                                    <TooltipProvider delayDuration={150}>
+                                      <Tooltip>
+                                        <TooltipTrigger asChild>
+                                          <span className="text-xs px-2.5 py-0.5 rounded-full font-semibold bg-purple-50 text-purple-700 border border-purple-200 inline-flex items-center gap-1 whitespace-nowrap cursor-pointer hover:bg-purple-100/70 transition-colors">
+                                            <ShieldAlert className="h-3.5 w-3.5 text-purple-600 shrink-0" />
+                                            {itemExceptionCount > 0
+                                              ? `${formatQtyWithUom(itemExceptionCount, uom)} Disputed (Under Review)`
+                                              : "Disputed (Under Review)"}
+                                            <Info className="h-3 w-3 text-purple-600/70 shrink-0 ml-0.5" />
+                                          </span>
+                                        </TooltipTrigger>
+                                        <TooltipContent side="top" align="end" className="p-2.5 space-y-1 bg-white border border-purple-200 shadow-xl rounded-xl max-w-xs">
+                                          <div className="flex items-center gap-1.5 font-bold text-[11px] text-purple-900">
+                                            <ShieldAlert className="h-3.5 w-3.5 text-purple-600 shrink-0" />
+                                            <span>Your Dispute Note</span>
+                                          </div>
+                                          <p className="text-xs text-purple-800 italic leading-relaxed break-words">
+                                            &ldquo;{li.vendorResponseReason}&rdquo;
+                                          </p>
+                                        </TooltipContent>
+                                      </Tooltip>
+                                    </TooltipProvider>
+                                  ) : (
+                                    <span className="text-xs px-2.5 py-0.5 rounded-full font-semibold bg-purple-50 text-purple-700 border border-purple-200 inline-flex items-center gap-1 whitespace-nowrap">
+                                      <ShieldAlert className="h-3.5 w-3.5 text-purple-600 shrink-0" />
+                                      {itemExceptionCount > 0
+                                        ? `${formatQtyWithUom(itemExceptionCount, uom)} Disputed (Under Review)`
+                                        : "Disputed (Under Review)"}
+                                    </span>
+                                  )
                                 ) : lineDisposition === "backorder" ||
                                   lineResolutionStatus === "backordered" ? (
-                                  <span className="text-xs px-2.5 py-0.5 rounded-full font-semibold bg-[#f0faf8] text-[#00b29a] border border-[#cbf0eb] inline-flex items-center gap-1">
-                                    <Clock className="h-3.5 w-3.5 text-[#00b29a]" /> Backordered
-                                    {lineRedeliveryDate ? ` (${formatDate(lineRedeliveryDate)})` : ""}
-                                  </span>
+                                  li.vendorResponseReason ? (
+                                    <TooltipProvider delayDuration={150}>
+                                      <Tooltip>
+                                        <TooltipTrigger asChild>
+                                          <span className="text-xs px-2.5 py-0.5 rounded-full font-semibold bg-[#f0faf8] text-[#00b29a] border border-[#cbf0eb] inline-flex items-center gap-1 whitespace-nowrap cursor-pointer hover:bg-[#e2f7f4] transition-colors">
+                                            <Clock className="h-3.5 w-3.5 text-[#00b29a] shrink-0" /> Backordered
+                                            {lineRedeliveryDate ? ` (${formatDate(lineRedeliveryDate)})` : ""}
+                                            <Info className="h-3 w-3 text-[#00b29a]/70 shrink-0 ml-0.5" />
+                                          </span>
+                                        </TooltipTrigger>
+                                        <TooltipContent side="top" align="end" className="p-2.5 space-y-1 bg-white border border-[#cbf0eb] shadow-xl rounded-xl max-w-xs">
+                                          <div className="flex items-center gap-1.5 font-bold text-[11px] text-[#087f70]">
+                                            <Clock className="h-3.5 w-3.5 text-[#00b29a] shrink-0" />
+                                            <span>Your Backorder Note</span>
+                                          </div>
+                                          <p className="text-xs text-[#0b544b] italic leading-relaxed break-words">
+                                            &ldquo;{li.vendorResponseReason}&rdquo;
+                                          </p>
+                                        </TooltipContent>
+                                      </Tooltip>
+                                    </TooltipProvider>
+                                  ) : (
+                                    <span className="text-xs px-2.5 py-0.5 rounded-full font-semibold bg-[#f0faf8] text-[#00b29a] border border-[#cbf0eb] inline-flex items-center gap-1 whitespace-nowrap">
+                                      <Clock className="h-3.5 w-3.5 text-[#00b29a] shrink-0" /> Backordered
+                                      {lineRedeliveryDate ? ` (${formatDate(lineRedeliveryDate)})` : ""}
+                                    </span>
+                                  )
                                 ) : lineDisposition === "forfeit" ||
                                   lineResolutionStatus === "forfeited" ? (
-                                  <span className="text-xs px-2.5 py-0.5 rounded-full font-semibold bg-rose-50 text-rose-700 border border-rose-200 inline-flex items-center gap-1">
-                                    <XCircle className="h-3.5 w-3.5 text-rose-600" /> Forfeited
+                                  <span className="text-xs px-2.5 py-0.5 rounded-full font-semibold bg-rose-50 text-rose-700 border border-rose-200 inline-flex items-center gap-1 whitespace-nowrap">
+                                    <XCircle className="h-3.5 w-3.5 text-rose-600 shrink-0" /> Forfeited
+                                  </span>
+                                ) : isResolvedAfterDispute ||
+                                  li.resolutionStatus === "resolved_after_dispute" ? (
+                                  <span className="text-xs px-2.5 py-0.5 rounded-full font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 inline-flex items-center gap-1">
+                                    <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" /> Resolved After Dispute
+                                  </span>
+                                ) : isLineResolved ? (
+                                  <span className="text-xs px-2.5 py-0.5 rounded-full font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 inline-flex items-center gap-1">
+                                    <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" /> Resolved
                                   </span>
                                 ) : isVendorActionRequired ? (
                                   <Button
                                     type="button"
                                     variant="outline"
                                     size="sm"
-                                    onClick={() => onOpenResolution(notice, idx, null, "backorder")}
+                                    onClick={() =>
+                                      onOpenResolution(
+                                        notice,
+                                        idx,
+                                        li.purchaseOrderLineItemId || (li as any).deliveryReceiptLineItemId,
+                                        "backorder"
+                                      )
+                                    }
                                     className="h-7 px-3 text-xs font-semibold border-[#00b29a] text-[#00b29a] hover:bg-[#00b29a]/10"
                                   >
                                     Resolve Item
@@ -2501,8 +2759,15 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
           />
         );
       } else {
+        const isAllocationBlock =
+          deliveryEligibility.blockReason === "final_decision_allocation_required";
+        const lockButtonLabel = isAllocationBlock
+          ? "Fulfill Remaining (Blocked)"
+          : deliveryEligibility.blockLabel || "Fulfill Remaining (Locked)";
         const lockTooltip =
-          deliveryEligibility.blockReason === "exception_action_required"
+          deliveryEligibility.blockReason === "final_decision_allocation_required"
+            ? `Allocate Shipment #${deliveryEligibility.blockingShipmentIndex || 1} ruling before declaring a new fulfillment.`
+            : deliveryEligibility.blockReason === "exception_action_required"
             ? "Cannot create a new fulfillment until open exceptions on the current shipment are resolved."
             : deliveryEligibility.blockReason === "awaiting_receipt"
             ? "A vendor can have only one active, unconfirmed delivery at a time. Wait for buyer receipt confirmation."
@@ -2512,18 +2777,26 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
             ? "Dispatch the ready shipment before declaring a new fulfillment."
             : "New fulfillment cannot be created while previous fulfillments remain incomplete.";
 
-        buttons.push(
-          <Button
-            key="fulfill-locked"
-            variant="outline"
-            disabled
-            title={lockTooltip}
-            className="opacity-75 cursor-not-allowed text-xs font-medium border-border/80 bg-muted/40 text-muted-foreground"
-          >
-            <Lock className="h-3.5 w-3.5 mr-1.5 text-muted-foreground" aria-hidden="true" />
-            {deliveryEligibility.blockLabel || "Fulfill Remaining (Locked)"}
-          </Button>
-        );
+        // If an allocation or dispute resolution is actively pending in the top banner,
+        // do not render a distracting locked fulfillment button.
+        if (
+          deliveryEligibility.blockReason !== "final_decision_allocation_required" &&
+          deliveryEligibility.blockReason !== "exception_action_required" &&
+          deliveryEligibility.blockReason !== "disputed"
+        ) {
+          buttons.push(
+            <Button
+              key="fulfill-locked"
+              variant="outline"
+              disabled
+              title={lockTooltip}
+              className="opacity-75 cursor-not-allowed text-xs font-medium border-border/80 bg-muted/40 text-muted-foreground"
+            >
+              <Lock className="h-3.5 w-3.5 mr-1.5 text-muted-foreground" aria-hidden="true" />
+              {lockButtonLabel}
+            </Button>
+          );
+        }
       }
     }
 
@@ -2556,19 +2829,9 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
       );
     }
 
-    if (finalDecisionNotices.length > 0) {
-      const target = finalDecisionNotices[0];
-      buttons.push(
-        <Button
-          key="allocate-final"
-          variant="primary"
-          onClick={() => handleOpenFinalDecision(target.fulfillment, target.index)}
-          className="bg-[#00b29a] hover:bg-[#009b86] text-white"
-        >
-          Allocate Remaining ({pluralizeUnits(target.unresolvedUnits)})
-        </Button>
-      );
-    }
+    // Note: When finalDecisionNotices.length > 0, the dedicated Final Determination Banner
+    // directly below the header already renders the primary CTA "Allocate Remaining (X units)".
+    // Omitting it here prevents showing two duplicate green buttons stacked next to each other.
 
     return <>{buttons}</>;
   };
@@ -2758,9 +3021,9 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
           const unresolvedUnits = target.unresolvedUnits;
           return (
             <div className="p-4 sm:p-5 rounded-2xl bg-amber-50/95 border border-amber-300 shadow-xs space-y-3.5">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-amber-200/80">
-                <div className="flex items-center gap-3 min-w-0">
-                  <div className="p-2 rounded-xl bg-amber-100 text-amber-800 shrink-0">
+              <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4 pb-3 border-b border-amber-200/80">
+                <div className="flex items-start gap-3 min-w-0">
+                  <div className="p-2 rounded-xl bg-amber-100 text-amber-800 shrink-0 mt-0.5">
                     <AlertCircle className="h-5 w-5" />
                   </div>
                   <div className="min-w-0">
@@ -2773,7 +3036,10 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
                       </span>
                     </div>
                     <p className="text-xs text-amber-800 mt-1 leading-relaxed">
-                      The buyer has concluded their review and upheld their inspection findings. You can no longer dispute these items. Choose to <strong>backorder</strong> (send replacement units) or <strong>forfeit</strong> (write off) the remaining {pluralizeUnits(unresolvedUnits)} to complete the resolution.
+                      {f.finalDecision === "revise_buyer_finding"
+                        ? "The buyer has concluded their review and revised their inspection findings."
+                        : "The buyer has concluded their review and upheld their inspection findings."}{" "}
+                      You can no longer dispute these items. Choose to <strong>backorder</strong> (send replacement units) or <strong>forfeit</strong> (write off) the remaining {pluralizeUnits(unresolvedUnits)} to complete the resolution.
                     </p>
                     {f.resolutionNote && (
                       <p className="text-xs text-amber-900 font-medium mt-1">
@@ -2781,27 +3047,9 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
                         {f.resolutionNote}
                       </p>
                     )}
-                    {(() => {
-                      const recItems = f.lineItems
-                        .map((li) => ({ li, rec: getLineRecommendedDisposition(li as any, f) }))
-                        .filter(({ li, rec }) => rec && !isLineAlreadyResolved(li as any, f));
-                      if (recItems.length === 0) return null;
-                      return (
-                        <p className="text-xs text-sky-900 font-medium mt-1">
-                          <span className="font-bold">Buyer recommendation: </span>
-                          {recItems
-                            .map(
-                              ({ li, rec }) =>
-                                `${li.name} → ${rec === "forfeit" ? "Forfeit (write off)" : "Backorder (send replacement)"}`
-                            )
-                            .join(", ")}{" "}
-                          <span className="text-sky-700/80 text-[11px]">(Non-binding — you can choose Backorder or Forfeit)</span>
-                        </p>
-                      );
-                    })()}
                   </div>
                 </div>
-                <div className="flex items-center gap-2 shrink-0 self-end sm:self-center pl-11 sm:pl-0">
+                <div className="flex items-center gap-2 shrink-0 self-start sm:self-start pl-11 sm:pl-0 pt-0.5">
                   <Button
                     type="button"
                     variant="primary"
@@ -2819,11 +3067,19 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
                   unresolvedOnly
                   local={localResolutions[f.vendorDeliveryNoticeId]}
                 />
-                {f.lineItems.some((li) => isLineAlreadyResolved(li as any, f)) && (
+                {f.lineItems.some(
+                  (li) =>
+                    (li.quantityRejected || 0) + (li.quantityMissing || 0) > 0 &&
+                    isLineAlreadyResolved(li as any, f)
+                ) && (
                   <p className="text-[11px] text-amber-900/80 pt-1">
                     <span className="font-semibold">Previously resolved on this shipment: </span>
                     {f.lineItems
-                      .filter((li) => isLineAlreadyResolved(li as any, f))
+                      .filter(
+                        (li) =>
+                          (li.quantityRejected || 0) + (li.quantityMissing || 0) > 0 &&
+                          isLineAlreadyResolved(li as any, f)
+                      )
                       .map((li) => {
                         const alloc = getLineAllocatedQty(li as any, f);
                         const parts: string[] = [];

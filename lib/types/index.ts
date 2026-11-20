@@ -563,6 +563,7 @@ export interface UnifiedResolutionPayload {
   resolutions: LineItemResolution[];
   globalAttachmentFile?: File;
   notes?: string;
+  allAwaitingExceptionLines?: FulfillmentLineItem[];
 }
 
 export interface AcknowledgeResolutionPayload {

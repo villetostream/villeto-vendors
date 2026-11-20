@@ -5,6 +5,8 @@ import { CompanySwitcher } from "@/components/dashboard/CompanySwitcher";
 import { NotificationBell } from "@/components/dashboard/NotificationBell";
 import { DateRangePicker } from "@/components/ui/DateRangePicker";
 import { useCompanyStore } from "@/lib/stores/companyStore";
+import { useSidebarStore } from "@/lib/stores/sidebarStore";
+import { cn } from "@/lib/utils";
 
 interface TopBarProps {
   /** Opens the mobile navigation drawer. Only the menu button uses this. */
@@ -14,9 +16,15 @@ interface TopBarProps {
 export function TopBar({ onMenuClick }: TopBarProps) {
   const dateRange = useCompanyStore((state) => state.dateRange);
   const setDateRange = useCompanyStore((state) => state.setDateRange);
+  const isCollapsed = useSidebarStore((state) => state.isCollapsed);
 
   return (
-    <div className="h-14 border-b border-dashboard-border bg-white flex items-center justify-between px-3 sm:px-6 sticky top-0 z-20 gap-2">
+    <div
+      className={cn(
+        "h-16 border-b border-dashboard-border bg-white flex items-center justify-between sticky top-0 z-20 gap-2 transition-all",
+        isCollapsed ? "px-3 sm:pl-8 sm:pr-6" : "px-3 sm:px-6"
+      )}
+    >
       <div className="flex items-center gap-2 min-w-0">
         {/* Mobile menu trigger — hidden at lg and above, where the sidebar is always visible */}
         <button
