@@ -83,23 +83,18 @@ export function useAcknowledgeOrder() {
   const companyId = useCompanyStore((s) => s.activeCompanyId) ?? "";
 
   return useMutation({
-    mutationFn: ({ purchaseOrderId, payload }: { purchaseOrderId: string; payload?: AcknowledgeOrderPayload }) =>
+    mutationFn: ({ purchaseOrderId, payload }: { purchaseOrderId: string; payload: AcknowledgeOrderPayload }) =>
       acknowledgeOrder(purchaseOrderId, payload),
-    onSuccess: (data, variables) => {
-      // Invalidate only the orders LIST queries — the detail query key shares
-      // the same prefix so a broad invalidate would trigger an unwanted
-      // background refetch of the detail and can cause a render error.
+    onSuccess: (_summary, variables) => {
       queryClient.invalidateQueries({ queryKey: queryKeys.ordersList(companyId) });
-      // Seed the detail cache directly from the mutation response so the UI
-      // updates immediately without a round-trip, IF the backend returned it.
-      if (data?.purchaseOrderId && data?.poNumber && data?.lineItems) {
-        queryClient.setQueryData(queryKeys.order(companyId, data.purchaseOrderId), data);
-      } else {
-        queryClient.invalidateQueries({ queryKey: queryKeys.order(companyId, variables.purchaseOrderId) });
-      }
+      // Acknowledgement returns a summary, not line dates or timeline evidence.
+      queryClient.invalidateQueries({ queryKey: queryKeys.order(companyId, variables.purchaseOrderId), exact: true });
       toast.success("Order acknowledged");
     },
-    onError: () => toast.error("Failed to acknowledge order"),
+    onError: (error) => {
+      const message = (error as { message?: string | string[] })?.message;
+      toast.error((Array.isArray(message) ? message.join(" ") : message) || "Failed to acknowledge order");
+    },
   });
 }
 

@@ -272,6 +272,7 @@ export interface OrderPaymentTermRef {
 }
 
 export interface OrderLineItem {
+  pricingSegments?: { from: string; to: string; unitPrice: string; revision: number }[] | null;
   purchaseOrderLineItemId: string;
   purchaseRequestLineItemId?: string;
   createdAt?: string;
@@ -749,6 +750,7 @@ export interface TimelineEvent {
 }
 
 export interface Order {
+  revisionNumber?: number;
   purchaseOrderId: string;
   createdAt?: string;
   updatedAt?: string;

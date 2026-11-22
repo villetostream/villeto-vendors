@@ -1,5 +1,7 @@
 "use client";
 
+import { PriceChangeRequests } from "@/components/orders/PriceChangeRequests";
+import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import React, { use, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -2031,6 +2033,10 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
   const resolveReceiptException = useResolveReceiptException();
   const acceptFinalDecisionMutation = useAcceptFinalDecision();
 
+  const [view, setView] = useState<"order" | "prices">("order");
+  const [acknowledging, setAcknowledging] = useState(false);
+  const [proposalStart, setProposalStart] = useState(0);
+
   // Per-item promise dates entered before acknowledging
   const [draftDates, setDraftDates] = useState<Record<string, string>>({});
 
@@ -2213,7 +2219,7 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
           promisedDeliveryDate: draftDates[item.purchaseOrderLineItemId],
         })),
       },
-    });
+    }, { onSuccess: () => setAcknowledging(false) });
   };
 
   const handleDeliveryTypeSelect = (type: DeliveryType) => {
@@ -2711,20 +2717,27 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
   const renderCTA = () => {
     const buttons = [];
 
-    // 1. Acknowledge Action
+    // Initial vendor responses share one entry point; a price proposal does not
+    // acknowledge delivery dates or change the normal fulfillment workflow.
     if (order.status === "issued") {
-      buttons.push(
-        <Button
-          key="acknowledge"
-          variant="primary"
-          loading={acknowledge.isPending}
-          disabled={!allDatesEntered}
-          onClick={handleAcknowledge}
-        >
-          <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
-          Acknowledge Order
+      buttons.push(acknowledging ? (
+        <Button key="acknowledge" variant="primary" loading={acknowledge.isPending}
+          disabled={!allDatesEntered} onClick={handleAcknowledge}>
+          <CheckCircle2 className="h-4 w-4" aria-hidden="true" /> Acknowledge order
         </Button>
-      );
+      ) : (
+        <DropdownMenu.Root key="respond">
+          <DropdownMenu.Trigger asChild>
+            <Button variant="primary">Respond to order <ChevronDown className="h-4 w-4" aria-hidden="true" /></Button>
+          </DropdownMenu.Trigger>
+          <DropdownMenu.Portal>
+            <DropdownMenu.Content align="end" className="z-50 min-w-56 rounded-xl border bg-white p-1 shadow-lg">
+              <DropdownMenu.Item className="cursor-pointer rounded-lg px-3 py-2 text-sm outline-none focus:bg-muted" onSelect={() => { setView("order"); setAcknowledging(true); }}>Acknowledge order</DropdownMenu.Item>
+              <DropdownMenu.Item className="cursor-pointer rounded-lg px-3 py-2 text-sm outline-none focus:bg-muted" onSelect={() => { setAcknowledging(false); setView("prices"); setProposalStart(value => value + 1); }}>Request price change</DropdownMenu.Item>
+            </DropdownMenu.Content>
+          </DropdownMenu.Portal>
+        </DropdownMenu.Root>
+      ));
     }
 
     // 2. Fulfill Action (Governed by Strict Incomplete Fulfillment Lock)
@@ -2836,7 +2849,7 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
     return <>{buttons}</>;
   };
 
-  const isEnteringDates = order.status === "issued";
+  const isEnteringDates = order.status === "issued" && acknowledging;
 
   return (
     <div className="space-y-5">
@@ -2880,7 +2893,7 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
               </div>
               <div className="flex items-center gap-2 mt-0.5 flex-wrap">
                 <p className="text-xs text-muted-foreground">
-                  Issued on {formatDate(order.issueDate)}
+                  Issued on {formatDate(order.issueDate)} · Revision {order.revisionNumber ?? 1}
                 </p>
                 {order.fulfillmentState === "backordered" && (
                   <>
@@ -2902,6 +2915,12 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
       </div>
 
       {/* ── Guided Physical Dispatch Banner (Single Primary Dispatch Action, No Duplicate Header Button) ── */}
+      <nav aria-label="Order sections" className="inline-flex rounded-xl border bg-white p-1 gap-1">
+        <button type="button" aria-pressed={view === "order"} className={cn("rounded-lg px-4 py-2 text-sm", view === "order" && "bg-primary text-white")} onClick={() => setView("order")}>Order &amp; delivery</button>
+        <button type="button" aria-pressed={view === "prices"} className={cn("rounded-lg px-4 py-2 text-sm", view === "prices" && "bg-primary text-white")} onClick={() => setView("prices")}>Price changes</button>
+      </nav>
+      {view === "prices" ? <PriceChangeRequests purchaseOrderId={id} acknowledged={order.status !== "issued"} startRequest={proposalStart} /> : <>
+      {order.status === "issued" && !acknowledging && <p className="text-sm text-muted-foreground">Choose Respond to order to confirm delivery dates or request a price change. A price proposal does not acknowledge or pause this order.</p>}
       {awaitingDispatchNotices.length > 0 && order.status !== "cancelled" && (() => {
         const target = awaitingDispatchNotices[0];
         const fId = target.fulfillment.vendorDeliveryNoticeId;
@@ -3844,7 +3863,7 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
                               {formatCurrency(item.lineTotal, order.currency)}
                             </p>
                             <p className="text-[11px] text-muted-foreground">
-                              {formatCurrency(item.unitPrice, order.currency)} / unit
+                              {item.pricingSegments?.length ? item.pricingSegments.map((segment, index) => <span className="block" key={index}>{Number(segment.to) - Number(segment.from)} × {formatCurrency(Number(segment.unitPrice), order.currency)} (revision {segment.revision})</span>) : <>{formatCurrency(item.unitPrice, order.currency)} / unit</>}
                             </p>
                           </div>
                         )}
@@ -3946,7 +3965,7 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
                               <td className="px-6 py-3.5 whitespace-nowrap">
                                 {renderStatusBadge()}
                               </td>
-                              <td className="px-6 py-3.5 text-sm whitespace-nowrap">{formatCurrency(item.unitPrice, order.currency)}</td>
+                              <td className="px-6 py-3.5 text-sm whitespace-nowrap">{item.pricingSegments?.length ? item.pricingSegments.map((segment, index) => <div key={index}>{Number(segment.to) - Number(segment.from)} × {formatCurrency(Number(segment.unitPrice), order.currency)} <span className="text-xs text-muted-foreground">(revision {segment.revision})</span></div>) : formatCurrency(item.unitPrice, order.currency)}</td>
                               <td className="px-6 py-3.5 text-sm font-medium whitespace-nowrap">{formatCurrency(item.lineTotal, order.currency)}</td>
                             </>
                           )}
@@ -4108,6 +4127,8 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
           )}
         </div>
       </div>
+
+      </>}
 
       <FulfillmentModal
         open={fulfillmentModalOpen}
