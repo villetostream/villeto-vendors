@@ -51,12 +51,16 @@ export async function getOrder(purchaseOrderId: string): Promise<Order> {
 
 /**
  * PATCH /vendor-portal/orders/:purchaseOrderId/acknowledge
+ *
+ * Vendor enters a per-item delivery date before acknowledging.
+ * Sends { lineItems: [{ purchaseOrderLineItemId, promisedDeliveryDate }] }.
+ * Returns a compact order summary; fetch detail for persisted dates and timeline.
  */
 export async function acknowledgeOrder(
   purchaseOrderId: string,
-  payload?: AcknowledgeOrderPayload
-): Promise<Order> {
-  const { data } = await apiClient.patch<ApiEnvelope<Order>>(
+  payload: AcknowledgeOrderPayload
+): Promise<OrderListItem> {
+  const { data } = await apiClient.patch<ApiEnvelope<OrderListItem>>(
     `/vendor-portal/orders/${encodeURIComponent(purchaseOrderId)}/acknowledge`,
     payload
   );
