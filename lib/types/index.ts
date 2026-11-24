@@ -271,8 +271,15 @@ export interface OrderPaymentTermRef {
   days: number;
 }
 
+export interface PricingSegment {
+  from: string;
+  to: string;
+  unitPrice: string;
+  revision: number;
+}
+
 export interface OrderLineItem {
-  pricingSegments?: { from: string; to: string; unitPrice: string; revision: number }[] | null;
+  pricingSegments?: PricingSegment[] | null;
   purchaseOrderLineItemId: string;
   purchaseRequestLineItemId?: string;
   createdAt?: string;
@@ -1310,6 +1317,104 @@ export interface ApiError {
   message: string;
   code?: string;
   field?: string;
+}
+
+// ─────────────────────────────────────────────
+// PRICE CHANGE PROPOSALS & NEGOTIATION
+// ─────────────────────────────────────────────
+
+export interface EligiblePriceChangeLine {
+  purchaseOrderLineItemId: string;
+  name: string;
+  eligibleQuantity: string;
+  protectedQuantity: string;
+  orderedQuantity: string;
+  currentPricing: PricingSegment[];
+  activeRequestId: string | null;
+}
+
+export interface PriceChangeEligibility {
+  eligible: boolean;
+  reason?: string | null;
+  revision: number;
+  currency: string;
+  lineItems: EligiblePriceChangeLine[];
+}
+
+export interface PriceProposalItem {
+  purchaseOrderLineItemId: string;
+  quantity: string;
+  proposedUnitPrice: string;
+}
+
+export interface PriceProposalDocument {
+  name: string;
+  url: string;
+}
+
+export interface PriceProposalPayload {
+  idempotencyKey?: string;
+  reason: string;
+  lineItems: PriceProposalItem[];
+  supportingDocuments: PriceProposalDocument[];
+}
+
+export interface PriceComparisonLineItem {
+  purchaseOrderLineItemId: string;
+  name: string;
+  previousAmount: string;
+  proposedAmount: string;
+  quantity: string;
+  proposedUnitPrice: string;
+  pricing: PricingSegment[];
+}
+
+export interface PriceComparison {
+  currency: string;
+  previousTotal: string;
+  totalAmount: string;
+  difference: string;
+  previousTaxAmount: string;
+  taxAmount: string;
+  lineItems: PriceComparisonLineItem[];
+}
+
+export type PriceChangeRequestStatus =
+  | "pending_review"
+  | "returned_for_correction"
+  | "approved_pending_issue"
+  | "approved"
+  | "applied"
+  | "rejected"
+  | "withdrawn"
+  | string;
+
+export interface PriceChangeRequestSummary {
+  priceChangeRequestId: string;
+  status: PriceChangeRequestStatus;
+  difference: string;
+  currency: string;
+  expiresAt: string;
+}
+
+export interface PriceChangeHistoryEntry {
+  action: string;
+  version: number;
+  at: string;
+  reason?: string;
+  proposal?: PriceProposalPayload;
+  comparison?: PriceComparison;
+}
+
+export interface PriceChangeRequestDetail {
+  priceChangeRequestId: string;
+  status: PriceChangeRequestStatus;
+  version: number;
+  basisRevision: number;
+  expiresAt: string;
+  proposal: PriceProposalPayload;
+  comparison: PriceComparison;
+  history: PriceChangeHistoryEntry[];
 }
 
 export * from "./vendor-network";

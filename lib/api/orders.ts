@@ -22,6 +22,11 @@ import {
   OrderLineItem,
   OrderListItem,
   OrderListWithMeta,
+  PriceChangeEligibility,
+  PriceChangeRequestDetail,
+  PriceChangeRequestSummary,
+  PriceComparison,
+  PriceProposalPayload,
   ReceiptEvidenceItem,
 } from "@/lib/types";
 
@@ -219,4 +224,112 @@ export async function uploadReceiptEvidence(
     formData
   );
   return (data as ApiEnvelope<ReceiptEvidenceItem>)?.data ?? (data as ReceiptEvidenceItem);
+}
+
+// ============================================================================
+// PRICE CHANGE PROPOSALS & NEGOTIATION API
+// ============================================================================
+
+const PO_CHANGE_REQUESTS_ROOT = "/vendor-portal/po-change-requests";
+
+/**
+ * GET /vendor-portal/po-change-requests/orders/:purchaseOrderId/eligibility
+ * Checks if line items on this order are eligible for vendor price change proposals.
+ */
+export async function getPriceChangeEligibility(
+  purchaseOrderId: string
+): Promise<PriceChangeEligibility> {
+  const { data } = await apiClient.get<ApiEnvelope<PriceChangeEligibility>>(
+    `${PO_CHANGE_REQUESTS_ROOT}/orders/${encodeURIComponent(purchaseOrderId)}/eligibility`
+  );
+  return data.data;
+}
+
+/**
+ * GET /vendor-portal/po-change-requests?purchaseOrderId=&page=&limit=
+ * Lists price change requests for this order.
+ */
+export async function getPriceChangeRequests(
+  purchaseOrderId: string,
+  page: number = 1,
+  limit: number = 20
+): Promise<{ data: PriceChangeRequestSummary[]; meta: { totalPages: number } }> {
+  const { data } = await apiClient.get<{ data: PriceChangeRequestSummary[]; meta: { totalPages: number } }>(
+    PO_CHANGE_REQUESTS_ROOT,
+    { params: { purchaseOrderId, page, limit } }
+  );
+  return data;
+}
+
+/**
+ * GET /vendor-portal/po-change-requests/:priceChangeRequestId
+ * Retrieves detailed proposal, comparison, and action history for a request.
+ */
+export async function getPriceChangeRequestDetail(
+  priceChangeRequestId: string
+): Promise<PriceChangeRequestDetail> {
+  const { data } = await apiClient.get<ApiEnvelope<PriceChangeRequestDetail>>(
+    `${PO_CHANGE_REQUESTS_ROOT}/${encodeURIComponent(priceChangeRequestId)}`
+  );
+  return data.data;
+}
+
+/**
+ * POST /vendor-portal/po-change-requests/orders/:purchaseOrderId/preview
+ * Recalculates commitment totals, tax, and difference before submission.
+ */
+export async function previewPriceChangeProposal(
+  purchaseOrderId: string,
+  payload: PriceProposalPayload
+): Promise<PriceComparison> {
+  const { data } = await apiClient.post<ApiEnvelope<PriceComparison>>(
+    `${PO_CHANGE_REQUESTS_ROOT}/orders/${encodeURIComponent(purchaseOrderId)}/preview`,
+    payload
+  );
+  return data.data;
+}
+
+/**
+ * POST /vendor-portal/po-change-requests/orders/:purchaseOrderId
+ * Submits a new price change proposal.
+ */
+export async function submitPriceChangeProposal(
+  purchaseOrderId: string,
+  payload: PriceProposalPayload
+): Promise<PriceChangeRequestDetail> {
+  const { data } = await apiClient.post<ApiEnvelope<PriceChangeRequestDetail>>(
+    `${PO_CHANGE_REQUESTS_ROOT}/orders/${encodeURIComponent(purchaseOrderId)}`,
+    payload
+  );
+  return data.data;
+}
+
+/**
+ * POST /vendor-portal/po-change-requests/:priceChangeRequestId/resubmit
+ * Resubmits a proposal that was returned for correction.
+ */
+export async function resubmitPriceChangeProposal(
+  priceChangeRequestId: string,
+  payload: PriceProposalPayload & { expectedVersion: number }
+): Promise<PriceChangeRequestDetail> {
+  const { data } = await apiClient.post<ApiEnvelope<PriceChangeRequestDetail>>(
+    `${PO_CHANGE_REQUESTS_ROOT}/${encodeURIComponent(priceChangeRequestId)}/resubmit`,
+    payload
+  );
+  return data.data;
+}
+
+/**
+ * POST /vendor-portal/po-change-requests/:priceChangeRequestId/withdraw
+ * Withdraws a pending or returned-for-correction proposal.
+ */
+export async function withdrawPriceChangeProposal(
+  priceChangeRequestId: string,
+  payload: { expectedVersion: number }
+): Promise<PriceChangeRequestDetail> {
+  const { data } = await apiClient.post<ApiEnvelope<PriceChangeRequestDetail>>(
+    `${PO_CHANGE_REQUESTS_ROOT}/${encodeURIComponent(priceChangeRequestId)}/withdraw`,
+    payload
+  );
+  return data.data;
 }

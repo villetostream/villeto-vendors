@@ -111,4 +111,12 @@ export const queryKeys = {
     ["vendor-network", "me", "payment-terms", filters, legalEntity] as const,
   v2PaymentTerm: (paymentTermId: string) =>
     ["vendor-network", "me", "payment-terms", paymentTermId] as const,
+  priceChanges: (companyId: string, purchaseOrderId: string) =>
+    ["vendor-portal", "price-changes", companyId, purchaseOrderId] as const,
+  priceChangeEligibility: (companyId: string, purchaseOrderId: string) =>
+    ["vendor-portal", "price-changes", companyId, purchaseOrderId, "eligibility"] as const,
+  priceChangeList: (companyId: string, purchaseOrderId: string, page = 1) =>
+    ["vendor-portal", "price-changes", companyId, purchaseOrderId, "list", page] as const,
+  priceChangeDetail: (companyId: string, purchaseOrderId: string, requestId: string) =>
+    ["vendor-portal", "price-changes", companyId, purchaseOrderId, "detail", requestId] as const,
 };
