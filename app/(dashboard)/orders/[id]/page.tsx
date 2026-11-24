@@ -1,11 +1,36 @@
 "use client";
 
-import { PriceChangeRequests } from "@/components/orders/PriceChangeRequests";
-import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
+import { PriceProposalDrawer } from "@/components/orders/PriceProposalDrawer";
+import { PriceChangeHistorySection } from "@/components/orders/PriceChangeHistorySection";
+import {
+  usePriceChangeRequests,
+  usePriceChangeEligibility,
+  useWithdrawPriceProposal,
+} from "@/lib/hooks/usePriceChanges";
 import React, { use, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, CheckCircle2, ChevronDown, ChevronRight, ChevronUp, ClipboardCheck, FilePlus2, Package, Truck, Send, Monitor, Wrench, AlertCircle, Clock, XCircle, ShieldAlert, FileText, ExternalLink, Lock, Info } from "lucide-react";
+import {
+  ArrowLeft,
+  CheckCircle2,
+  ChevronDown,
+  ChevronRight,
+  ChevronUp,
+  ClipboardCheck,
+  FilePlus2,
+  Package,
+  Truck,
+  Send,
+  Monitor,
+  Wrench,
+  AlertCircle,
+  Clock,
+  XCircle,
+  ShieldAlert,
+  Lock,
+  Info,
+  CircleDollarSign,
+} from "lucide-react";
 import {
   useOrder,
   useAcknowledgeOrder,
@@ -2025,7 +2050,8 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
   const router = useRouter();
 
   const { data: order, isLoading, isError, refetch } = useOrder(id);
-  const { data: receiptExceptions } = useOrderFulfillmentExceptions(id);
+  const poId = order?.purchaseOrderId || id;
+  const { data: receiptExceptions } = useOrderFulfillmentExceptions(poId);
   const acknowledge = useAcknowledgeOrder();
   const readyForDelivery = useMarkReadyForDelivery();
   const createFulfillment = useCreateFulfillment();
@@ -2033,9 +2059,58 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
   const resolveReceiptException = useResolveReceiptException();
   const acceptFinalDecisionMutation = useAcceptFinalDecision();
 
-  const [view, setView] = useState<"order" | "prices">("order");
   const [acknowledging, setAcknowledging] = useState(false);
-  const [proposalStart, setProposalStart] = useState(0);
+  const [priceProposalModalState, setPriceProposalModalState] = useState<{
+    open: boolean;
+    mode: "create" | "view" | "edit";
+    requestId: string | null;
+  }>({
+    open: false,
+    mode: "create",
+    requestId: null,
+  });
+
+  // Price change queries & commercial state invariants
+  const isTerminalOrder = ["closed", "cancelled"].includes(order?.status ?? "");
+  const { data: priceChangeRequestsData } = usePriceChangeRequests(
+    poId,
+    1,
+    !!order && (order.status === "issued" || (order.revisionNumber ?? 1) > 1 || !isTerminalOrder)
+  );
+  const { data: priceEligibility } = usePriceChangeEligibility(
+    poId,
+    !!order && !isTerminalOrder
+  );
+  const withdrawProposalMutation = useWithdrawPriceProposal(poId);
+
+  const activePriceChangeRequest = priceChangeRequestsData?.data?.find((r) =>
+    ["pending_review", "returned_for_correction", "approved_pending_issue"].includes(r.status)
+  );
+  const hasPendingPriceProposal = !!activePriceChangeRequest;
+  const isPreAcknowledgement = order?.status === "issued";
+
+  const hasEligibleLines =
+    priceEligibility?.lineItems
+      ? priceEligibility.lineItems.some(
+          (line) => Number(line.eligibleQuantity) > 0 && !line.activeRequestId
+        )
+      : (order?.lineItems?.some((li) => {
+          const accepted = li.quantityAccepted ?? li.quantityReceived ?? 0;
+          const forfeited = li.quantityForfeited ?? 0;
+          return (li.quantity || 0) - accepted - forfeited > 0;
+        }) ?? false);
+
+  // Workflow 1: Initial price negotiation before order acceptance
+  const canProposeInitialPrice =
+    isPreAcknowledgement && priceEligibility?.eligible !== false && !hasPendingPriceProposal;
+
+  // Workflow 2: Formal commercial amendment for outstanding/backordered quantities after acceptance
+  const canRequestPriceAmendment =
+    !isPreAcknowledgement &&
+    !isTerminalOrder &&
+    priceEligibility?.eligible !== false &&
+    hasEligibleLines &&
+    !hasPendingPriceProposal;
 
   // Per-item promise dates entered before acknowledging
   const [draftDates, setDraftDates] = useState<Record<string, string>>({});
@@ -2717,27 +2792,78 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
   const renderCTA = () => {
     const buttons = [];
 
-    // Initial vendor responses share one entry point; a price proposal does not
-    // acknowledge delivery dates or change the normal fulfillment workflow.
+    // 1. Initial Vendor Response Actions (Pre-acknowledgement only)
     if (order.status === "issued") {
-      buttons.push(acknowledging ? (
-        <Button key="acknowledge" variant="primary" loading={acknowledge.isPending}
-          disabled={!allDatesEntered} onClick={handleAcknowledge}>
-          <CheckCircle2 className="h-4 w-4" aria-hidden="true" /> Acknowledge order
-        </Button>
-      ) : (
-        <DropdownMenu.Root key="respond">
-          <DropdownMenu.Trigger asChild>
-            <Button variant="primary">Respond to order <ChevronDown className="h-4 w-4" aria-hidden="true" /></Button>
-          </DropdownMenu.Trigger>
-          <DropdownMenu.Portal>
-            <DropdownMenu.Content align="end" className="z-50 min-w-56 rounded-xl border bg-white p-1 shadow-lg">
-              <DropdownMenu.Item className="cursor-pointer rounded-lg px-3 py-2 text-sm outline-none focus:bg-muted" onSelect={() => { setView("order"); setAcknowledging(true); }}>Acknowledge order</DropdownMenu.Item>
-              <DropdownMenu.Item className="cursor-pointer rounded-lg px-3 py-2 text-sm outline-none focus:bg-muted" onSelect={() => { setAcknowledging(false); setView("prices"); setProposalStart(value => value + 1); }}>Request price change</DropdownMenu.Item>
-            </DropdownMenu.Content>
-          </DropdownMenu.Portal>
-        </DropdownMenu.Root>
-      ));
+      if (hasPendingPriceProposal) {
+        // Commercial Invariant: Acknowledgement is paused while a price proposal is under review
+        buttons.push(
+          <Button
+            key="view-pending-proposal"
+            variant="outline"
+            onClick={() =>
+              setPriceProposalModalState({
+                open: true,
+                mode: "view",
+                requestId: activePriceChangeRequest.priceChangeRequestId,
+              })
+            }
+          >
+            <Clock className="h-4 w-4 text-amber-600" aria-hidden="true" />
+            View Pending Proposal
+          </Button>
+        );
+      } else if (acknowledging) {
+        // Date entry mode: confirm or cancel
+        buttons.push(
+          <Button
+            key="cancel-ack"
+            variant="ghost"
+            onClick={() => setAcknowledging(false)}
+          >
+            Cancel
+          </Button>,
+          <Button
+            key="confirm-acknowledge"
+            variant="primary"
+            loading={acknowledge.isPending}
+            disabled={!allDatesEntered}
+            onClick={handleAcknowledge}
+          >
+            <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
+            Confirm Acknowledgement
+          </Button>
+        );
+      } else {
+        // Standard issued PO actions
+        buttons.push(
+          <Button
+            key="acknowledge"
+            variant="primary"
+            onClick={() => setAcknowledging(true)}
+          >
+            <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
+            Acknowledge Order
+          </Button>
+        );
+        if (canProposeInitialPrice) {
+          buttons.push(
+            <Button
+              key="propose-price"
+              variant="outline"
+              onClick={() =>
+                setPriceProposalModalState({
+                  open: true,
+                  mode: "create",
+                  requestId: null,
+                })
+              }
+            >
+              <CircleDollarSign className="h-4 w-4" aria-hidden="true" />
+              Request Price Change
+            </Button>
+          );
+        }
+      }
     }
 
     // 2. Fulfill Action (Governed by Strict Incomplete Fulfillment Lock)
@@ -2846,6 +2972,70 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
     // directly below the header already renders the primary CTA "Allocate Remaining (X units)".
     // Omitting it here prevents showing two duplicate green buttons stacked next to each other.
 
+    // 4. Post-acknowledgement Price Amendment Actions (Formal amendment for outstanding quantities)
+    if (!isPreAcknowledgement && !isTerminalOrder) {
+      if (hasPendingPriceProposal) {
+        buttons.push(
+          <Button
+            key="view-pending-amendment"
+            variant="outline"
+            onClick={() =>
+              setPriceProposalModalState({
+                open: true,
+                mode: "view",
+                requestId: activePriceChangeRequest.priceChangeRequestId,
+              })
+            }
+          >
+            <Clock className="h-4 w-4 text-amber-600" aria-hidden="true" />
+            View Pending Amendment
+          </Button>
+        );
+      } else if (canRequestPriceAmendment) {
+        buttons.push(
+          <Button
+            key="request-amendment"
+            variant="outline"
+            onClick={() =>
+              setPriceProposalModalState({
+                open: true,
+                mode: "create",
+                requestId: null,
+              })
+            }
+          >
+            <CircleDollarSign className="h-4 w-4" aria-hidden="true" />
+            Request Price Amendment
+          </Button>
+        );
+      } else if (poQuantities.remaining > 0) {
+        const lockReason =
+          priceEligibility?.reason ||
+          (order.openExceptionCount && order.openExceptionCount > 0
+            ? "Price amendments are locked while open delivery exceptions remain unresolved."
+            : "No line items are currently eligible for price amendments.");
+
+        buttons.push(
+          <Button
+            key="request-amendment-locked"
+            variant="outline"
+            onClick={() =>
+              setPriceProposalModalState({
+                open: true,
+                mode: "create",
+                requestId: null,
+              })
+            }
+            title={lockReason}
+            className="opacity-75 text-xs font-medium border-border/80 bg-muted/40 text-muted-foreground hover:bg-muted"
+          >
+            <Lock className="h-3.5 w-3.5 mr-1.5 text-muted-foreground" aria-hidden="true" />
+            Price Amendment (Locked)
+          </Button>
+        );
+      }
+    }
+
     return <>{buttons}</>;
   };
 
@@ -2914,13 +3104,91 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
         </div>
       </div>
 
+      {/* ── Price Change Proposal / PO Amendment Under Review Banner ── */}
+      {hasPendingPriceProposal && (
+        <div className="p-4 rounded-2xl bg-amber-50/90 border border-amber-200 flex flex-col md:flex-row md:items-center justify-between gap-3 shadow-xs">
+          <div className="flex items-start gap-3">
+            <div className="p-2 rounded-xl bg-amber-100 text-amber-700 shrink-0 mt-0.5">
+              <Clock className="h-5 w-5" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <p className="text-sm font-bold text-amber-950">
+                  {isPreAcknowledgement
+                    ? "Price change proposal is under buyer review"
+                    : "PO price amendment request is under buyer review"}
+                </p>
+                <span className="text-xs px-2.5 py-0.5 rounded-full font-medium bg-amber-200/70 text-amber-900 border border-amber-300">
+                  {activePriceChangeRequest.status.replace(/_/g, " ")}
+                </span>
+              </div>
+              <p className="text-xs text-amber-800 mt-0.5">
+                {isPreAcknowledgement
+                  ? "Order acknowledgement is paused until the proposal is resolved or withdrawn."
+                  : "Goods already delivered and accepted remain protected under original terms. Outstanding backordered quantities will update upon buyer approval and PO reissue."}
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() =>
+                setPriceProposalModalState({
+                  open: true,
+                  mode: "view",
+                  requestId: activePriceChangeRequest.priceChangeRequestId,
+                })
+              }
+            >
+              {isPreAcknowledgement ? "View Proposal" : "View Amendment"}
+            </Button>
+            {["pending_review", "returned_for_correction"].includes(activePriceChangeRequest.status) && (
+              <Button
+                variant="destructive"
+                size="sm"
+                loading={withdrawProposalMutation.isPending}
+                onClick={async () => {
+                  try {
+                    await withdrawProposalMutation.mutateAsync({
+                      requestId: activePriceChangeRequest.priceChangeRequestId,
+                      expectedVersion: 1,
+                    });
+                  } catch {
+                    // Handled in mutation
+                  }
+                }}
+              >
+                Withdraw Request
+              </Button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── Acknowledgement Date Entry Helper Banner ── */}
+      {order.status === "issued" && acknowledging && (
+        <div className="p-4 rounded-2xl bg-primary/5 border border-primary/20 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
+          <div className="flex items-start gap-3">
+            <div className="p-2 rounded-xl bg-primary/10 text-primary shrink-0 mt-0.5">
+              <CheckCircle2 className="h-5 w-5" />
+            </div>
+            <div>
+              <p className="text-sm font-bold text-foreground">
+                Confirming Order Acknowledgement
+              </p>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Please enter your promised delivery date for each line item below, then click Confirm Acknowledgement.
+              </p>
+            </div>
+          </div>
+          <Button variant="ghost" size="sm" onClick={() => setAcknowledging(false)}>
+            Cancel
+          </Button>
+        </div>
+      )}
+
       {/* ── Guided Physical Dispatch Banner (Single Primary Dispatch Action, No Duplicate Header Button) ── */}
-      <nav aria-label="Order sections" className="inline-flex rounded-xl border bg-white p-1 gap-1">
-        <button type="button" aria-pressed={view === "order"} className={cn("rounded-lg px-4 py-2 text-sm", view === "order" && "bg-primary text-white")} onClick={() => setView("order")}>Order &amp; delivery</button>
-        <button type="button" aria-pressed={view === "prices"} className={cn("rounded-lg px-4 py-2 text-sm", view === "prices" && "bg-primary text-white")} onClick={() => setView("prices")}>Price changes</button>
-      </nav>
-      {view === "prices" ? <PriceChangeRequests purchaseOrderId={id} acknowledged={order.status !== "issued"} startRequest={proposalStart} /> : <>
-      {order.status === "issued" && !acknowledging && <p className="text-sm text-muted-foreground">Choose Respond to order to confirm delivery dates or request a price change. A price proposal does not acknowledge or pause this order.</p>}
       {awaitingDispatchNotices.length > 0 && order.status !== "cancelled" && (() => {
         const target = awaitingDispatchNotices[0];
         const fId = target.fulfillment.vendorDeliveryNoticeId;
@@ -3862,9 +4130,24 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
                             <p className="text-sm font-semibold text-foreground">
                               {formatCurrency(item.lineTotal, order.currency)}
                             </p>
-                            <p className="text-[11px] text-muted-foreground">
-                              {item.pricingSegments?.length ? item.pricingSegments.map((segment, index) => <span className="block" key={index}>{Number(segment.to) - Number(segment.from)} × {formatCurrency(Number(segment.unitPrice), order.currency)} (revision {segment.revision})</span>) : <>{formatCurrency(item.unitPrice, order.currency)} / unit</>}
-                            </p>
+                            <div className="text-[11px] text-muted-foreground mt-0.5">
+                              {item.pricingSegments?.length ? (
+                                <div className="space-y-1">
+                                  {item.pricingSegments.map((segment, index) => (
+                                    <div key={index} className="flex items-center justify-end gap-1">
+                                      <span className="font-medium text-foreground">
+                                        {Number(segment.to) - Number(segment.from)} × {formatCurrency(Number(segment.unitPrice), order.currency)}
+                                      </span>
+                                      <span className="px-1 py-0.2 rounded text-[10px] bg-muted text-muted-foreground border border-border">
+                                        Rev {segment.revision}
+                                      </span>
+                                    </div>
+                                  ))}
+                                </div>
+                              ) : (
+                                <>{formatCurrency(item.unitPrice, order.currency)} / unit</>
+                              )}
+                            </div>
                           </div>
                         )}
                       </div>
@@ -3965,7 +4248,24 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
                               <td className="px-6 py-3.5 whitespace-nowrap">
                                 {renderStatusBadge()}
                               </td>
-                              <td className="px-6 py-3.5 text-sm whitespace-nowrap">{item.pricingSegments?.length ? item.pricingSegments.map((segment, index) => <div key={index}>{Number(segment.to) - Number(segment.from)} × {formatCurrency(Number(segment.unitPrice), order.currency)} <span className="text-xs text-muted-foreground">(revision {segment.revision})</span></div>) : formatCurrency(item.unitPrice, order.currency)}</td>
+                              <td className="px-6 py-3.5 text-sm whitespace-nowrap">
+                                {item.pricingSegments?.length ? (
+                                  <div className="space-y-1">
+                                    {item.pricingSegments.map((segment, index) => (
+                                      <div key={index} className="flex items-center gap-1.5 text-xs">
+                                        <span className="font-medium text-foreground">
+                                          {Number(segment.to) - Number(segment.from)} × {formatCurrency(Number(segment.unitPrice), order.currency)}
+                                        </span>
+                                        <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-muted text-muted-foreground border border-border">
+                                          Rev {segment.revision}
+                                        </span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                ) : (
+                                  formatCurrency(item.unitPrice, order.currency)
+                                )}
+                              </td>
                               <td className="px-6 py-3.5 text-sm font-medium whitespace-nowrap">{formatCurrency(item.lineTotal, order.currency)}</td>
                             </>
                           )}
@@ -4128,7 +4428,17 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
         </div>
       </div>
 
-      </>}
+      {/* ── Price Modifications & Revisions History (Shown only when revisions or proposals exist) ── */}
+      <PriceChangeHistorySection
+        order={order}
+        onOpenProposal={(reqId) =>
+          setPriceProposalModalState({
+            open: true,
+            mode: "view",
+            requestId: reqId,
+          })
+        }
+      />
 
       <FulfillmentModal
         open={fulfillmentModalOpen}
@@ -4175,6 +4485,15 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
         initialAction="backorder"
         isSubmitting={acceptFinalDecisionMutation.isPending}
         mode="accept-final-decision"
+      />
+
+      {/* ── Price Proposal Drawer ── */}
+      <PriceProposalDrawer
+        open={priceProposalModalState.open}
+        onClose={() => setPriceProposalModalState((prev) => ({ ...prev, open: false }))}
+        order={order}
+        initialRequestId={priceProposalModalState.requestId}
+        initialMode={priceProposalModalState.mode}
       />
     </div>
   );
