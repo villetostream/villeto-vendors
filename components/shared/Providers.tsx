@@ -105,6 +105,7 @@ function AuthInitializer({ children }: { children: React.ReactNode }) {
         
         // Don't interrupt public flows like invite or signup.
         const isPublicRoute =
+          pathname === "/" ||
           pathname?.startsWith("/invite") ||
           pathname?.startsWith("/signup") ||
           pathname?.startsWith("/auth/login");
